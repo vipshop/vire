@@ -111,4 +111,6 @@ void _log_safe(const char *fmt, ...);
 void _log_stderr_safe(const char *fmt, ...);
 void _log_hexdump(const char *file, int line, char *data, int datalen, const char *fmt, ...);
 
+void write_to_log(char * str, size_t len);
+
 #endif

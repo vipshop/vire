@@ -159,17 +159,47 @@ vr_print_run(struct instance *nci)
     struct utsname name;
 
     status = uname(&name);
-    if (status < 0) {
-        loga("vire-%s started on pid %d", VR_VERSION_STRING, nci->pid);
-    } else {
-        loga("vire-%s built for %s %s %s started on pid %d",
-             VR_VERSION_STRING, name.sysname, name.release, name.machine,
-             nci->pid);
-    }
 
-    loga("run, rabbit run / dig that hole, forget the sun / "
-         "and when at last the work is done / don't sit down / "
-         "it's time to dig another one");
+    if (nci->log_filename) {
+        char *ascii_logo =
+"                _._                                                  \n"
+"           _.-``__ ''-._                                             \n"
+"      _.-``    `.  *_.  ''-._           Vire %s %s bit\n"
+"  .-`` .-```.  ```\-/    _.,_ ''-._                                   \n"
+" (    |      |       .-`    `,    )     Running in %s mode\n"
+" |`-._`-...-` __...-.``-._;'` _.-'|     Port: %d\n"
+" |    `-._   `._    /     _.-'    |     PID: %ld\n"
+"  `-._    `-._  `-./  _.-'    _.-'      OS: %s %s %s\n"
+" |`-._`-._    `-.__.-'    _.-'_.-'|                                  \n"
+" |    `-._`-._        _.-'_.-'    |     https://github.com/vipshop/vire\n"
+"  `-._    `-._`-.__.-'_.-'    _.-'                                   \n"
+" |`-._`-._    `-.__.-'    _.-'_.-'|                                  \n"
+" |    `-._`-._        _.-'_.-'    |                                  \n"
+"  `-._    `-._`-.__.-'_.-'    _.-'                                   \n"
+"      `-._    `-.__.-'    _.-'                                       \n"
+"          `-._        _.-'                                           \n"
+"              `-.__.-'                                               \n\n";
+        char *buf = vr_alloc(1024*16);
+        snprintf(buf,1024*16,ascii_logo,
+            VR_VERSION_STRING,
+            (sizeof(long) == 8) ? "64" : "32",
+            "standalone", server.port,
+            (long) nci->pid,
+            status < 0 ? " ":name.sysname,
+            status < 0 ? " ":name.release,
+            status < 0 ? " ":name.machine);
+        write_to_log(buf, strlen(buf));
+        vr_free(buf);
+    }else {
+        char buf[256];
+        snprintf(buf,256,"Vire %s, %s bit, %s mode, port %d, pid %ld, built for %s %s %s ready to run.\n",
+            VR_VERSION_STRING, (sizeof(long) == 8) ? "64" : "32",
+            "standalone", server.port, (long) nci->pid,
+            status < 0 ? " ":name.sysname,
+            status < 0 ? " ":name.release,
+            status < 0 ? " ":name.machine);
+        write_to_log(buf, strlen(buf));
+    }
 }
 
 static void
@@ -501,8 +531,6 @@ vr_post_run(struct instance *nci)
 static void
 vr_run(struct instance *nci)
 {
-    rstatus_t status;
-
     if (nci->thread_num <= 0) {
         log_error("number of work threads must be greater than 0");
         return;

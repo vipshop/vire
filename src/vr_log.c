@@ -313,3 +313,22 @@ _log_stderr_safe(const char *fmt, ...)
 
     errno = errno_save;
 }
+
+void write_to_log(char * str, size_t len)
+{
+    struct logger *l = &logger;
+    int errno_save;
+    ssize_t n;
+
+    if (l->fd < 0) {
+        return;
+    }
+
+    errno_save = errno;
+    n = vr_write(l->fd, str, len);
+    if (n < 0) {
+        l->nerror++;
+    }
+
+    errno = errno_save;
+}

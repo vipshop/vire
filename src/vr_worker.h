@@ -10,6 +10,8 @@ typedef struct vr_worker {
     list *csul;
     pthread_mutex_t csullock;
 
+    /* This function has some global state in order to continue the work
+     * incrementally across calls. */
     unsigned int current_db;    /* Last DB tested. */
     int timelimit_exit;         /* Time limit hit in previous call? */
     long long last_fast_cycle;  /* When last fast cycle ran. */
