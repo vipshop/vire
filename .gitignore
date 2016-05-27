@@ -25,7 +25,7 @@
 # Logs
 *.log
 
-# Temporary
+# vire
 *.swp
 *.~
 *.project
@@ -33,11 +33,10 @@
 
 # Core and executable
 core*
-nutcracker
-show_twem_stats
+vire
 
-# extracted yaml
-!/contrib/yaml-0.1.4.tar.gz
+# extracted jemalloc
+!/dep/jemalloc-4.0.4.tar.bz2
 
 # Autotools
 .deps
