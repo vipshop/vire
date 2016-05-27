@@ -95,4 +95,10 @@ int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkey
 
 int dispatch_target_db(struct client *c, robj *key);
 
+void tryResizeHashTablesForDb(int dbid);
+int incrementallyRehashForDb(int dbid);
+void activeExpireCycle(vr_worker *worker, int type);
+int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now);
+void databasesCron(vr_worker *worker);
+
 #endif

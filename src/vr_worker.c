@@ -421,7 +421,7 @@ worker_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue(&worker->vel);
 
-    activeExpireCycle(worker, ACTIVE_EXPIRE_CYCLE_SLOW);
+    databasesCron(worker);
 
     worker->vel.cronloops ++;
     return 1000/server.hz;

@@ -2,6 +2,7 @@
 #define _VR_CONF_H_
 
 #define CONFIG_RUN_ID_SIZE 40
+#define CONFIG_DEFAULT_ACTIVE_REHASHING 1
 
 #define CONF_UNSET_NUM      -1
 #define CONF_UNSET_PTR      NULL

@@ -1,20 +1,8 @@
 # vire
 
-**vire** (pronounced "vip-redis") is a multithread redis maintains and used in vipshop.
+**vire** (pronounced "vip-redis") is a multithread redis maintains in vipshop.
 
 ## Build
-
-To build vire from [distribution tarball](https://drive.google.com/open?id=0B6pVMMV5F5dfMUdJV25abllhUWM&authuser=0):
-
-    $ ./configure
-    $ make
-    $ sudo make install
-
-To build vire from [distribution tarball](https://drive.google.com/open?id=0B6pVMMV5F5dfMUdJV25abllhUWM&authuser=0) in _debug mode_:
-
-    $ CFLAGS="-ggdb3 -O0" ./configure --enable-debug=full
-    $ make
-    $ sudo make install
 
 To build vire from source with _debug logs enabled_ and _assertions enabled_:
 

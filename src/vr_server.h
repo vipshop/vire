@@ -76,6 +76,7 @@ struct vr_server {
     dict *orig_commands;        /* Command table before command renaming. */
     
     unsigned lruclock:LRU_BITS; /* Clock for LRU eviction */
+    int activerehashing;        /* Incremental rehash in serverCron() */
 
     char *pidfile;              /* PID file path */
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
@@ -334,8 +335,5 @@ int htNeedsResize(dict *dict);
 
 sds genVireInfoString(char *section);
 void infoCommand(client *c);
-
-void activeExpireCycle(vr_worker *worker, int type);
-int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now);
 
 #endif
