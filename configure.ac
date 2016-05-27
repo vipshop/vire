@@ -213,12 +213,12 @@ AS_IF([test "x$enable_jemalloc" = xyes],
   [])
 AC_MSG_RESULT($enable_jemalloc)
 
-# Untar the jemalloc-4.0.4.tar.bz2 in dep/ before config.status is rerun
-# Run configure in dep/jemalloc-4.0.4
-AC_CONFIG_COMMANDS_PRE([rm -rf dep/jemalloc-4.0.4])
-AC_CONFIG_COMMANDS_PRE([mkdir dep/jemalloc-4.0.4])
-AC_CONFIG_COMMANDS_PRE([tar xvjf dep/jemalloc-4.0.4.tar.bz2 -C dep])
-AC_CONFIG_COMMANDS_PRE([cd dep/jemalloc-4.0.4])
+# Untar the jemalloc-4.2.0.tar.bz2 in dep/ before config.status is rerun
+# Run configure in dep/jemalloc-4.2.0
+AC_CONFIG_COMMANDS_PRE([rm -rf dep/jemalloc-4.2.0])
+AC_CONFIG_COMMANDS_PRE([mkdir dep/jemalloc-4.2.0])
+AC_CONFIG_COMMANDS_PRE([tar xvjf dep/jemalloc-4.2.0.tar.bz2 -C dep])
+AC_CONFIG_COMMANDS_PRE([cd dep/jemalloc-4.2.0])
 AC_CONFIG_COMMANDS_PRE([./configure --with-jemalloc-prefix=je_])
 AC_CONFIG_COMMANDS_PRE([cd ../..])
 

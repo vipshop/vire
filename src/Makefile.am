@@ -6,7 +6,7 @@ AM_CPPFLAGS += -D_GNU_SOURCE
 endif
 AM_CPPFLAGS += -I $(top_srcdir)/src/ae
 AM_CPPFLAGS += -I $(top_srcdir)/src/hashkit
-AM_CPPFLAGS += -I $(top_srcdir)/dep/jemalloc-4.0.4/include
+AM_CPPFLAGS += -I $(top_srcdir)/dep/jemalloc-4.2.0/include
 
 AM_CFLAGS = 
 AM_CFLAGS += -fno-strict-aliasing
@@ -19,7 +19,7 @@ AM_CFLAGS += -Wconversion -Wsign-compare
 AM_CFLAGS += -Wstrict-prototypes -Wmissing-prototypes -Wredundant-decls -Wmissing-declarations
 
 AM_LDFLAGS =
-AM_LDFLAGS += -lm -lpthread -rdynamic
+AM_LDFLAGS += -lm -lpthread -rdynamic -lrt
 if OS_SOLARIS
 AM_LDFLAGS += -lnsl -lsocket
 endif
@@ -79,4 +79,4 @@ vire_SOURCES =							\
 
 vire_LDADD = $(top_builddir)/src/ae/libae.a
 vire_LDADD += $(top_builddir)/src/hashkit/libhashkit.a
-vire_LDADD += $(top_builddir)/dep/jemalloc-4.0.4/lib/libjemalloc.a
+vire_LDADD += $(top_builddir)/dep/jemalloc-4.2.0/lib/libjemalloc.a
