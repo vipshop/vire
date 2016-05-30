@@ -154,9 +154,6 @@ struct instance {
     int             log_level;                   /* log level */
     char            *log_filename;               /* log filename */
     char            *conf_filename;              /* configuration filename */
-    uint16_t        port;                        /* monitoring port */
-    int             interval;                    /* interval */
-    char            *addr;                       /* addr */
     char            hostname[VR_MAXHOSTNAMELEN]; /* hostname */
     size_t          mbuf_chunk_size;             /* mbuf chunk size */
     pid_t           pid;                         /* process id */

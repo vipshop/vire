@@ -36,19 +36,15 @@ static struct option long_options[] = {
     { "version",        no_argument,        NULL,   'V' },
     { "test-conf",      no_argument,        NULL,   't' },
     { "daemonize",      no_argument,        NULL,   'd' },
-    { "describe-stats", no_argument,        NULL,   'D' },
     { "verbose",        required_argument,  NULL,   'v' },
     { "output",         required_argument,  NULL,   'o' },
     { "conf-file",      required_argument,  NULL,   'c' },
-    { "port",           required_argument,  NULL,   's' },
-    { "interval",       required_argument,  NULL,   'i' },
-    { "addr",           required_argument,  NULL,   'a' },
     { "pid-file",       required_argument,  NULL,   'p' },
     { "thread-num",     required_argument,  NULL,   'T' },
     { NULL,             0,                  NULL,    0  }
 };
 
-static char short_options[] = "hVtdDv:o:c:s:i:a:p:m:T:";
+static char short_options[] = "hVtdv:o:c:p:T:";
 
 static rstatus_t
 vr_daemonize(int dump_core)
@@ -212,31 +208,26 @@ static void
 vr_show_usage(void)
 {
     log_stderr(
-        "Usage: vire [-?hVdDt] [-v verbosity level] [-o output file]" CRLF
-        "            [-c conf file] [-s manage port] [-a manage addr]" CRLF
-        "            [-i interval] [-p pid file] [-T worker threads number]" CRLF
+        "Usage: vire [-?hVdt] [-v verbosity level] [-o output file]" CRLF
+        "            [-c conf file] [-p pid file]" CRLF
+        "            [-T worker threads number]" CRLF
         "");
     log_stderr(
         "Options:" CRLF
         "  -h, --help             : this help" CRLF
         "  -V, --version          : show version and exit" CRLF
         "  -t, --test-conf        : test configuration for syntax errors and exit" CRLF
-        "  -d, --daemonize        : run as a daemon" CRLF
-        "  -D, --describe-stats   : print stats description and exit");
+        "  -d, --daemonize        : run as a daemon");
     log_stderr(
         "  -v, --verbose=N        : set logging level (default: %d, min: %d, max: %d)" CRLF
         "  -o, --output=S         : set logging file (default: %s)" CRLF
         "  -c, --conf-file=S      : set configuration file (default: %s)" CRLF
-        "  -s, --port=N           : set manage port (default: %d)" CRLF
-        "  -a, --addr=S           : set manage ip (default: %s)" CRLF
-        "  -i, --interval=N       : set interval in msec (default: %d msec)" CRLF
         "  -p, --pid-file=S       : set pid file (default: %s)" CRLF
         "  -T, --thread_num=N     : set the worker threads number (default: %d)" CRLF
         "",
         VR_LOG_DEFAULT, VR_LOG_MIN, VR_LOG_MAX,
         VR_LOG_PATH != NULL ? VR_LOG_PATH : "stderr",
         VR_CONF_PATH,
-        VR_PORT, VR_ADDR, VR_INTERVAL,
         VR_PID_FILE != NULL ? VR_PID_FILE : "off",
         VR_THREAD_NUM_DEFAULT);
 }
@@ -292,10 +283,6 @@ vr_set_default_options(struct instance *nci)
 
     nci->conf_filename = VR_CONF_PATH;
 
-    nci->port = VR_PORT;
-    nci->addr = VR_ADDR;
-    nci->interval = VR_INTERVAL;
-
     status = vr_gethostname(nci->hostname, VR_MAXHOSTNAMELEN);
     if (status < 0) {
         log_warn("gethostname failed, ignored: %s", strerror(errno));
@@ -342,10 +329,6 @@ vr_get_options(int argc, char **argv, struct instance *nci)
             daemonize = 1;
             break;
 
-        case 'D':
-            show_version = 1;
-            break;
-
         case 'v':
             value = vr_atoi(optarg, strlen(optarg));
             if (value < 0) {
@@ -361,35 +344,6 @@ vr_get_options(int argc, char **argv, struct instance *nci)
 
         case 'c':
             nci->conf_filename = optarg;
-            break;
-
-        case 's':
-            value = vr_atoi(optarg, strlen(optarg));
-            if (value < 0) {
-                log_stderr("vire: option -s requires a number");
-                return VR_ERROR;
-            }
-            if (!vr_valid_port(value)) {
-                log_stderr("vire: option -s value %d is not a valid "
-                           "port", value);
-                return VR_ERROR;
-            }
-
-            nci->port = (uint16_t)value;
-            break;
-
-        case 'i':
-            value = vr_atoi(optarg, strlen(optarg));
-            if (value < 0) {
-                log_stderr("vire: option -i requires a number");
-                return VR_ERROR;
-            }
-
-            nci->interval = value;
-            break;
-
-        case 'a':
-            nci->addr = optarg;
             break;
 
         case 'p':
@@ -415,16 +369,9 @@ vr_get_options(int argc, char **argv, struct instance *nci)
                            optopt);
                 break;
 
-            case 'm':
             case 'v':
-            case 's':
-            case 'i':
             case 'T':
                 log_stderr("vire: option -%c requires a number", optopt);
-                break;
-
-            case 'a':
-                log_stderr("vire: option -%c requires a string", optopt);
                 break;
 
             default:
