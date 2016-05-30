@@ -32,11 +32,25 @@ A quick checklist:
 
 ## Support redis command so far
 
+### Connection
+
 + ping
+
+### Server
+
 + info
+
+### Key
+
++ del
+
+### String
+
 + get
 + set
-+ del
++ setnx
++ setex
++ psetex
 
 ## Help
 
