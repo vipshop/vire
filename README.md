@@ -32,22 +32,18 @@ A quick checklist:
 
 ## Help
 
-    Usage: vire [-?hVdDt] [-v verbosity level] [-o output file]
-                [-c conf file] [-s manage port] [-a manage addr]
-                [-i interval] [-p pid file] [-T worker threads number]
+    Usage: vire [-?hVdt] [-v verbosity level] [-o output file]
+                [-c conf file] [-p pid file]
+                [-T worker threads number]
     
     Options:
     -h, --help             : this help
     -V, --version          : show version and exit
     -t, --test-conf        : test configuration for syntax errors and exit
     -d, --daemonize        : run as a daemon
-    -D, --describe-stats   : print stats description and exit
     -v, --verbose=N        : set logging level (default: 5, min: 0, max: 11)
     -o, --output=S         : set logging file (default: stderr)
     -c, --conf-file=S      : set configuration file (default: conf/vire.conf)
-    -s, --port=N           : set manage port (default: 8889)
-    -a, --addr=S           : set manage ip (default: 0.0.0.0)
-    -i, --interval=N       : set interval in msec (default: 30000 msec)
     -p, --pid-file=S       : set pid file (default: off)
     -T, --thread_num=N     : set the worker threads number (default: 6)
 
