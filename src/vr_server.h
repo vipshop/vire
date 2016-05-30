@@ -335,5 +335,6 @@ int htNeedsResize(dict *dict);
 
 sds genVireInfoString(char *section);
 void infoCommand(client *c);
+void timeCommand(client *c);
 
 #endif

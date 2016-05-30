@@ -57,6 +57,7 @@ A quick checklist:
 
 + info
 + flushall
++ time
 
 #### Key
 
