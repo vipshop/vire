@@ -67,6 +67,7 @@ struct redisCommand redisCommandTable[] = {
     {"ping",pingCommand,-1,"tF",0,NULL,0,0,0,0,0},
     /* Server */
     {"info",infoCommand,-1,"lt",0,NULL,0,0,0,0,0},
+    {"flushall",flushallCommand,1,"w",0,NULL,0,0,0,0,0},
     /* Key */
     {"del",delCommand,-2,"w",0,NULL,1,-1,1,0,0},
     {"exists",existsCommand,-2,"rF",0,NULL,1,-1,1,0,0},

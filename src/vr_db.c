@@ -318,7 +318,7 @@ void flushdbCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-void flushallCommand(client *c) {
+void flushallCommand_original(client *c) {
     signalFlushedDb(-1);
     server.dirty += emptyDb(NULL);
     addReply(c,shared.ok);
@@ -336,7 +336,22 @@ void flushallCommand(client *c) {
     server.dirty++;
 }
 
-void delCommand1(client *c) {
+void flushallCommand(client *c) {
+    int idx;
+    redisDb *db;
+
+    for (idx = 0; idx < server.dbnum; idx ++) {
+        db = array_get(&server.dbs, (uint32_t)idx);
+        pthread_rwlock_wrlock(&db->rwl);
+        dictEmpty(db->dict,NULL);
+        dictEmpty(db->expires,NULL);
+        pthread_rwlock_unlock(&db->rwl);
+    }
+
+    addReply(c,shared.ok);
+}
+
+void delCommand_original(client *c) {
     int deleted = 0, j;
 
     for (j = 1; j < c->argc; j++) {

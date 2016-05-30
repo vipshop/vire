@@ -56,6 +56,7 @@ A quick checklist:
 #### Server
 
 + info
++ flushall
 
 #### Key
 
