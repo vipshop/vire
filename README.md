@@ -32,19 +32,21 @@ A quick checklist:
 
 ## Support redis command so far
 
-### Connection
+#### Connection
 
 + ping
 
-### Server
+#### Server
 
 + info
 
-### Key
+#### Key
 
 + del
++ ttl
++ pttl
 
-### String
+#### String
 
 + get
 + set

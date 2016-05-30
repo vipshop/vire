@@ -1014,7 +1014,7 @@ void pexpireatCommand(client *c) {
     expireGenericCommand(c,0,UNIT_MILLISECONDS);
 }
 
-void ttlGenericCommand(client *c, int output_ms) {
+void ttlGenericCommand1(client *c, int output_ms) {
     long long expire, ttl = -1;
 
     /* If the key does not exist at all, return -2 */
@@ -1032,6 +1032,36 @@ void ttlGenericCommand(client *c, int output_ms) {
     if (ttl == -1) {
         addReplyLongLong(c,-1);
     } else {
+        addReplyLongLong(c,output_ms ? ttl : ((ttl+500)/1000));
+    }
+}
+
+void ttlGenericCommand(client *c, int output_ms) {
+    long long expire, ttl;
+    long long now = vr_msec_now();
+
+    dispatch_target_db(c, c->argv[1]);
+
+    pthread_rwlock_rdlock(&c->db->rwl);
+    /* If the key does not exist at all, return -2 */
+    if (lookupKey(c->db, c->argv[1]) == NULL) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        addReplyLongLong(c,-2);
+        return;
+    }
+    expire = getExpire(c->db,c->argv[1]);
+    pthread_rwlock_unlock(&c->db->rwl);
+    if (expire >= 0 && now > expire) {   
+        addReplyLongLong(c,-2);
+        return;
+    }
+    
+    /* The key exists. Return -1 if it has no expire, or the actual
+     * TTL value otherwise. */
+    if (expire == -1) {
+        addReplyLongLong(c,-1);
+    } else {
+        ttl = expire - now;
         addReplyLongLong(c,output_ms ? ttl : ((ttl+500)/1000));
     }
 }
