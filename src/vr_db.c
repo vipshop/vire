@@ -380,13 +380,36 @@ void delCommand(client *c) {
 
 /* EXISTS key1 key2 ... key_N.
  * Return value is the number of keys existing. */
-void existsCommand(client *c) {
+void existsCommand_original(client *c) {
     long long count = 0;
     int j;
 
     for (j = 1; j < c->argc; j++) {
         expireIfNeeded(c->db,c->argv[j]);
         if (dbExists(c->db,c->argv[j])) count++;
+    }
+    addReplyLongLong(c,count);
+}
+
+/* EXISTS key1 key2 ... key_N.
+ * Return value is the number of keys existing. */
+void existsCommand(client *c) {
+    long long count = 0;
+    long long when;
+    int j;
+
+    for (j = 1; j < c->argc; j++) {
+        dispatch_target_db(c, c->argv[j]);
+        pthread_rwlock_wrlock(&c->db->rwl);
+        if (lookupKey(c->db, c->argv[j]) != NULL) {
+            when = getExpire(c->db,c->argv[j]);
+            if (when >= 0 && vr_msec_now() > when) {
+                dbDelete(c->db, c->argv[j]);
+            } else {
+                count++;
+            }
+        }
+        pthread_rwlock_unlock(&c->db->rwl);
     }
     addReplyLongLong(c,count);
 }

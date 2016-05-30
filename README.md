@@ -60,6 +60,7 @@ A quick checklist:
 #### Key
 
 + del
++ exists
 + ttl
 + pttl
 + expire
