@@ -34,7 +34,7 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given */
 #define OBJ_SET_PX (1<<3)     /* Set if time in ms in given */
 
-void setGenericCommand1(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
+void setGenericCommand_original(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
 
     if (expire) {
@@ -86,7 +86,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     o = lookupKey(c->db, c->argv[1]);
     if (o != NULL) {
         exist = true;
-        when = getExpire(c->db,c->argv[1]);    
+        when = getExpire(c->db,c->argv[1]);
         if (when >= 0 && now > when) {
             dbDelete(c->db, c->argv[1]);
             exist = false;
@@ -99,7 +99,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         pthread_rwlock_unlock(&c->db->rwl);
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
-    }    
+    }
     
     if (exist) {
         dbOverwrite(c->db,key,dupStringObject(val));
@@ -191,7 +191,7 @@ int getGenericCommand(client *c) {
     }
 }
 
-void getCommand1(client *c) {
+void getCommand_original(client *c) {
     getGenericCommand(c);
 }
 

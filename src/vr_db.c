@@ -952,7 +952,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
  *
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
  * the argv[2] parameter. The basetime is always specified in milliseconds. */
-void expireGenericCommand(client *c, long long basetime, int unit) {
+void expireGenericCommand_original(client *c, long long basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
 
@@ -998,6 +998,66 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     }
 }
 
+/*-----------------------------------------------------------------------------
+ * Expires Commands
+ *----------------------------------------------------------------------------*/
+
+/* This is the generic command implementation for EXPIRE, PEXPIRE, EXPIREAT
+ * and PEXPIREAT. Because the commad second argument may be relative or absolute
+ * the "basetime" argument is used to signal what the base time is (either 0
+ * for *AT variants of the command, or the current time for relative expires).
+ *
+ * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
+ * the argv[2] parameter. The basetime is always specified in milliseconds. */
+void expireGenericCommand(client *c, long long basetime, int unit) {
+    robj *key = c->argv[1], *param = c->argv[2];
+    long long when; /* unix time in milliseconds when the key will expire. */
+    long long expire;
+
+    if (getLongLongFromObjectOrReply(c, param, &when, NULL) != VR_OK)
+        return;
+
+    if (unit == UNIT_SECONDS) when *= 1000;
+    when += basetime;
+
+    dispatch_target_db(c, key);
+
+    pthread_rwlock_wrlock(&c->db->rwl);
+    if (lookupKey(c->db, key) != NULL) {
+        expire = getExpire(c->db, key);
+        if (expire >= 0 && vr_msec_now() > expire) {
+            serverAssertWithInfo(c,key,dbDelete(c->db, key));
+            pthread_rwlock_unlock(&c->db->rwl);
+            addReply(c,shared.czero);
+            return;
+        }
+    } else {
+        pthread_rwlock_unlock(&c->db->rwl);
+        addReply(c,shared.czero);
+        return;
+    }
+
+    /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
+     * should never be executed as a DEL when load the AOF or in the context
+     * of a slave instance.
+     *
+     * Instead we take the other branch of the IF statement setting an expire
+     * (possibly in the past) and wait for an explicit DEL from the master. */
+    if (when <= vr_msec_now() && !server.loading && !repl.masterhost) {
+        serverAssertWithInfo(c,key,dbDelete(c->db,key));
+        server.dirty++;
+        pthread_rwlock_unlock(&c->db->rwl);
+        addReply(c, shared.cone);
+        return;
+    } else {
+        setExpire(c->db,key,when);
+        pthread_rwlock_unlock(&c->db->rwl);
+        addReply(c,shared.cone);
+        server.dirty++;
+        return;
+    }
+}
+
 void expireCommand(client *c) {
     expireGenericCommand(c,vr_msec_now(),UNIT_SECONDS);
 }
@@ -1014,7 +1074,7 @@ void pexpireatCommand(client *c) {
     expireGenericCommand(c,0,UNIT_MILLISECONDS);
 }
 
-void ttlGenericCommand1(client *c, int output_ms) {
+void ttlGenericCommand_original(client *c, int output_ms) {
     long long expire, ttl = -1;
 
     /* If the key does not exist at all, return -2 */

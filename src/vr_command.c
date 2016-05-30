@@ -71,6 +71,10 @@ struct redisCommand redisCommandTable[] = {
     {"del",delCommand,-2,"w",0,NULL,1,-1,1,0,0},
     {"ttl",ttlCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"pttl",pttlCommand,2,"rF",0,NULL,1,1,1,0,0},
+    {"expire",expireCommand,3,"wF",0,NULL,1,1,1,0,0},
+    {"expireat",expireatCommand,3,"wF",0,NULL,1,1,1,0,0},
+    {"pexpire",pexpireCommand,3,"wF",0,NULL,1,1,1,0,0},
+    {"pexpireat",pexpireatCommand,3,"wF",0,NULL,1,1,1,0,0},
     /* String */
     {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0},

@@ -66,6 +66,10 @@ A quick checklist:
 + del
 + ttl
 + pttl
++ expire
++ expireat
++ pexpire
++ pexpireat
 
 #### String
 
