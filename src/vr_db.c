@@ -428,7 +428,7 @@ void selectCommand(client *c) {
     }
 }
 
-void randomkeyCommand(client *c) {
+void randomkeyCommand_original(client *c) {
     robj *key;
 
     if ((key = dbRandomKey(c->db)) == NULL) {
@@ -436,6 +436,34 @@ void randomkeyCommand(client *c) {
         return;
     }
 
+    addReplyBulk(c,key);
+    decrRefCount(key);
+}
+
+void randomkeyCommand(client *c) {
+    robj *key;
+    int idx, retry_count = 0;
+
+    idx = random()%server.dbnum;
+
+retry:
+    selectDb(c, idx);
+    pthread_rwlock_rdlock(&c->db->rwl);
+    if ((key = dbRandomKey(c->db)) == NULL) {
+        if (retry_count++ < server.dbnum) {
+            if (++idx >= server.dbnum) {
+                idx = 0;
+            }
+            pthread_rwlock_unlock(&c->db->rwl);
+            goto retry;
+        }
+
+        pthread_rwlock_unlock(&c->db->rwl);
+        addReply(c,shared.nullbulk);
+        return;
+    }
+
+    pthread_rwlock_unlock(&c->db->rwl);
     addReplyBulk(c,key);
     decrRefCount(key);
 }

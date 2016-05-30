@@ -68,6 +68,7 @@ A quick checklist:
 + pexpire
 + pexpireat
 + persist
++ randomkey
 
 #### String
 
