@@ -1134,7 +1134,7 @@ void pttlCommand(client *c) {
     ttlGenericCommand(c, 1);
 }
 
-void persistCommand(client *c) {
+void persistCommand_original(client *c) {
     dictEntry *de;
 
     de = dictFind(c->db->dict,c->argv[1]->ptr);
@@ -1145,6 +1145,28 @@ void persistCommand(client *c) {
             addReply(c,shared.cone);
             server.dirty++;
         } else {
+            addReply(c,shared.czero);
+        }
+    }
+}
+
+void persistCommand(client *c) {
+    dictEntry *de;
+    
+    dispatch_target_db(c, c->argv[1]);
+    pthread_rwlock_wrlock(&c->db->rwl);
+
+    de = dictFind(c->db->dict,c->argv[1]->ptr);
+    if (de == NULL) {        
+        pthread_rwlock_unlock(&c->db->rwl);
+        addReply(c,shared.czero);
+    } else {
+        if (removeExpire(c->db,c->argv[1])) {
+            pthread_rwlock_unlock(&c->db->rwl);
+            addReply(c,shared.cone);
+            server.dirty++;
+        } else {
+            pthread_rwlock_unlock(&c->db->rwl);
             addReply(c,shared.czero);
         }
     }

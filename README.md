@@ -66,6 +66,7 @@ A quick checklist:
 + expireat
 + pexpire
 + pexpireat
++ persist
 
 #### String
 
