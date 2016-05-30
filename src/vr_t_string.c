@@ -381,7 +381,7 @@ void msetnxCommand(client *c) {
     msetGenericCommand(c,1);
 }
 
-void incrDecrCommand(client *c, long long incr) {
+void incrDecrCommand_original(client *c, long long incr) {
     long long value, oldvalue;
     robj *o, *new;
 
@@ -413,6 +413,61 @@ void incrDecrCommand(client *c, long long incr) {
     }
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
+    server.dirty++;
+    addReply(c,shared.colon);
+    addReply(c,new);
+    addReply(c,shared.crlf);
+}
+
+void incrDecrCommand(client *c, long long incr) {
+    long long value, oldvalue;
+    robj *o, *new;
+    long long when;
+
+    dispatch_target_db(c, c->argv[1]);
+
+    pthread_rwlock_wrlock(&c->db->rwl);
+    o = lookupKey(c->db, c->argv[1]);
+    if (o != NULL) {
+        when = getExpire(c->db,c->argv[1]);
+        if (when >= 0 && vr_msec_now() > when) {
+            dbDelete(c->db, c->argv[1]);
+            value = 0;
+        } else if (checkType(c,o,OBJ_STRING)) {
+            pthread_rwlock_unlock(&c->db->rwl);
+            return;
+        } else if (getLongLongFromObjectOrReply(c,o,&value,NULL) != VR_OK) {
+            pthread_rwlock_unlock(&c->db->rwl);
+            return;
+        }
+    } else {
+        value = 0;
+    }
+
+    oldvalue = value;
+    if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
+        (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue))) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        addReplyError(c,"increment or decrement would overflow");
+        return;
+    }
+    value += incr;
+
+    if (o && o->refcount == 1 && o->encoding == OBJ_ENCODING_INT &&
+        (value < 0 || value >= OBJ_SHARED_INTEGERS) &&
+        value >= LONG_MIN && value <= LONG_MAX)
+    {
+        new = o;
+        o->ptr = (void*)((long)value);
+    } else {
+        new = createStringObjectFromLongLong(value);
+        if (o) {
+            dbOverwrite(c->db,c->argv[1],new);
+        } else {
+            dbAdd(c->db,c->argv[1],new);
+        }
+    }
+    pthread_rwlock_unlock(&c->db->rwl);
     server.dirty++;
     addReply(c,shared.colon);
     addReply(c,new);

@@ -52,6 +52,7 @@ A quick checklist:
 #### Connection
 
 + ping
++ quit
 
 #### Server
 
@@ -79,6 +80,10 @@ A quick checklist:
 + setnx
 + setex
 + psetex
++ incr
++ decr
++ incrby
++ decrby
 
 ## License
 

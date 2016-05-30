@@ -69,6 +69,7 @@ struct redisCommand redisCommandTable[] = {
     {"info",infoCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"flushall",flushallCommand,1,"w",0,NULL,0,0,0,0,0},
     {"time",timeCommand,1,"RF",0,NULL,0,0,0,0,0},
+    {"echo",echoCommand,2,"F",0,NULL,0,0,0,0,0},
     /* Key */
     {"del",delCommand,-2,"w",0,NULL,1,-1,1,0,0},
     {"exists",existsCommand,-2,"rF",0,NULL,1,-1,1,0,0},
@@ -85,8 +86,11 @@ struct redisCommand redisCommandTable[] = {
     {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0},
     {"setnx",setnxCommand,3,"wmF",0,NULL,1,1,1,0,0},
     {"setex",setexCommand,4,"wm",0,NULL,1,1,1,0,0},
-    {"psetex",psetexCommand,4,"wm",0,NULL,1,1,1,0,0}
-    
+    {"psetex",psetexCommand,4,"wm",0,NULL,1,1,1,0,0},
+    {"incr",incrCommand,2,"wmF",0,NULL,1,1,1,0,0},
+    {"decr",decrCommand,2,"wmF",0,NULL,1,1,1,0,0},
+    {"incrby",incrbyCommand,3,"wmF",0,NULL,1,1,1,0,0},
+    {"decrby",decrbyCommand,3,"wmF",0,NULL,1,1,1,0,0}
 };
 
 /* Populates the Redis Command Table starting from the hard coded list

@@ -617,6 +617,10 @@ void infoCommand(client *c) {
     addReplyBulkSds(c, genVireInfoString(section));
 }
 
+void echoCommand(client *c) {
+    addReplyBulk(c,c->argv[1]);
+}
+
 void timeCommand(client *c) {
     struct timeval tv;
 
