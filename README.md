@@ -53,6 +53,7 @@ A quick checklist:
 
 + ping
 + quit
++ echo
 
 #### Server
 
