@@ -85,6 +85,7 @@ A quick checklist:
 + decr
 + incrby
 + decrby
++ append
 
 ## License
 

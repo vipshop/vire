@@ -530,7 +530,7 @@ void incrbyfloatCommand(client *c) {
     rewriteClientCommandArgument(c,2,new);
 }
 
-void appendCommand(client *c) {
+void appendCommand_original(client *c) {
     size_t totlen;
     robj *o, *append;
 
@@ -559,6 +559,52 @@ void appendCommand(client *c) {
     }
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"append",c->argv[1],c->db->id);
+    server.dirty++;
+    addReplyLongLong(c,totlen);
+}
+
+void appendCommand(client *c) {
+    size_t totlen;
+    robj *o, *append;
+    long long when;
+
+    dispatch_target_db(c, c->argv[1]);
+
+    pthread_rwlock_wrlock(&c->db->rwl);
+    o = lookupKey(c->db, c->argv[1]);
+    if (o != NULL) {
+        when = getExpire(c->db,c->argv[1]);
+        if (when >= 0 && vr_msec_now() > when) {
+            dbDelete(c->db, c->argv[1]);
+            o = NULL;
+        } else if (checkType(c,o,OBJ_STRING)) {
+            pthread_rwlock_unlock(&c->db->rwl);
+            return;
+        }
+    } 
+
+    if (o == NULL) {
+         /* Create the key */
+        c->argv[2] = tryObjectEncoding(c->argv[2]);
+        dbAdd(c->db,c->argv[1],c->argv[2]);
+        incrRefCount(c->argv[2]);
+        totlen = stringObjectLen(c->argv[2]);
+    } else {
+        /* "append" is an argument, so always an sds */
+        append = c->argv[2];
+        totlen = stringObjectLen(o)+sdslen(append->ptr);
+        if (checkStringLength(c,totlen) != VR_OK) {
+            pthread_rwlock_unlock(&c->db->rwl);
+            return;
+        }
+        
+        /* Append the value */
+        o = dbUnshareStringValue(c->db,c->argv[1],o);
+        o->ptr = sdscatlen(o->ptr,append->ptr,sdslen(append->ptr));
+        totlen = sdslen(o->ptr);
+    }
+    
+    pthread_rwlock_unlock(&c->db->rwl);
     server.dirty++;
     addReplyLongLong(c,totlen);
 }
