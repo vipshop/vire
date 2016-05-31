@@ -330,6 +330,8 @@ init_server(struct instance *nci)
 
     log_debug(LOG_NOTICE, "mem_alloc_lock_type: %s", malloc_lock_type());
     log_debug(LOG_NOTICE, "malloc lib: %s", VR_MALLOC_LIB);
+
+    return VR_OK;
 }
 
 int freeMemoryIfNeeded(void) {
