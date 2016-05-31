@@ -31,7 +31,7 @@ vr_thread_deinit(vr_thread *thread)
 static void *vr_thread_run(void *data)
 {
     vr_thread *thread = data;
-    srand(vr_usec_now()^pthread_self());
+    srand(vr_usec_now()^(int)pthread_self());
     
     thread->fun_run(thread->data);
 }
