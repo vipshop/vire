@@ -609,9 +609,37 @@ void appendCommand(client *c) {
     addReplyLongLong(c,totlen);
 }
 
-void strlenCommand(client *c) {
+void strlenCommand_original(client *c) {
     robj *o;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_STRING)) return;
     addReplyLongLong(c,stringObjectLen(o));
+}
+
+void strlenCommand(client *c) {
+    robj *val;
+    long long when;
+    
+    dispatch_target_db(c, c->argv[1]);
+
+    pthread_rwlock_rdlock(&c->db->rwl);
+    when = getExpire(c->db,c->argv[1]);    
+    if (when >= 0 && vr_msec_now() > when) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        addReply(c, shared.czero);
+        return;
+    }
+    
+    val = lookupKey(c->db, c->argv[1]);
+    if (val == NULL) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        addReply(c, shared.czero);
+        return;
+    } else if (checkType(c,val,OBJ_STRING)) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        return;
+    }
+
+    addReplyLongLong(c,stringObjectLen(val));
+    pthread_rwlock_unlock(&c->db->rwl);
 }

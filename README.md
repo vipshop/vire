@@ -86,6 +86,7 @@ A quick checklist:
 + incrby
 + decrby
 + append
++ strlen
 
 ## License
 
