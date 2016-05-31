@@ -19,7 +19,10 @@ AM_CFLAGS += -Wconversion -Wsign-compare
 AM_CFLAGS += -Wstrict-prototypes -Wmissing-prototypes -Wredundant-decls -Wmissing-declarations
 
 AM_LDFLAGS =
-AM_LDFLAGS += -lm -lpthread -rdynamic -lrt
+AM_LDFLAGS += -lm -lpthread -rdynamic
+if !OS_DARWIN
+AM_LDFLAGS += -lrt
+endif
 if OS_SOLARIS
 AM_LDFLAGS += -lnsl -lsocket
 endif

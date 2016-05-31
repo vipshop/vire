@@ -179,6 +179,7 @@ vr_set_tcpkeepalive(int sd, int keepidle, int keepinterval, int keepcount)
         return VR_ERROR;
     }
     
+#ifdef SOL_TCP
     if (keepidle > 0) {
         len = sizeof(keepidle);
         status = setsockopt(sd, SOL_TCP, TCP_KEEPIDLE, &keepidle, len);
@@ -205,6 +206,7 @@ vr_set_tcpkeepalive(int sd, int keepidle, int keepinterval, int keepcount)
             return VR_ERROR;
         }
     }
+#endif
 
     return VR_OK;
 }

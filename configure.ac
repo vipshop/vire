@@ -159,6 +159,7 @@ AM_CONDITIONAL([OS_LINUX], [test "x$ac_cv_epoll_works" = "xyes"])
 AM_CONDITIONAL([OS_BSD], [test "x$ac_cv_kqueue_works" = "xyes"])
 AM_CONDITIONAL([OS_SOLARIS], [test "x$ac_cv_evports_works" = "xyes"])
 AM_CONDITIONAL([OS_FREEBSD], [test "$(uname -v | cut -c 1-10)" == "FreeBSD 10"])
+AM_CONDITIONAL([OS_DARWIN], [test "$(uname -v | cut -c 1-6)" == "Darwin"])
 
 # Package options
 AC_MSG_CHECKING([whether to enable debug logs and asserts])
