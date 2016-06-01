@@ -3,7 +3,8 @@
 /* Which thread we assigned a connection to most recently. */
 static int last_worker_thread = -1;
 static int num_worker_threads;
-static struct array workers;
+
+struct array workers;
 
 static void *worker_thread_run(void *args);
 
@@ -273,6 +274,11 @@ thread_event_process(aeEventLoop *el, int fd, void *privdata, int mask) {
     
         log_debug(LOG_DEBUG, "accepted c %d from '%s'", 
             conn->sd, vr_unresolve_peer_desc(conn->sd));
+
+        pthread_spin_lock(&worker->vel.stats->statslock);
+        c->vel->stats->numconnections++;
+        pthread_spin_unlock(&worker->vel.stats->statslock);
+        
         break;
     default:
         log_error("read error char '%c' for worker(id:%d) socketpairs[1](%d)", 

@@ -76,6 +76,8 @@ vr_eventloop_init(vr_eventloop *vel)
         return VR_ENOMEM;
     }
 
+    vr_stats_init(vel->stats);
+
     return VR_OK;
 }
 
@@ -132,6 +134,7 @@ vr_eventloop_deinit(vr_eventloop *vel)
     }
 
     if (vel->stats != NULL) {
+        vr_stats_deinit(vel->stats);
         vr_free(vel->stats);
         vel->stats = NULL;
     }

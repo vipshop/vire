@@ -17,6 +17,8 @@ typedef struct vr_worker {
     long long last_fast_cycle;  /* When last fast cycle ran. */
 }vr_worker;
 
+extern struct array workers;
+
 int workers_init(uint32_t worker_count);
 int workers_run(void);
 int workers_wait(void);

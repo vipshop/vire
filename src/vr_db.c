@@ -368,7 +368,7 @@ void delCommand_original(client *c) {
 }
 
 void delCommand(client *c) {
-    int deleted = 0, j;
+    int deleted = 0, expired = 0, j;
     long long when, now = vr_msec_now();
     robj *o;
 
@@ -382,6 +382,7 @@ void delCommand(client *c) {
             if (when >= 0 && now > when) {
                 dbDelete(c->db, c->argv[1]);
                 pthread_rwlock_unlock(&c->db->rwl);
+                expired ++;
                 continue;
             }
             if (dbDelete(c->db,c->argv[j])) {
@@ -391,6 +392,12 @@ void delCommand(client *c) {
         pthread_rwlock_unlock(&c->db->rwl);
     }
     addReplyLongLong(c,deleted);
+
+    if (expired > 0) {
+        pthread_spin_lock(&c->vel->stats->statslock);
+        c->vel->stats->expiredkeys += expired;
+        pthread_spin_unlock(&c->vel->stats->statslock);
+    }
 }
 
 /* EXISTS key1 key2 ... key_N.
@@ -409,7 +416,7 @@ void existsCommand_original(client *c) {
 /* EXISTS key1 key2 ... key_N.
  * Return value is the number of keys existing. */
 void existsCommand(client *c) {
-    long long count = 0;
+    long long count = 0, expired = 0;
     long long when;
     int j;
 
@@ -420,6 +427,7 @@ void existsCommand(client *c) {
             when = getExpire(c->db,c->argv[j]);
             if (when >= 0 && vr_msec_now() > when) {
                 dbDelete(c->db, c->argv[j]);
+                expired ++;
             } else {
                 count++;
             }
@@ -427,6 +435,12 @@ void existsCommand(client *c) {
         pthread_rwlock_unlock(&c->db->rwl);
     }
     addReplyLongLong(c,count);
+
+    if (expired > 0) {
+        pthread_spin_lock(&c->vel->stats->statslock);
+        c->vel->stats->expiredkeys += expired;
+        pthread_spin_unlock(&c->vel->stats->statslock);
+    }
 }
 
 void selectCommand(client *c) {
@@ -1095,6 +1109,10 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
             serverAssertWithInfo(c,key,dbDelete(c->db, key));
             pthread_rwlock_unlock(&c->db->rwl);
             addReply(c,shared.czero);
+            
+            pthread_spin_lock(&c->vel->stats->statslock);
+            c->vel->stats->expiredkeys ++;
+            pthread_spin_unlock(&c->vel->stats->statslock);
             return;
         }
     } else {
@@ -1490,6 +1508,7 @@ void activeExpireCycle(vr_worker *worker, int type) {
     int j, iteration = 0;
     int dbs_per_call = CRON_DBS_PER_CALL;
     long long start = vr_usec_now(), timelimit;
+    long long expired_total = 0;
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
         /* Don't start a fast cycle if the previous cycle did not exited
@@ -1574,6 +1593,8 @@ void activeExpireCycle(vr_worker *worker, int type) {
                 }
             }
 
+            expired_total += expired;
+
             /* Update the average TTL stats for this database. */
             if (ttl_samples) {
                 long long avg_ttl = ttl_sum/ttl_samples;
@@ -1597,12 +1618,24 @@ void activeExpireCycle(vr_worker *worker, int type) {
             }
             if (worker->timelimit_exit) {
                 pthread_rwlock_unlock(&db->rwl);
+
+                if (expired_total > 0) {
+                    pthread_spin_lock(&worker->vel.stats->statslock);
+                    worker->vel.stats->expiredkeys += expired_total;
+                    pthread_spin_unlock(&worker->vel.stats->statslock);
+                }
                 return;
             }
             /* We don't repeat the cycle if there are less than 25% of keys
              * found expired in the current DB. */
         } while (expired > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP/4);
         pthread_rwlock_unlock(&db->rwl);
+    }
+
+    if (expired_total > 0) {
+        pthread_spin_lock(&worker->vel.stats->statslock);
+        worker->vel.stats->expiredkeys += expired_total;
+        pthread_spin_unlock(&worker->vel.stats->statslock);
     }
 }
 

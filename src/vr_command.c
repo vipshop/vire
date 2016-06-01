@@ -307,7 +307,9 @@ void call(client *c, int flags) {
         }
         redisOpArrayFree(&server.also_propagate);
     }
+    pthread_spin_lock(&c->vel->stats->statslock);
     c->vel->stats->numcommands++;
+    pthread_spin_unlock(&c->vel->stats->statslock);
 }
 
 /* If this function gets called we already read a whole

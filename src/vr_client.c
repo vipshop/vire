@@ -796,7 +796,9 @@ int writeToClient(int fd, client *c, int handler_installed) {
          *
          * However if we are over the maxmemory limit we ignore that and
          * just deliver as much data as it is possible to deliver. */
+        pthread_spin_lock(&c->vel->stats->statslock);
         c->vel->stats->net_output_bytes += totwritten;
+        pthread_spin_unlock(&c->vel->stats->statslock);
         if (totwritten > NET_MAX_WRITES_PER_EVENT &&
             (server.maxmemory == 0 ||
              vr_alloc_used_memory() < server.maxmemory)) break;
@@ -1189,7 +1191,9 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     sdsIncrLen(c->querybuf,nread);
     c->lastinteraction = c->vel->unixtime;
     if (c->flags & CLIENT_MASTER) c->reploff += nread;
+    pthread_spin_lock(&c->vel->stats->statslock);
     c->vel->stats->net_input_bytes += nread;
+    pthread_spin_unlock(&c->vel->stats->statslock);
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 

@@ -547,6 +547,49 @@ sds genVireInfoString(char *section) {
             );
     }
 
+    /* Stats */
+    if (allsections || defsections || !strcasecmp(section,"stats")) {
+        uint32_t idx;
+        vr_worker *worker;
+        vr_stats *stats;
+        long long stat_numconnections=0, stat_numcommands=0;
+        long long stat_net_input_bytes=0, stat_net_output_bytes=0;
+        long long stat_rejected_conn=0;
+        long long stat_expiredkeys=0;
+
+        for (idx = 0; idx < array_n(&workers); idx ++) {
+            worker = array_get(&workers, idx);
+            stats = worker->vel.stats;
+            pthread_spin_lock(&stats->statslock);
+            stat_numcommands += stats->numcommands;
+            stat_numconnections += stats->numconnections;
+            stat_expiredkeys += stats->expiredkeys;
+            stat_net_input_bytes += stats->net_input_bytes;
+            stat_net_output_bytes += stats->net_output_bytes;
+            pthread_spin_unlock(&stats->statslock);
+        }
+
+        pthread_spin_lock(&master.vel.stats->statslock);
+        stat_rejected_conn = master.vel.stats->rejected_conn;
+        pthread_spin_unlock(&master.vel.stats->statslock);
+        
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+            "# Stats\r\n"
+            "total_connections_received:%lld\r\n"
+            "total_commands_processed:%lld\r\n"
+            "total_net_input_bytes:%lld\r\n"
+            "total_net_output_bytes:%lld\r\n"
+            "rejected_connections:%lld\r\n"
+            "expired_keys:%lld\r\n",
+            stat_numconnections,
+            stat_numcommands,
+            stat_net_input_bytes,
+            stat_net_output_bytes,
+            stat_rejected_conn,
+            stat_expiredkeys);
+    }
+
     /* CPU */
     if (allsections || defsections || !strcasecmp(section,"cpu")) {
         if (sections++) info = sdscat(info,"\r\n");

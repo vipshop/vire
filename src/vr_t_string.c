@@ -68,6 +68,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     long long when, now;
     robj *o;
     bool exist = false;
+    int expired = 0;
 
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != VR_OK)
@@ -90,6 +91,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (when >= 0 && now > when) {
             dbDelete(c->db, c->argv[1]);
             exist = false;
+            expired ++;
         } else if (flags & OBJ_SET_NX) {
             pthread_rwlock_unlock(&c->db->rwl);
             addReply(c, abort_reply ? abort_reply : shared.nullbulk);
@@ -111,6 +113,12 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     if (expire) setExpire(c->db,key,now+milliseconds);
     pthread_rwlock_unlock(&c->db->rwl);
     addReply(c, ok_reply ? ok_reply : shared.ok);
+
+    if (expired > 0) {
+        pthread_spin_lock(&c->vel->stats->statslock);
+        c->vel->stats->expiredkeys += expired;
+        pthread_spin_unlock(&c->vel->stats->statslock);
+    }
 }
 
 /* SET key value [NX] [XX] [EX <seconds>] [PX <milliseconds>] */
@@ -423,6 +431,7 @@ void incrDecrCommand(client *c, long long incr) {
     long long value, oldvalue;
     robj *o, *new;
     long long when;
+    int expired = 0;
 
     dispatch_target_db(c, c->argv[1]);
 
@@ -433,6 +442,7 @@ void incrDecrCommand(client *c, long long incr) {
         if (when >= 0 && vr_msec_now() > when) {
             dbDelete(c->db, c->argv[1]);
             value = 0;
+            expired ++;
         } else if (checkType(c,o,OBJ_STRING)) {
             pthread_rwlock_unlock(&c->db->rwl);
             return;
@@ -449,6 +459,12 @@ void incrDecrCommand(client *c, long long incr) {
         (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue))) {
         pthread_rwlock_unlock(&c->db->rwl);
         addReplyError(c,"increment or decrement would overflow");
+
+        if (expired > 0) {
+            pthread_spin_lock(&c->vel->stats->statslock);
+            c->vel->stats->expiredkeys += expired;
+            pthread_spin_unlock(&c->vel->stats->statslock);
+        }
         return;
     }
     value += incr;
@@ -472,6 +488,12 @@ void incrDecrCommand(client *c, long long incr) {
     addReply(c,shared.colon);
     addReply(c,new);
     addReply(c,shared.crlf);
+
+    if (expired > 0) {
+        pthread_spin_lock(&c->vel->stats->statslock);
+        c->vel->stats->expiredkeys += expired;
+        pthread_spin_unlock(&c->vel->stats->statslock);
+    }
 }
 
 void incrCommand(client *c) {
@@ -567,6 +589,7 @@ void appendCommand(client *c) {
     size_t totlen;
     robj *o, *append;
     long long when;
+    int expired = 0;
 
     dispatch_target_db(c, c->argv[1]);
 
@@ -577,6 +600,7 @@ void appendCommand(client *c) {
         if (when >= 0 && vr_msec_now() > when) {
             dbDelete(c->db, c->argv[1]);
             o = NULL;
+            expired ++;
         } else if (checkType(c,o,OBJ_STRING)) {
             pthread_rwlock_unlock(&c->db->rwl);
             return;
@@ -595,6 +619,12 @@ void appendCommand(client *c) {
         totlen = stringObjectLen(o)+sdslen(append->ptr);
         if (checkStringLength(c,totlen) != VR_OK) {
             pthread_rwlock_unlock(&c->db->rwl);
+
+            if (expired > 0) {
+                pthread_spin_lock(&c->vel->stats->statslock);
+                c->vel->stats->expiredkeys += expired;
+                pthread_spin_unlock(&c->vel->stats->statslock);
+            }
             return;
         }
         
@@ -607,6 +637,12 @@ void appendCommand(client *c) {
     pthread_rwlock_unlock(&c->db->rwl);
     server.dirty++;
     addReplyLongLong(c,totlen);
+
+    if (expired > 0) {
+        pthread_spin_lock(&c->vel->stats->statslock);
+        c->vel->stats->expiredkeys += expired;
+        pthread_spin_unlock(&c->vel->stats->statslock);
+    }
 }
 
 void strlenCommand_original(client *c) {
