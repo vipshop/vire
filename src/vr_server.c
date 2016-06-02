@@ -310,6 +310,15 @@ init_server(struct instance *nci)
     server.rdb_child_pid = -1;
     server.aof_child_pid = -1;
 
+    server.hash_max_ziplist_entries = OBJ_HASH_MAX_ZIPLIST_ENTRIES;
+    server.hash_max_ziplist_value = OBJ_HASH_MAX_ZIPLIST_VALUE;
+    server.list_max_ziplist_size = OBJ_LIST_MAX_ZIPLIST_SIZE;
+    server.list_compress_depth = OBJ_LIST_COMPRESS_DEPTH;
+    server.set_max_intset_entries = OBJ_SET_MAX_INTSET_ENTRIES;
+    server.zset_max_ziplist_entries = OBJ_ZSET_MAX_ZIPLIST_ENTRIES;
+    server.zset_max_ziplist_value = OBJ_ZSET_MAX_ZIPLIST_VALUE;
+    server.hll_sparse_max_bytes = CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES;
+
     vr_replication_init();
     
     createSharedObjects();

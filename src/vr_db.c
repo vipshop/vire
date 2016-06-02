@@ -89,7 +89,7 @@ robj *lookupKey(redisDb *db, robj *key) {
     }
 }
 
-robj *lookupKeyRead(redisDb *db, robj *key) {
+robj *lookupKeyRead_original(redisDb *db, robj *key) {
     robj *val;
 
     if (expireIfNeeded(db,key) == 1) {
@@ -124,6 +124,17 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
     else
         server.stat_keyspace_hits++;*/
     return val;
+}
+
+robj *lookupKeyRead(redisDb *db, robj *key) {
+    long long when;
+
+    when = getExpire(db,key);
+    if (when > 0 && vr_msec_now() > when) {
+        return NULL;
+    }
+    
+    return lookupKey(db,key);
 }
 
 robj *lookupKeyWrite(redisDb *db, robj *key) {

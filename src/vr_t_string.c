@@ -183,7 +183,7 @@ void psetexCommand(client *c) {
 
 int getGenericCommand(client *c) {
     robj *o;
-    dispatch_target_db(c, c->argv[1]);
+    
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL) {
         return VR_OK;
     }
@@ -215,6 +215,12 @@ void getCommand(client *c) {
             pthread_rwlock_unlock(&c->db->rwl);
             addReply(c, shared.nullbulk);
             update_stats_add(c->vel->stats, keyspace_misses, 1);
+            return;
+        }
+
+        if (checkType(c,val,OBJ_STRING)) {
+            pthread_rwlock_unlock(&c->db->rwl);
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
             return;
         }
         
