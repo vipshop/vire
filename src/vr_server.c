@@ -556,22 +556,39 @@ sds genVireInfoString(char *section) {
         long long stat_net_input_bytes=0, stat_net_output_bytes=0;
         long long stat_rejected_conn=0;
         long long stat_expiredkeys=0;
+        long long stat_keyspace_hits=0, stat_keyspace_misses=0;
 
         for (idx = 0; idx < array_n(&workers); idx ++) {
             worker = array_get(&workers, idx);
             stats = worker->vel.stats;
+#if (defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)) && defined(STATS_ATOMIC_FIRST)
+            stat_numcommands += update_stats_add(stats, numcommands, 0);
+            stat_numconnections += update_stats_add(stats, numconnections, 0);
+            stat_expiredkeys += update_stats_add(stats, expiredkeys, 0);
+            stat_net_input_bytes += update_stats_add(stats, net_input_bytes, 0);
+            stat_net_output_bytes += update_stats_add(stats, net_output_bytes, 0);
+            stat_keyspace_hits += update_stats_add(stats, keyspace_hits, 0);
+            stat_keyspace_misses += update_stats_add(stats, keyspace_misses, 0);
+#else
             pthread_spin_lock(&stats->statslock);
             stat_numcommands += stats->numcommands;
             stat_numconnections += stats->numconnections;
             stat_expiredkeys += stats->expiredkeys;
             stat_net_input_bytes += stats->net_input_bytes;
             stat_net_output_bytes += stats->net_output_bytes;
+            stat_keyspace_hits += stats->keyspace_hits;
+            stat_keyspace_misses += stats->keyspace_misses;
             pthread_spin_unlock(&stats->statslock);
+#endif
         }
 
+#if (defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)) && defined(STATS_ATOMIC_FIRST)
+        stat_rejected_conn += update_stats_add(master.vel.stats, rejected_conn, 0);
+#else
         pthread_spin_lock(&master.vel.stats->statslock);
         stat_rejected_conn = master.vel.stats->rejected_conn;
         pthread_spin_unlock(&master.vel.stats->statslock);
+#endif
         
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
@@ -581,13 +598,17 @@ sds genVireInfoString(char *section) {
             "total_net_input_bytes:%lld\r\n"
             "total_net_output_bytes:%lld\r\n"
             "rejected_connections:%lld\r\n"
-            "expired_keys:%lld\r\n",
+            "expired_keys:%lld\r\n"
+            "keyspace_hits:%lld\r\n"
+            "keyspace_misses:%lld\r\n",
             stat_numconnections,
             stat_numcommands,
             stat_net_input_bytes,
             stat_net_output_bytes,
             stat_rejected_conn,
-            stat_expiredkeys);
+            stat_expiredkeys,
+            stat_keyspace_hits,
+            stat_keyspace_misses);
     }
 
     /* CPU */

@@ -275,9 +275,7 @@ thread_event_process(aeEventLoop *el, int fd, void *privdata, int mask) {
         log_debug(LOG_DEBUG, "accepted c %d from '%s'", 
             conn->sd, vr_unresolve_peer_desc(conn->sd));
 
-        pthread_spin_lock(&worker->vel.stats->statslock);
-        c->vel->stats->numconnections++;
-        pthread_spin_unlock(&worker->vel.stats->statslock);
+        update_stats_add(c->vel->stats, numconnections, 1);
         
         break;
     default:

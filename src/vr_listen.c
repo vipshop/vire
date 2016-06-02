@@ -248,9 +248,7 @@ vr_listen_accept(vr_listen *vlisten)
             log_error("close c %d failed, ignored: %s", sd, strerror(errno));
         }
 
-        pthread_spin_lock(&master.vel.stats->statslock);
-        master.vel.stats->rejected_conn++;
-        pthread_spin_unlock(&master.vel.stats->statslock);
+        update_stats_add(master.vel.stats, rejected_conn, 1);
         
         return -1;
     }

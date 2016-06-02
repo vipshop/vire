@@ -115,9 +115,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     addReply(c, ok_reply ? ok_reply : shared.ok);
 
     if (expired > 0) {
-        pthread_spin_lock(&c->vel->stats->statslock);
-        c->vel->stats->expiredkeys += expired;
-        pthread_spin_unlock(&c->vel->stats->statslock);
+        update_stats_add(c->vel->stats, expiredkeys, expired);
     }
 }
 
@@ -205,26 +203,28 @@ void getCommand_original(client *c) {
 
 void getCommand(client *c) {
     robj *val;
-    long long when, now = vr_msec_now();
+    long long when;
     
     dispatch_target_db(c, c->argv[1]);
 
     pthread_rwlock_rdlock(&c->db->rwl);
-    when = getExpire(c->db,c->argv[1]);    
-    if (when >= 0 && now > when) {
+    when = getExpire(c->db,c->argv[1]);
+    if (when >= 0 && vr_msec_now() > when) {
         pthread_rwlock_unlock(&c->db->rwl);
         addReply(c, shared.nullbulk);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     }
     
     val = lookupKey(c->db, c->argv[1]);
-    if (val) {
+    if (val != NULL) {
         addReplyBulk(c, val);
         pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
     } else {
         pthread_rwlock_unlock(&c->db->rwl);
         addReply(c, shared.nullbulk);
-        return;
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
     }
 }
 
@@ -461,9 +461,7 @@ void incrDecrCommand(client *c, long long incr) {
         addReplyError(c,"increment or decrement would overflow");
 
         if (expired > 0) {
-            pthread_spin_lock(&c->vel->stats->statslock);
-            c->vel->stats->expiredkeys += expired;
-            pthread_spin_unlock(&c->vel->stats->statslock);
+            update_stats_add(c->vel->stats, expiredkeys, expired);
         }
         return;
     }
@@ -490,9 +488,7 @@ void incrDecrCommand(client *c, long long incr) {
     addReply(c,shared.crlf);
 
     if (expired > 0) {
-        pthread_spin_lock(&c->vel->stats->statslock);
-        c->vel->stats->expiredkeys += expired;
-        pthread_spin_unlock(&c->vel->stats->statslock);
+        update_stats_add(c->vel->stats, expiredkeys, expired);
     }
 }
 
@@ -621,9 +617,7 @@ void appendCommand(client *c) {
             pthread_rwlock_unlock(&c->db->rwl);
 
             if (expired > 0) {
-                pthread_spin_lock(&c->vel->stats->statslock);
-                c->vel->stats->expiredkeys += expired;
-                pthread_spin_unlock(&c->vel->stats->statslock);
+                update_stats_add(c->vel->stats, expiredkeys, expired);
             }
             return;
         }
@@ -639,9 +633,7 @@ void appendCommand(client *c) {
     addReplyLongLong(c,totlen);
 
     if (expired > 0) {
-        pthread_spin_lock(&c->vel->stats->statslock);
-        c->vel->stats->expiredkeys += expired;
-        pthread_spin_unlock(&c->vel->stats->statslock);
+        update_stats_add(c->vel->stats, expiredkeys, expired);
     }
 }
 
@@ -663,6 +655,7 @@ void strlenCommand(client *c) {
     if (when >= 0 && vr_msec_now() > when) {
         pthread_rwlock_unlock(&c->db->rwl);
         addReply(c, shared.czero);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     }
     
@@ -670,12 +663,15 @@ void strlenCommand(client *c) {
     if (val == NULL) {
         pthread_rwlock_unlock(&c->db->rwl);
         addReply(c, shared.czero);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     } else if (checkType(c,val,OBJ_STRING)) {
         pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
         return;
     }
 
     addReplyLongLong(c,stringObjectLen(val));
     pthread_rwlock_unlock(&c->db->rwl);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }

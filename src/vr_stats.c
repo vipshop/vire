@@ -22,11 +22,15 @@ vr_stats_init(vr_stats *stats)
     stats->sync_partial_err = 0;
     stats->net_input_bytes = 0;
     stats->net_output_bytes = 0;
-
+    
+#if !defined(STATS_ATOMIC_FIRST) || (!defined(__ATOMIC_RELAXED) && !defined(HAVE_ATOMIC))
     ret = pthread_spin_init(&stats->statslock, 0);
     if (ret != 0) {
         return VR_ERROR;
     }
+#endif
+
+    stats->starttime = time(NULL);
 
     return VR_OK;
 }
@@ -51,6 +55,8 @@ vr_stats_deinit(vr_stats *stats)
     stats->sync_partial_err = 0;
     stats->net_input_bytes = 0;
     stats->net_output_bytes = 0;
-
+    
+#if !defined(STATS_ATOMIC_FIRST) || (!defined(__ATOMIC_RELAXED) && !defined(HAVE_ATOMIC))
     pthread_spin_destroy(&stats->statslock);
+#endif
 }

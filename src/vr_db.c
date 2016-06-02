@@ -375,7 +375,6 @@ void delCommand(client *c) {
     for (j = 1; j < c->argc; j++) {
         dispatch_target_db(c, c->argv[j]);
         pthread_rwlock_wrlock(&c->db->rwl);
-        expireIfNeeded(c->db,c->argv[j]);
         o = lookupKey(c->db, c->argv[j]);
         if (o != NULL) {
             when = getExpire(c->db,c->argv[1]);    
@@ -394,9 +393,7 @@ void delCommand(client *c) {
     addReplyLongLong(c,deleted);
 
     if (expired > 0) {
-        pthread_spin_lock(&c->vel->stats->statslock);
-        c->vel->stats->expiredkeys += expired;
-        pthread_spin_unlock(&c->vel->stats->statslock);
+        update_stats_add(c->vel->stats, expiredkeys, expired);
     }
 }
 
@@ -437,10 +434,11 @@ void existsCommand(client *c) {
     addReplyLongLong(c,count);
 
     if (expired > 0) {
-        pthread_spin_lock(&c->vel->stats->statslock);
-        c->vel->stats->expiredkeys += expired;
-        pthread_spin_unlock(&c->vel->stats->statslock);
+        update_stats_add(c->vel->stats, expiredkeys, expired);
     }
+
+    update_stats_add(c->vel->stats, keyspace_hits, count);
+    update_stats_add(c->vel->stats, keyspace_misses, c->argc-count);
 }
 
 void selectCommand(client *c) {
@@ -1109,10 +1107,8 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
             serverAssertWithInfo(c,key,dbDelete(c->db, key));
             pthread_rwlock_unlock(&c->db->rwl);
             addReply(c,shared.czero);
-            
-            pthread_spin_lock(&c->vel->stats->statslock);
-            c->vel->stats->expiredkeys ++;
-            pthread_spin_unlock(&c->vel->stats->statslock);
+
+            update_stats_add(c->vel->stats, expiredkeys, 1);
             return;
         }
     } else {
@@ -1191,12 +1187,14 @@ void ttlGenericCommand(client *c, int output_ms) {
     if (lookupKey(c->db, c->argv[1]) == NULL) {
         pthread_rwlock_unlock(&c->db->rwl);
         addReplyLongLong(c,-2);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     }
     expire = getExpire(c->db,c->argv[1]);
     pthread_rwlock_unlock(&c->db->rwl);
-    if (expire >= 0 && now > expire) {   
+    if (expire >= 0 && now > expire) {
         addReplyLongLong(c,-2);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     }
     
@@ -1208,6 +1206,8 @@ void ttlGenericCommand(client *c, int output_ms) {
         ttl = expire - now;
         addReplyLongLong(c,output_ms ? ttl : ((ttl+500)/1000));
     }
+
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void ttlCommand(client *c) {
@@ -1620,9 +1620,7 @@ void activeExpireCycle(vr_worker *worker, int type) {
                 pthread_rwlock_unlock(&db->rwl);
 
                 if (expired_total > 0) {
-                    pthread_spin_lock(&worker->vel.stats->statslock);
-                    worker->vel.stats->expiredkeys += expired_total;
-                    pthread_spin_unlock(&worker->vel.stats->statslock);
+                    update_stats_add(worker->vel.stats, expiredkeys, expired_total);
                 }
                 return;
             }
@@ -1633,9 +1631,7 @@ void activeExpireCycle(vr_worker *worker, int type) {
     }
 
     if (expired_total > 0) {
-        pthread_spin_lock(&worker->vel.stats->statslock);
-        worker->vel.stats->expiredkeys += expired_total;
-        pthread_spin_unlock(&worker->vel.stats->statslock);
+        update_stats_add(worker->vel.stats, expiredkeys, expired_total);
     }
 }
 
