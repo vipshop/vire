@@ -456,7 +456,7 @@ dictEntry *dictFind(dict *d, const void *key)
     unsigned int h, idx, table;
 
     if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
-    if (dictIsRehashing(d)) _dictRehashStep(d);
+    //if (dictIsRehashing(d)) _dictRehashStep(d);  /* we removed this line to avoild rehash the table when read this table, because  we used read-write lock */
     h = dictHashKey(d, key);
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
