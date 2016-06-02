@@ -208,16 +208,16 @@ void getCommand(client *c) {
     dispatch_target_db(c, c->argv[1]);
 
     pthread_rwlock_rdlock(&c->db->rwl);
-    when = getExpire(c->db,c->argv[1]);
-    if (when >= 0 && vr_msec_now() > when) {
-        pthread_rwlock_unlock(&c->db->rwl);
-        addReply(c, shared.nullbulk);
-        update_stats_add(c->vel->stats, keyspace_misses, 1);
-        return;
-    }
-    
     val = lookupKey(c->db, c->argv[1]);
     if (val != NULL) {
+        when = getExpire(c->db,c->argv[1]);
+        if (when >= 0 && vr_msec_now() > when) {
+            pthread_rwlock_unlock(&c->db->rwl);
+            addReply(c, shared.nullbulk);
+            update_stats_add(c->vel->stats, keyspace_misses, 1);
+            return;
+        }
+        
         addReplyBulk(c, val);
         pthread_rwlock_unlock(&c->db->rwl);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
@@ -650,25 +650,27 @@ void strlenCommand(client *c) {
     
     dispatch_target_db(c, c->argv[1]);
 
-    pthread_rwlock_rdlock(&c->db->rwl);
-    when = getExpire(c->db,c->argv[1]);    
-    if (when >= 0 && vr_msec_now() > when) {
-        pthread_rwlock_unlock(&c->db->rwl);
-        addReply(c, shared.czero);
-        update_stats_add(c->vel->stats, keyspace_misses, 1);
-        return;
-    }
-    
+    pthread_rwlock_rdlock(&c->db->rwl);    
     val = lookupKey(c->db, c->argv[1]);
     if (val == NULL) {
         pthread_rwlock_unlock(&c->db->rwl);
         addReply(c, shared.czero);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
-    } else if (checkType(c,val,OBJ_STRING)) {
-        pthread_rwlock_unlock(&c->db->rwl);
-        update_stats_add(c->vel->stats, keyspace_hits, 1);
-        return;
+    } else {
+        when = getExpire(c->db,c->argv[1]);    
+        if (when >= 0 && vr_msec_now() > when) {
+            pthread_rwlock_unlock(&c->db->rwl);
+            addReply(c, shared.czero);
+            update_stats_add(c->vel->stats, keyspace_misses, 1);
+            return;
+        }
+        
+        if (checkType(c,val,OBJ_STRING)) {
+            pthread_rwlock_unlock(&c->db->rwl);
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
+            return;
+        }
     }
 
     addReplyLongLong(c,stringObjectLen(val));
