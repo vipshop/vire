@@ -303,7 +303,7 @@ void saddCommand(client *c) {
 #endif
 }
 
-void sremCommand(client *c) {
+void sremCommand_original(client *c) {
     robj *set;
     int j, deleted = 0, keyremoved = 0;
 
@@ -326,6 +326,37 @@ void sremCommand(client *c) {
         if (keyremoved)
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
                                 c->db->id);
+        server.dirty += deleted;
+    }
+    addReplyLongLong(c,deleted);
+}
+
+void sremCommand(client *c) {
+    robj *set;
+    int j, deleted = 0, keyremoved = 0;
+
+    dispatch_target_db(c, c->argv[1]);
+    pthread_rwlock_wrlock(&c->db->rwl);
+    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,set,OBJ_SET)) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        return;
+    }
+    
+    for (j = 2; j < c->argc; j++) {
+        if (setTypeRemove(set,c->argv[j])) {
+            deleted++;
+            if (setTypeSize(set) == 0) {
+                dbDelete(c->db,c->argv[1]);
+                keyremoved = 1;
+                break;
+            }
+        }
+    }
+
+    pthread_rwlock_unlock(&c->db->rwl);
+    
+    if (deleted) {
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);

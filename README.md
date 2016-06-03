@@ -110,6 +110,7 @@ A quick checklist:
 + sadd
 + smembers
 + scard
++ srem
 
 ## License
 

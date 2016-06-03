@@ -109,7 +109,8 @@ struct redisCommand redisCommandTable[] = {
     /* Set */
     {"sadd",saddCommand,-3,"wmF",0,NULL,1,1,1,0,0},
     {"smembers",smembersCommand,2,"rS",0,NULL,1,1,1,0,0},
-    {"scard",scardCommand,2,"rF",0,NULL,1,1,1,0,0}
+    {"scard",scardCommand,2,"rF",0,NULL,1,1,1,0,0},
+    {"srem",sremCommand,-3,"wF",0,NULL,1,1,1,0,0}
 };
 
 /* Populates the Redis Command Table starting from the hard coded list
