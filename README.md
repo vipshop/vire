@@ -109,6 +109,7 @@ A quick checklist:
 
 + sadd
 + smembers
++ scard
 
 ## License
 

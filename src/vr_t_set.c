@@ -397,13 +397,33 @@ void sismemberCommand(client *c) {
         addReply(c,shared.czero);
 }
 
-void scardCommand(client *c) {
+void scardCommand_original(client *c) {
     robj *o;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_SET)) return;
 
     addReplyLongLong(c,setTypeSize(o));
+}
+
+void scardCommand(client *c) {
+    robj *o;
+
+    dispatch_target_db(c, c->argv[1]);
+    pthread_rwlock_rdlock(&c->db->rwl);
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,o,OBJ_SET)) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
+    
+    addReplyLongLong(c,setTypeSize(o));
+    pthread_rwlock_unlock(&c->db->rwl);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 /* Handle the "SPOP key <count>" variant. The normal version of the

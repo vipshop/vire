@@ -655,8 +655,7 @@ void strlenCommand(client *c) {
     long long when;
     
     dispatch_target_db(c, c->argv[1]);
-
-    pthread_rwlock_rdlock(&c->db->rwl);    
+    pthread_rwlock_rdlock(&c->db->rwl);
     val = lookupKey(c->db, c->argv[1]);
     if (val == NULL) {
         pthread_rwlock_unlock(&c->db->rwl);
