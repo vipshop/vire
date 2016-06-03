@@ -165,7 +165,7 @@ void listTypeConvert(robj *subject, int enc) {
  * List Commands
  *----------------------------------------------------------------------------*/
 
-void pushGenericCommand(client *c, int where) {
+void pushGenericCommand_original(client *c, int where) {
     int j, waiting = 0, pushed = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
 
@@ -192,6 +192,36 @@ void pushGenericCommand(client *c, int where) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     }
+    server.dirty += pushed;
+}
+
+void pushGenericCommand(client *c, int where) {
+    int j, waiting = 0, pushed = 0;
+    robj *lobj;
+
+    dispatch_target_db(c, c->argv[1]);
+    pthread_rwlock_wrlock(&c->db->rwl);
+    lobj = lookupKeyWrite(c->db,c->argv[1]);
+    if (lobj && lobj->type != OBJ_LIST) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        addReply(c,shared.wrongtypeerr);
+        return;
+    }
+
+    for (j = 2; j < c->argc; j++) {
+        c->argv[j] = tryObjectEncoding(c->argv[j]);
+        if (!lobj) {
+            lobj = createQuicklistObject();
+            quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
+                                server.list_compress_depth);
+            dbAdd(c->db,c->argv[1],lobj);
+        }
+        listTypePush(lobj,c->argv[j],where);
+        pushed++;
+    }
+    
+    addReplyLongLong(c, waiting + (lobj ? listTypeLength(lobj) : 0));    
+    pthread_rwlock_unlock(&c->db->rwl);
     server.dirty += pushed;
 }
 
@@ -357,7 +387,7 @@ void rpopCommand(client *c) {
     popGenericCommand(c,LIST_TAIL);
 }
 
-void lrangeCommand(client *c) {
+void lrangeCommand_original(client *c) {
     robj *o;
     long start, end, llen, rangelen;
 
@@ -401,6 +431,67 @@ void lrangeCommand(client *c) {
     } else {
         serverPanic("List encoding is not QUICKLIST!");
     }
+}
+
+void lrangeCommand(client *c) {
+    robj *o;
+    long start, end, llen, rangelen;
+
+    if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != VR_OK) ||
+        (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != VR_OK)) return;
+
+    dispatch_target_db(c, c->argv[1]);
+    pthread_rwlock_rdlock(&c->db->rwl);
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,o,OBJ_LIST)) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
+    
+    llen = listTypeLength(o);
+
+    /* convert negative indexes */
+    if (start < 0) start = llen+start;
+    if (end < 0) end = llen+end;
+    if (start < 0) start = 0;
+
+    /* Invariant: start >= 0, so this test will be true when end < 0.
+     * The range is empty when start > end or start >= length. */
+    if (start > end || start >= llen) {
+        addReply(c,shared.emptymultibulk);
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
+    if (end >= llen) end = llen-1;
+    rangelen = (end-start)+1;
+
+    /* Return the result in form of a multi-bulk reply */
+    addReplyMultiBulkLen(c,rangelen);
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+        listTypeIterator *iter = listTypeInitIterator(o, start, LIST_TAIL);
+
+        while(rangelen--) {
+            listTypeEntry entry;
+            listTypeNext(iter, &entry);
+            quicklistEntry *qe = &entry.entry;
+            if (qe->value) {
+                addReplyBulkCBuffer(c,qe->value,qe->sz);
+            } else {
+                addReplyBulkLongLong(c,qe->longval);
+            }
+        }
+        listTypeReleaseIterator(iter);
+    } else {
+        serverPanic("List encoding is not QUICKLIST!");
+    }
+
+    pthread_rwlock_unlock(&c->db->rwl);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void ltrimCommand(client *c) {

@@ -96,6 +96,12 @@ A quick checklist:
 + hlen
 + hdel
 
+#### List
+
++ rpush
++ lpush
++ lrange
+
 ## License
 
 Copyright 2016 DEEP, Inc.
