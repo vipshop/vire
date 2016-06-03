@@ -103,6 +103,7 @@ A quick checklist:
 + lrange
 + rpop
 + lpop
++ llen
 
 ## License
 

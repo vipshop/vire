@@ -297,10 +297,31 @@ void linsertCommand(client *c) {
     }
 }
 
-void llenCommand(client *c) {
+void llenCommand_original(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     addReplyLongLong(c,listTypeLength(o));
+}
+
+void llenCommand(client *c) {
+    robj *o;
+    
+    dispatch_target_db(c, c->argv[1]);
+    pthread_rwlock_rdlock(&c->db->rwl);
+    o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
+    if (o == NULL) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if(checkType(c,o,OBJ_LIST)) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
+
+    addReplyLongLong(c,listTypeLength(o));
+    pthread_rwlock_unlock(&c->db->rwl);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void lindexCommand(client *c) {
