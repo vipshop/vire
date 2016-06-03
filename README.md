@@ -93,6 +93,7 @@ A quick checklist:
 
 + hset
 + hget
++ hlen
 
 ## License
 
