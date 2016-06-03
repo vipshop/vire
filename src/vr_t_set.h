@@ -26,6 +26,7 @@ void spopWithCountCommand(client *c);
 void spopCommand(client *c);
 void srandmemberWithCountCommand(client *c);
 void srandmemberCommand(client *c);
+void smembersCommand(client *c);
 int qsortCompareSetsByCardinality(const void *s1, const void *s2);
 int qsortCompareSetsByRevCardinality(const void *s1, const void *s2);
 void sinterGenericCommand(client *c, robj **setkeys, unsigned long setnum, robj *dstkey);

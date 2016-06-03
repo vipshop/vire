@@ -105,6 +105,11 @@ A quick checklist:
 + lpop
 + llen
 
+#### Set
+
++ sadd
++ smembers
+
 ## License
 
 Copyright 2016 DEEP, Inc.

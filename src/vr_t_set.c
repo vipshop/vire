@@ -240,7 +240,7 @@ void setTypeConvert(robj *setobj, int enc) {
     }
 }
 
-void saddCommand(client *c) {
+void saddCommand_original(client *c) {
     robj *set;
     int j, added = 0;
 
@@ -265,6 +265,42 @@ void saddCommand(client *c) {
     }
     server.dirty += added;
     addReplyLongLong(c,added);
+}
+
+void saddCommand(client *c) {
+    robj *set, *value;
+    int j, added = 0;
+
+    dispatch_target_db(c, c->argv[1]);
+    pthread_rwlock_wrlock(&c->db->rwl);
+    set = lookupKeyWrite(c->db,c->argv[1]);
+    if (set == NULL) {
+        set = setTypeCreate(c->argv[2]);
+        dbAdd(c->db,c->argv[1],set);
+    } else {
+        if (set->type != OBJ_SET) {
+            pthread_rwlock_unlock(&c->db->rwl);
+            addReply(c,shared.wrongtypeerr);
+            return;
+        }
+    }
+
+    for (j = 2; j < c->argc; j++) {
+        c->argv[j] = tryObjectEncoding(c->argv[j]);
+        value = dupStringObject(c->argv[j]);
+        if (setTypeAdd(set,value)) added++;
+        decrRefCount(value);
+    }
+
+    pthread_rwlock_unlock(&c->db->rwl);
+    server.dirty += added;
+    addReplyLongLong(c,added);
+
+#if defined(VR_ASSERT_LOG) || defined(VR_ASSERT_PANIC)
+    for (j = 0; j < c->argc; j++) {
+        ASSERT(c->argv[j]->refcount == 1);
+    }
+#endif
 }
 
 void sremCommand(client *c) {
@@ -742,6 +778,42 @@ void srandmemberCommand(client *c) {
     } else {
         addReplyBulk(c,ele);
     }
+}
+
+void smembersCommand(client *c) {
+    robj *set;
+    setTypeIterator *si;
+    robj *eleobj;
+    int64_t intobj;
+    void *replylen = NULL;
+    int encoding;
+
+    dispatch_target_db(c, c->argv[1]);
+    pthread_rwlock_rdlock(&c->db->rwl);
+    set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk);
+    if (set == NULL) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if(checkType(c,set,OBJ_SET)) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
+
+    addReplyMultiBulkLen(c, setTypeSize(set));
+    si = setTypeInitIterator(set);
+    while ((encoding = setTypeNext(si,&eleobj,&intobj)) != -1) {
+        if (encoding == OBJ_ENCODING_HT) {
+            addReplyBulk(c, eleobj);
+        } else if (encoding == OBJ_ENCODING_INTSET) {
+            addReplyBulkLongLong(c, intobj);
+        }
+    }
+    setTypeReleaseIterator(si);
+
+    pthread_rwlock_unlock(&c->db->rwl);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
