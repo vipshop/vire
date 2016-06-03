@@ -94,6 +94,7 @@ A quick checklist:
 + hset
 + hget
 + hlen
++ hdel
 
 ## License
 

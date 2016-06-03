@@ -739,7 +739,7 @@ void hmgetCommand(client *c) {
     }
 }
 
-void hdelCommand(client *c) {
+void hdelCommand_original(client *c) {
     robj *o;
     int j, deleted = 0, keyremoved = 0;
 
@@ -762,6 +762,36 @@ void hdelCommand(client *c) {
         if (keyremoved)
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
                                 c->db->id);
+        server.dirty += deleted;
+    }
+    addReplyLongLong(c,deleted);
+}
+
+void hdelCommand(client *c) {
+    robj *o;
+    int j, deleted = 0, keyremoved = 0;
+    
+    dispatch_target_db(c, c->argv[1]);
+    pthread_rwlock_wrlock(&c->db->rwl);
+    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,o,OBJ_HASH)) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        return;
+    }
+    
+    for (j = 2; j < c->argc; j++) {
+        if (hashTypeDelete(o,c->argv[j])) {
+            deleted++;
+            if (hashTypeLength(o) == 0) {
+                dbDelete(c->db,c->argv[1]);
+                keyremoved = 1;
+                break;
+            }
+        }
+    }
+    pthread_rwlock_unlock(&c->db->rwl);
+
+    if (deleted) {
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
