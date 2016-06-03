@@ -88,6 +88,11 @@ A quick checklist:
 + append
 + strlen
 
+#### Hash
+
++ hset
++ hget
+
 ## License
 
 Copyright 2016 DEEP, Inc.
