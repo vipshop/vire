@@ -73,6 +73,7 @@ A quick checklist:
 + pexpireat
 + persist
 + randomkey
++ type
 
 #### String
 

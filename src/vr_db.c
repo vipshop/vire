@@ -786,7 +786,7 @@ void lastsaveCommand(client *c) {
     addReplyLongLong(c,server.lastsave);
 }
 
-void typeCommand(client *c) {
+void typeCommand_original(client *c) {
     robj *o;
     char *type;
 
@@ -804,6 +804,35 @@ void typeCommand(client *c) {
         }
     }
     addReplyStatus(c,type);
+}
+
+void typeCommand(client *c) {
+    robj *o;
+    char *type;
+
+    dispatch_target_db(c, c->argv[1]);
+    pthread_rwlock_rdlock(&c->db->rwl);
+    o = lookupKeyRead(c->db,c->argv[1]);
+    if (o == NULL) {
+        type = "none";
+        pthread_rwlock_unlock(&c->db->rwl);
+        addReplyStatus(c,type);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else {
+        switch(o->type) {
+        case OBJ_STRING: type = "string"; break;
+        case OBJ_LIST: type = "list"; break;
+        case OBJ_SET: type = "set"; break;
+        case OBJ_ZSET: type = "zset"; break;
+        case OBJ_HASH: type = "hash"; break;
+        default: type = "unknown"; break;
+        }
+    }
+
+    pthread_rwlock_unlock(&c->db->rwl);
+    addReplyStatus(c,type);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void shutdownCommand(client *c) {
