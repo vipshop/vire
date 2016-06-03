@@ -102,7 +102,9 @@ struct redisCommand redisCommandTable[] = {
     /* List */
     {"rpush",rpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},
     {"lpush",lpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},
-    {"lrange",lrangeCommand,4,"r",0,NULL,1,1,1,0,0}
+    {"lrange",lrangeCommand,4,"r",0,NULL,1,1,1,0,0},
+    {"rpop",rpopCommand,2,"wF",0,NULL,1,1,1,0,0},
+    {"lpop",lpopCommand,2,"wF",0,NULL,1,1,1,0,0}
 };
 
 /* Populates the Redis Command Table starting from the hard coded list

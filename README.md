@@ -101,6 +101,8 @@ A quick checklist:
 + rpush
 + lpush
 + lrange
++ rpop
++ lpop
 
 ## License
 

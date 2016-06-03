@@ -356,7 +356,7 @@ void lsetCommand(client *c) {
     }
 }
 
-void popGenericCommand(client *c, int where) {
+void popGenericCommand_original(client *c, int where) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
 
@@ -377,6 +377,33 @@ void popGenericCommand(client *c, int where) {
         signalModifiedKey(c->db,c->argv[1]);
         server.dirty++;
     }
+}
+
+void popGenericCommand(client *c, int where) {
+    robj *o;
+    robj *value;
+    
+    dispatch_target_db(c, c->argv[1]);
+    pthread_rwlock_wrlock(&c->db->rwl);
+    o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
+    if (o == NULL || checkType(c,o,OBJ_LIST)) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        return;
+    }
+    
+    value = listTypePop(o,where);
+    if (value == NULL) {
+        addReply(c,shared.nullbulk);
+    } else {
+        addReplyBulk(c,value);
+        decrRefCount(value);
+        if (listTypeLength(o) == 0) {
+            dbDelete(c->db,c->argv[1]);
+        }
+        server.dirty++;
+    }
+
+    pthread_rwlock_unlock(&c->db->rwl);
 }
 
 void lpopCommand(client *c) {
