@@ -161,7 +161,7 @@ int hashTypeExists(robj *o, robj *field) {
  * Return 0 on insert and 1 on update.
  * This function will take care of incrementing the reference count of the
  * retained fields and value objects. */
-int hashTypeSet(robj *o, robj *field, robj *value) {
+int hashTypeSet_original(robj *o, robj *field, robj *value) {
     int update = 0;
 
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
@@ -207,6 +207,64 @@ int hashTypeSet(robj *o, robj *field, robj *value) {
             update = 1;
         }
         incrRefCount(value);
+    } else {
+        serverPanic("Unknown hash encoding");
+    }
+    return update;
+}
+
+/* Add an element, discard the old if the key already exists.
+ * Return 0 on insert and 1 on update.
+ * This function will take care of incrementing the reference count of the
+ * retained fields and value objects. */
+int hashTypeSet(robj *o, robj *field, robj *value) {
+    int update = 0;
+
+    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+        unsigned char *zl, *fptr, *vptr;
+
+        field = getDecodedObject(field);
+        value = getDecodedObject(value);
+
+        zl = o->ptr;
+        fptr = ziplistIndex(zl, ZIPLIST_HEAD);
+        if (fptr != NULL) {
+            fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
+            if (fptr != NULL) {
+                /* Grab pointer to the value (fptr points to the field) */
+                vptr = ziplistNext(zl, fptr);
+                ASSERT(vptr != NULL);
+                update = 1;
+
+                /* Delete value */
+                zl = ziplistDelete(zl, &vptr);
+
+                /* Insert new value */
+                zl = ziplistInsert(zl, vptr, value->ptr, sdslen(value->ptr));
+            }
+        }
+
+        if (!update) {
+            /* Push new field/value pair onto the tail of the ziplist */
+            zl = ziplistPush(zl, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
+            zl = ziplistPush(zl, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
+        }
+        o->ptr = zl;
+        decrRefCount(field);
+        decrRefCount(value);
+
+        /* Check if the ziplist needs to be converted to a hash table */
+        if (hashTypeLength(o) > server.hash_max_ziplist_entries)
+            hashTypeConvert(o, OBJ_ENCODING_HT);
+    } else if (o->encoding == OBJ_ENCODING_HT) {
+        field = dupStringObject(field);
+        value = dupStringObject(value);
+        if (dictReplace(o->ptr, field, value)) { /* Insert */
+            /*do nothing */
+        } else { /* Update */
+            update = 1;
+            decrRefCount(field);
+        }
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -455,7 +513,7 @@ void hashTypeConvert(robj *o, int enc) {
  * Hash type commands
  *----------------------------------------------------------------------------*/
 
-void hsetCommand(client *c) {
+void hsetCommand_original(client *c) {
     int update;
     robj *o;
 
@@ -466,6 +524,24 @@ void hsetCommand(client *c) {
     addReply(c, update ? shared.czero : shared.cone);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+    server.dirty++;
+}
+
+void hsetCommand(client *c) {
+    int update;
+    robj *o;
+
+    dispatch_target_db(c, c->argv[1]);
+    pthread_rwlock_wrlock(&c->db->rwl);
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        return;
+    }
+    hashTypeTryConversion(o,c->argv,2,3);
+    hashTypeTryObjectEncoding(o,&c->argv[2], &c->argv[3]);
+    update = hashTypeSet(o,c->argv[2],c->argv[3]);
+    pthread_rwlock_unlock(&c->db->rwl);
+    addReply(c, update ? shared.czero : shared.cone);
     server.dirty++;
 }
 
@@ -616,13 +692,33 @@ static void addHashFieldToReply(client *c, robj *o, robj *field) {
     }
 }
 
-void hgetCommand(client *c) {
+void hgetCommand_original(client *c) {
     robj *o;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
     addHashFieldToReply(c, o, c->argv[2]);
+}
+
+void hgetCommand(client *c) {
+    robj *o;
+
+    dispatch_target_db(c, c->argv[1]);
+    pthread_rwlock_rdlock(&c->db->rwl);
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,o,OBJ_HASH)) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
+    
+    addHashFieldToReply(c, o, c->argv[2]);
+    pthread_rwlock_unlock(&c->db->rwl);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void hmgetCommand(client *c) {

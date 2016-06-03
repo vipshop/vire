@@ -92,7 +92,10 @@ struct redisCommand redisCommandTable[] = {
     {"incrby",incrbyCommand,3,"wmF",0,NULL,1,1,1,0,0},
     {"decrby",decrbyCommand,3,"wmF",0,NULL,1,1,1,0,0},
     {"append",appendCommand,3,"wm",0,NULL,1,1,1,0,0},
-    {"strlen",strlenCommand,2,"rF",0,NULL,1,1,1,0,0}
+    {"strlen",strlenCommand,2,"rF",0,NULL,1,1,1,0,0},
+    /* Hash */
+    {"hset",hsetCommand,4,"wmF",0,NULL,1,1,1,0,0},
+    {"hget",hgetCommand,3,"rF",0,NULL,1,1,1,0,0}
 };
 
 /* Populates the Redis Command Table starting from the hard coded list
