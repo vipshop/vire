@@ -110,7 +110,12 @@ struct redisCommand redisCommandTable[] = {
     {"sadd",saddCommand,-3,"wmF",0,NULL,1,1,1,0,0},
     {"smembers",smembersCommand,2,"rS",0,NULL,1,1,1,0,0},
     {"scard",scardCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"srem",sremCommand,-3,"wF",0,NULL,1,1,1,0,0}
+    {"srem",sremCommand,-3,"wF",0,NULL,1,1,1,0,0},
+    /* SortedSet */
+    {"zadd",zaddCommand,-4,"wmF",0,NULL,1,1,1,0,0},
+    {"zincrby",zincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0},
+    {"zrange",zrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
+    {"zrevrange",zrevrangeCommand,-4,"r",0,NULL,1,1,1,0,0}
 };
 
 /* Populates the Redis Command Table starting from the hard coded list
@@ -493,6 +498,14 @@ int processCommand(client *c) {
         if (listLength(server.ready_keys))
             handleClientsBlockedOnLists();
     }
+
+#if defined(VR_ASSERT_LOG) || defined(VR_ASSERT_PANIC)
+    int j;
+    for (j = 0; j < c->argc; j++) {
+        ASSERT(c->argv[j]->refcount == 1);
+    }
+#endif
+
     return VR_OK;
 }
 

@@ -1156,7 +1156,7 @@ int zsetScore(robj *zobj, robj *member, double *score) {
 #define ZADD_NX (1<<1)      /* Don't touch elements not already existing. */
 #define ZADD_XX (1<<2)      /* Only touch elements already exisitng. */
 #define ZADD_CH (1<<3)      /* Return num of elements added or updated. */
-void zaddGenericCommand(client *c, int flags) {
+void zaddGenericCommand_original(client *c, int flags) {
     static char *nanerr = "resulting score is not a number (NaN)";
     robj *key = c->argv[1];
     robj *ele;
@@ -1328,6 +1328,209 @@ void zaddGenericCommand(client *c, int flags) {
             serverPanic("Unknown sorted set encoding");
         }
     }
+
+reply_to_client:
+    if (incr) { /* ZINCRBY or INCR option. */
+        if (processed)
+            addReplyDouble(c,score);
+        else
+            addReply(c,shared.nullbulk);
+    } else { /* ZADD. */
+        addReplyLongLong(c,ch ? added+updated : added);
+    }
+
+cleanup:
+    vr_free(scores);
+    if (added || updated) {
+        signalModifiedKey(c->db,key);
+        notifyKeyspaceEvent(NOTIFY_ZSET,
+            incr ? "zincr" : "zadd", key, c->db->id);
+    }
+}
+
+void zaddGenericCommand(client *c, int flags) {
+    static char *nanerr = "resulting score is not a number (NaN)";
+    robj *key = c->argv[1];
+    robj *ele;
+    robj *zobj;
+    robj *curobj;
+    double score = 0, *scores = NULL, curscore = 0.0;
+    int j, elements;
+    int scoreidx = 0;
+    /* The following vars are used in order to track what the command actually
+     * did during the execution, to reply to the client and to trigger the
+     * notification of keyspace change. */
+    int added = 0;      /* Number of new elements added. */
+    int updated = 0;    /* Number of elements with updated score. */
+    int processed = 0;  /* Number of elements processed, may remain zero with
+                           options like XX. */
+
+    /* Parse options. At the end 'scoreidx' is set to the argument position
+     * of the score of the first score-element pair. */
+    scoreidx = 2;
+    while(scoreidx < c->argc) {
+        char *opt = c->argv[scoreidx]->ptr;
+        if (!strcasecmp(opt,"nx")) flags |= ZADD_NX;
+        else if (!strcasecmp(opt,"xx")) flags |= ZADD_XX;
+        else if (!strcasecmp(opt,"ch")) flags |= ZADD_CH;
+        else if (!strcasecmp(opt,"incr")) flags |= ZADD_INCR;
+        else break;
+        scoreidx++;
+    }
+
+    /* Turn options into simple to check vars. */
+    int incr = (flags & ZADD_INCR) != 0;
+    int nx = (flags & ZADD_NX) != 0;
+    int xx = (flags & ZADD_XX) != 0;
+    int ch = (flags & ZADD_CH) != 0;
+
+    /* After the options, we expect to have an even number of args, since
+     * we expect any number of score-element pairs. */
+    elements = c->argc-scoreidx;
+    if (elements % 2) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+    elements /= 2; /* Now this holds the number of score-element pairs. */
+
+    /* Check for incompatible options. */
+    if (nx && xx) {
+        addReplyError(c,
+            "XX and NX options at the same time are not compatible");
+        return;
+    }
+
+    if (incr && elements > 1) {
+        addReplyError(c,
+            "INCR option supports a single increment-element pair");
+        return;
+    }
+
+    /* Start parsing all the scores, we need to emit any syntax error
+     * before executing additions to the sorted set, as the command should
+     * either execute fully or nothing at all. */
+    scores = vr_alloc(sizeof(double)*elements);
+    for (j = 0; j < elements; j++) {
+        if (getDoubleFromObjectOrReply(c,c->argv[scoreidx+j*2],&scores[j],NULL)
+            != VR_OK) goto cleanup;
+    }
+
+    dispatch_target_db(c, key);
+    pthread_rwlock_wrlock(&c->db->rwl);
+    /* Lookup the key and create the sorted set if does not exist. */
+    zobj = lookupKeyWrite(c->db,key);
+    if (zobj == NULL) {
+        if (xx) {
+            pthread_rwlock_unlock(&c->db->rwl);
+            goto reply_to_client; /* No key + XX option: nothing to do. */
+        }
+        if (server.zset_max_ziplist_entries == 0 ||
+            server.zset_max_ziplist_value < sdslen(c->argv[scoreidx+1]->ptr))
+        {
+            zobj = createZsetObject();
+        } else {
+            zobj = createZsetZiplistObject();
+        }
+        dbAdd(c->db,key,zobj);
+    } else {
+        if (zobj->type != OBJ_ZSET) {
+            pthread_rwlock_unlock(&c->db->rwl);
+            addReply(c,shared.wrongtypeerr);
+            goto cleanup;
+        }
+    }
+
+    for (j = 0; j < elements; j++) {
+        score = scores[j];
+
+        if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+            unsigned char *eptr;
+
+            /* Prefer non-encoded element when dealing with ziplists. */
+            ele = c->argv[scoreidx+1+j*2];
+            if ((eptr = zzlFind(zobj->ptr,ele,&curscore)) != NULL) {
+                if (nx) continue;
+                if (incr) {
+                    score += curscore;
+                    if (isnan(score)) {
+                        pthread_rwlock_unlock(&c->db->rwl);
+                        addReplyError(c,nanerr);
+                        goto cleanup;
+                    }
+                }
+
+                /* Remove and re-insert when score changed. */
+                if (score != curscore) {
+                    zobj->ptr = zzlDelete(zobj->ptr,eptr);
+                    zobj->ptr = zzlInsert(zobj->ptr,ele,score);
+                    server.dirty++;
+                    updated++;
+                }
+                processed++;
+            } else if (!xx) {
+                /* Optimize: check if the element is too large or the list
+                 * becomes too long *before* executing zzlInsert. */
+                zobj->ptr = zzlInsert(zobj->ptr,ele,score);
+                if (zzlLength(zobj->ptr) > server.zset_max_ziplist_entries)
+                    zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
+                if (sdslen(ele->ptr) > server.zset_max_ziplist_value)
+                    zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
+                server.dirty++;
+                added++;
+                processed++;
+            }
+        } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+            zset *zs = zobj->ptr;
+            zskiplistNode *znode;
+            dictEntry *de;
+
+            ele = c->argv[scoreidx+1+j*2] =
+                tryObjectEncoding(c->argv[scoreidx+1+j*2]);
+            de = dictFind(zs->dict,ele);
+            if (de != NULL) {
+                if (nx) continue;
+                curobj = dictGetKey(de);
+                curscore = *(double*)dictGetVal(de);
+
+                if (incr) {
+                    score += curscore;
+                    if (isnan(score)) {
+                        pthread_rwlock_unlock(&c->db->rwl);
+                        addReplyError(c,nanerr);
+                        /* Don't need to check if the sorted set is empty
+                         * because we know it has at least one element. */
+                        goto cleanup;
+                    }
+                }
+
+                /* Remove and re-insert when score changed. We can safely
+                 * delete the key object from the skiplist, since the
+                 * dictionary still has a reference to it. */
+                if (score != curscore) {
+                    serverAssertWithInfo(c,curobj,zslDelete(zs->zsl,curscore,curobj));
+                    znode = zslInsert(zs->zsl,score,curobj);
+                    incrRefCount(curobj); /* Re-inserted in skiplist. */
+                    dictGetVal(de) = &znode->score; /* Update score ptr. */
+                    server.dirty++;
+                    updated++;
+                }
+                processed++;
+            } else if (!xx) {
+                ele = dupStringObject(ele);
+                znode = zslInsert(zs->zsl,score,ele);
+                //incrRefCount(ele); /* Inserted in skiplist. */
+                serverAssertWithInfo(c,NULL,dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
+                incrRefCount(ele); /* Added to dictionary. */
+                server.dirty++;
+                added++;
+                processed++;
+            }
+        } else {
+            serverPanic("Unknown sorted set encoding");
+        }
+    }
+
+    pthread_rwlock_unlock(&c->db->rwl);
 
 reply_to_client:
     if (incr) { /* ZINCRBY or INCR option. */
@@ -2081,7 +2284,7 @@ void zinterstoreCommand(client *c) {
     zunionInterGenericCommand(c,c->argv[1], SET_OP_INTER);
 }
 
-void zrangeGenericCommand(client *c, int reverse) {
+void zrangeGenericCommand_original(client *c, int reverse) {
     robj *key = c->argv[1];
     robj *zobj;
     int withscores = 0;
@@ -2181,6 +2384,122 @@ void zrangeGenericCommand(client *c, int reverse) {
     } else {
         serverPanic("Unknown sorted set encoding");
     }
+}
+
+void zrangeGenericCommand(client *c, int reverse) {
+    robj *key = c->argv[1];
+    robj *zobj;
+    int withscores = 0;
+    long start;
+    long end;
+    int llen;
+    int rangelen;
+
+    if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != VR_OK) ||
+        (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != VR_OK)) return;
+
+    if (c->argc == 5 && !strcasecmp(c->argv[4]->ptr,"withscores")) {
+        withscores = 1;
+    } else if (c->argc >= 5) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+
+    dispatch_target_db(c, key);
+    pthread_rwlock_rdlock(&c->db->rwl);
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,zobj,OBJ_ZSET)) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
+    
+    /* Sanitize indexes. */
+    llen = zsetLength(zobj);
+    if (start < 0) start = llen+start;
+    if (end < 0) end = llen+end;
+    if (start < 0) start = 0;
+
+    /* Invariant: start >= 0, so this test will be true when end < 0.
+     * The range is empty when start > end or start >= length. */
+    if (start > end || start >= llen) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        addReply(c,shared.emptymultibulk);
+        return;
+    }
+    if (end >= llen) end = llen-1;
+    rangelen = (end-start)+1;
+
+    /* Return the result in form of a multi-bulk reply */
+    addReplyMultiBulkLen(c, withscores ? (rangelen*2) : rangelen);
+
+    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+        unsigned char *zl = zobj->ptr;
+        unsigned char *eptr, *sptr;
+        unsigned char *vstr;
+        unsigned int vlen;
+        long long vlong;
+
+        if (reverse)
+            eptr = ziplistIndex(zl,-2-(2*start));
+        else
+            eptr = ziplistIndex(zl,2*start);
+
+        serverAssertWithInfo(c,zobj,eptr != NULL);
+        sptr = ziplistNext(zl,eptr);
+
+        while (rangelen--) {
+            serverAssertWithInfo(c,zobj,eptr != NULL && sptr != NULL);
+            serverAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
+            if (vstr == NULL)
+                addReplyBulkLongLong(c,vlong);
+            else
+                addReplyBulkCBuffer(c,vstr,vlen);
+
+            if (withscores)
+                addReplyDouble(c,zzlGetScore(sptr));
+
+            if (reverse)
+                zzlPrev(zl,&eptr,&sptr);
+            else
+                zzlNext(zl,&eptr,&sptr);
+        }
+
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
+        zskiplist *zsl = zs->zsl;
+        zskiplistNode *ln;
+        robj *ele;
+
+        /* Check if starting point is trivial, before doing log(N) lookup. */
+        if (reverse) {
+            ln = zsl->tail;
+            if (start > 0)
+                ln = zslGetElementByRank(zsl,llen-start);
+        } else {
+            ln = zsl->header->level[0].forward;
+            if (start > 0)
+                ln = zslGetElementByRank(zsl,start+1);
+        }
+
+        while(rangelen--) {
+            serverAssertWithInfo(c,zobj,ln != NULL);
+            ele = ln->obj;
+            addReplyBulk(c,ele);
+            if (withscores)
+                addReplyDouble(c,ln->score);
+            ln = reverse ? ln->backward : ln->level[0].forward;
+        }
+    } else {
+        serverPanic("Unknown sorted set encoding");
+    }
+    
+    pthread_rwlock_unlock(&c->db->rwl);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void zrangeCommand(client *c) {

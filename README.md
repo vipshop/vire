@@ -112,6 +112,13 @@ A quick checklist:
 + scard
 + srem
 
+#### SortedSet
+
++ zadd
++ zincrby
++ zrange
++ zrevrange
+
 ## License
 
 Copyright 2016 DEEP, Inc.

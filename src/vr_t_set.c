@@ -295,12 +295,6 @@ void saddCommand(client *c) {
     pthread_rwlock_unlock(&c->db->rwl);
     server.dirty += added;
     addReplyLongLong(c,added);
-
-#if defined(VR_ASSERT_LOG) || defined(VR_ASSERT_PANIC)
-    for (j = 0; j < c->argc; j++) {
-        ASSERT(c->argv[j]->refcount == 1);
-    }
-#endif
 }
 
 void sremCommand_original(client *c) {
