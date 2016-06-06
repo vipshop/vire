@@ -118,6 +118,7 @@ A quick checklist:
 + zincrby
 + zrange
 + zrevrange
++ zrem
 
 ## License
 

@@ -1559,7 +1559,7 @@ void zincrbyCommand(client *c) {
     zaddGenericCommand(c,ZADD_INCR);
 }
 
-void zremCommand(client *c) {
+void zremCommand_original(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
     int deleted = 0, keyremoved = 0, j;
@@ -1614,6 +1614,69 @@ void zremCommand(client *c) {
         if (keyremoved)
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
         signalModifiedKey(c->db,key);
+        server.dirty += deleted;
+    }
+    addReplyLongLong(c,deleted);
+}
+
+void zremCommand(client *c) {
+    robj *key = c->argv[1];
+    robj *zobj;
+    int deleted = 0, keyremoved = 0, j;
+
+    dispatch_target_db(c, key);
+    pthread_rwlock_wrlock(&c->db->rwl);
+    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
+        checkType(c,zobj,OBJ_ZSET)) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        return;
+    }
+
+    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+        unsigned char *eptr;
+
+        for (j = 2; j < c->argc; j++) {
+            if ((eptr = zzlFind(zobj->ptr,c->argv[j],NULL)) != NULL) {
+                deleted++;
+                zobj->ptr = zzlDelete(zobj->ptr,eptr);
+                if (zzlLength(zobj->ptr) == 0) {
+                    dbDelete(c->db,key);
+                    keyremoved = 1;
+                    break;
+                }
+            }
+        }
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
+        dictEntry *de;
+        double score;
+
+        for (j = 2; j < c->argc; j++) {
+            de = dictFind(zs->dict,c->argv[j]);
+            if (de != NULL) {
+                deleted++;
+
+                /* Delete from the skiplist */
+                score = *(double*)dictGetVal(de);
+                serverAssertWithInfo(c,c->argv[j],zslDelete(zs->zsl,score,c->argv[j]));
+
+                /* Delete from the hash table */
+                dictDelete(zs->dict,c->argv[j]);
+                if (htNeedsResize(zs->dict)) dictResize(zs->dict);
+                if (dictSize(zs->dict) == 0) {
+                    dbDelete(c->db,key);
+                    keyremoved = 1;
+                    break;
+                }
+            }
+        }
+    } else {
+        serverPanic("Unknown sorted set encoding");
+    }
+
+    pthread_rwlock_unlock(&c->db->rwl);
+
+    if (deleted) {
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
