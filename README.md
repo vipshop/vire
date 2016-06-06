@@ -120,6 +120,7 @@ A quick checklist:
 + zrevrange
 + zrem
 + zcard
++ zcount
 
 ## License
 

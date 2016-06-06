@@ -117,7 +117,8 @@ struct redisCommand redisCommandTable[] = {
     {"zrange",zrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
     {"zrevrange",zrevrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
     {"zrem",zremCommand,-3,"wF",0,NULL,1,1,1,0,0},
-    {"zcard",zcardCommand,2,"rF",0,NULL,1,1,1,0,0}
+    {"zcard",zcardCommand,2,"rF",0,NULL,1,1,1,0,0},
+    {"zcount",zcountCommand,4,"rF",0,NULL,1,1,1,0,0}
 };
 
 /* Populates the Redis Command Table starting from the hard coded list

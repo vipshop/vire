@@ -2768,7 +2768,7 @@ void zrevrangebyscoreCommand(client *c) {
     genericZrangebyscoreCommand(c,1);
 }
 
-void zcountCommand(client *c) {
+void zcountCommand_original(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
     zrangespec range;
@@ -2841,6 +2841,97 @@ void zcountCommand(client *c) {
     } else {
         serverPanic("Unknown sorted set encoding");
     }
+
+    addReplyLongLong(c, count);
+}
+
+void zcountCommand(client *c) {
+    robj *key = c->argv[1];
+    robj *zobj;
+    zrangespec range;
+    int count = 0;
+
+    /* Parse the range arguments */
+    if (zslParseRange(c->argv[2],c->argv[3],&range) != VR_OK) {
+        addReplyError(c,"min or max is not a float");
+        return;
+    }
+
+    dispatch_target_db(c, key);
+    pthread_rwlock_rdlock(&c->db->rwl);
+    /* Lookup the sorted set */
+    if ((zobj = lookupKeyReadOrReply(c, key, shared.czero)) == NULL) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c, zobj, OBJ_ZSET)) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
+
+    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+        unsigned char *zl = zobj->ptr;
+        unsigned char *eptr, *sptr;
+        double score;
+
+        /* Use the first element in range as the starting point */
+        eptr = zzlFirstInRange(zl,&range);
+
+        /* No "first" element */
+        if (eptr == NULL) {
+            pthread_rwlock_unlock(&c->db->rwl);
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
+            addReply(c, shared.czero);
+            return;
+        }
+
+        /* First element is in range */
+        sptr = ziplistNext(zl,eptr);
+        score = zzlGetScore(sptr);
+        serverAssertWithInfo(c,zobj,zslValueLteMax(score,&range));
+
+        /* Iterate over elements in range */
+        while (eptr) {
+            score = zzlGetScore(sptr);
+
+            /* Abort when the node is no longer in range. */
+            if (!zslValueLteMax(score,&range)) {
+                break;
+            } else {
+                count++;
+                zzlNext(zl,&eptr,&sptr);
+            }
+        }
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
+        zskiplist *zsl = zs->zsl;
+        zskiplistNode *zn;
+        unsigned long rank;
+
+        /* Find first element in range */
+        zn = zslFirstInRange(zsl, &range);
+
+        /* Use rank of first element, if any, to determine preliminary count */
+        if (zn != NULL) {
+            rank = zslGetRank(zsl, zn->score, zn->obj);
+            count = (zsl->length - (rank - 1));
+
+            /* Find last element in range */
+            zn = zslLastInRange(zsl, &range);
+
+            /* Use rank of last element, if any, to determine the actual count */
+            if (zn != NULL) {
+                rank = zslGetRank(zsl, zn->score, zn->obj);
+                count -= (zsl->length - rank);
+            }
+        }
+    } else {
+        serverPanic("Unknown sorted set encoding");
+    }
+
+    pthread_rwlock_unlock(&c->db->rwl);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 
     addReplyLongLong(c, count);
 }
