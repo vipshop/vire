@@ -3109,7 +3109,7 @@ void zrevrangebylexCommand(client *c) {
     genericZrangebylexCommand(c,1);
 }
 
-void zcardCommand(client *c) {
+void zcardCommand_original(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
 
@@ -3117,6 +3117,28 @@ void zcardCommand(client *c) {
         checkType(c,zobj,OBJ_ZSET)) return;
 
     addReplyLongLong(c,zsetLength(zobj));
+}
+
+void zcardCommand(client *c) {
+    robj *key = c->argv[1];
+    robj *zobj;
+
+    dispatch_target_db(c, key);
+    pthread_rwlock_rdlock(&c->db->rwl);
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.czero)) == NULL) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,zobj,OBJ_ZSET)) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
+    
+    addReplyLongLong(c,zsetLength(zobj));
+
+    pthread_rwlock_unlock(&c->db->rwl);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void zscoreCommand(client *c) {

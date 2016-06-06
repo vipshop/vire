@@ -119,6 +119,7 @@ A quick checklist:
 + zrange
 + zrevrange
 + zrem
++ zcard
 
 ## License
 
