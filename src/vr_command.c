@@ -65,12 +65,12 @@ dictType commandTableDictType = {
 struct redisCommand redisCommandTable[] = {
     /*Connectong*/
     {"ping",pingCommand,-1,"tF",0,NULL,0,0,0,0,0},
+    {"echo",echoCommand,2,"F",0,NULL,0,0,0,0,0},
     {"select",selectCommand,2,"lF",0,NULL,0,0,0,0,0},
     /* Server */
     {"info",infoCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"flushall",flushallCommand,1,"w",0,NULL,0,0,0,0,0},
     {"time",timeCommand,1,"RF",0,NULL,0,0,0,0,0},
-    {"echo",echoCommand,2,"F",0,NULL,0,0,0,0,0},
     /* Key */
     {"del",delCommand,-2,"w",0,NULL,1,-1,1,0,0},
     {"exists",existsCommand,-2,"rF",0,NULL,1,-1,1,0,0},

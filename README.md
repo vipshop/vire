@@ -54,6 +54,7 @@ A quick checklist:
 + ping
 + quit
 + echo
++ select
 
 #### Server
 
