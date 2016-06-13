@@ -271,7 +271,7 @@ void saddCommand(client *c) {
     robj *set, *value;
     int j, added = 0;
 
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_wrlock(&c->db->rwl);
     set = lookupKeyWrite(c->db,c->argv[1]);
     if (set == NULL) {
@@ -329,7 +329,7 @@ void sremCommand(client *c) {
     robj *set;
     int j, deleted = 0, keyremoved = 0;
 
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_wrlock(&c->db->rwl);
     if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,set,OBJ_SET)) {
@@ -434,7 +434,7 @@ void scardCommand_original(client *c) {
 void scardCommand(client *c) {
     robj *o;
 
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_rdlock(&c->db->rwl);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
         pthread_rwlock_unlock(&c->db->rwl);
@@ -833,7 +833,7 @@ void smembersCommand(client *c) {
     void *replylen = NULL;
     int encoding;
 
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_rdlock(&c->db->rwl);
     set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk);
     if (set == NULL) {

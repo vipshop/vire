@@ -54,8 +54,6 @@ static struct evictionPoolEntry *evictionPoolAlloc(void) {
 
 int redisDbInit(redisDb *db)
 {
-    pthread_rwlockattr_t attr;
-
     db->dict = dictCreate(&dbDictType,NULL);
     db->expires = dictCreate(&keyptrDictType,NULL);
     db->blocking_keys = dictCreate(&keylistDictType,NULL);
@@ -64,13 +62,17 @@ int redisDbInit(redisDb *db)
     db->eviction_pool = evictionPoolAlloc();
     db->avg_ttl = 0;
 
-    pthread_rwlockattr_init(&attr);
-    pthread_rwlock_init(&db->rwl, &attr);
+    pthread_rwlock_init(&db->rwl, NULL);
+
+    return VR_OK;
 }
 
-int redisDbDeinit(redisDb *db)
+int 
+redisDbDeinit(redisDb *db)
 {
     pthread_rwlockattr_destroy(&db->rwl);
+    
+    return VR_OK;
 }
 
 robj *lookupKey(redisDb *db, robj *key) {
@@ -293,9 +295,10 @@ long long emptyDb(void(callback)(void*)) {
 int selectDb(client *c, int id) {
     redisDb *db;
     
-    if (id < 0 || id >= server.dbnum)
+    if (id < 0 || id >= server.dblnum)
         return VR_ERROR;
-    c->db = array_get(&server.dbs, (uint32_t)id);
+
+    c->dictid = id;
     return VR_OK;
 }
 
@@ -384,7 +387,7 @@ void delCommand(client *c) {
     robj *o;
 
     for (j = 1; j < c->argc; j++) {
-        dispatch_target_db(c, c->argv[j]);
+        fetchInternalDbByKey(c, c->argv[j]);
         pthread_rwlock_wrlock(&c->db->rwl);
         o = lookupKey(c->db, c->argv[j]);
         if (o != NULL) {
@@ -429,7 +432,7 @@ void existsCommand(client *c) {
     int j;
 
     for (j = 1; j < c->argc; j++) {
-        dispatch_target_db(c, c->argv[j]);
+        fetchInternalDbByKey(c, c->argv[j]);
         pthread_rwlock_wrlock(&c->db->rwl);
         if (lookupKey(c->db, c->argv[j]) != NULL) {
             when = getExpire(c->db,c->argv[j]);
@@ -482,14 +485,14 @@ void randomkeyCommand(client *c) {
     robj *key;
     int idx, retry_count = 0;
 
-    idx = random()%server.dbnum;
+    idx = random()%server.dbpnum;
 
 retry:
-    selectDb(c, idx);
+    fetchInternalDbById(c, idx);
     pthread_rwlock_rdlock(&c->db->rwl);
     if ((key = dbRandomKey(c->db)) == NULL) {
-        if (retry_count++ < server.dbnum) {
-            if (++idx >= server.dbnum) {
+        if (retry_count++ < server.dbpnum) {
+            if (++idx >= server.dbpnum) {
                 idx = 0;
             }
             pthread_rwlock_unlock(&c->db->rwl);
@@ -810,7 +813,7 @@ void typeCommand(client *c) {
     robj *o;
     char *type;
 
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_rdlock(&c->db->rwl);
     o = lookupKeyRead(c->db,c->argv[1]);
     if (o == NULL) {
@@ -1138,7 +1141,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
 
-    dispatch_target_db(c, key);
+    fetchInternalDbByKey(c, key);
 
     pthread_rwlock_wrlock(&c->db->rwl);
     if (lookupKey(c->db, key) != NULL) {
@@ -1220,7 +1223,7 @@ void ttlGenericCommand(client *c, int output_ms) {
     long long expire, ttl;
     long long now = vr_msec_now();
 
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
 
     pthread_rwlock_rdlock(&c->db->rwl);
     /* If the key does not exist at all, return -2 */
@@ -1277,7 +1280,7 @@ void persistCommand_original(client *c) {
 void persistCommand(client *c) {
     dictEntry *de;
     
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_wrlock(&c->db->rwl);
 
     de = dictFind(c->db->dict,c->argv[1]->ptr);
@@ -1474,8 +1477,14 @@ int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkey
     return keys;
 }
 
-int dispatch_target_db(client *c, robj *key) {
-    return selectDb(c, (hash_crc16(key->ptr,stringObjectLen(key))&0x3FFF)%server.dbnum);
+int fetchInternalDbByKey(client *c, robj *key) {
+    c->db = array_get(&server.dbs, (hash_crc16(key->ptr,stringObjectLen(key))&0x3FFF)%server.dbpnum+c->dictid*server.dbpnum);
+    return VR_OK;
+}
+
+int fetchInternalDbById(client *c, int idx) {
+    c->db = array_get(&server.dbs, idx+c->dictid*server.dbpnum);
+    return VR_OK;
 }
 
 /* If the percentage of used slots in the HT reaches HASHTABLE_MIN_FILL
@@ -1582,7 +1591,7 @@ void activeExpireCycle(vr_worker *worker, int type) {
 
     for (j = 0; j < dbs_per_call; j++) {
         int expired;
-        redisDb *db = array_get(&server.dbs, worker->current_db % server.dbnum);
+        redisDb *db = array_get(&server.dbs, worker->current_db%server.dbnum);
 
         /* Increment the DB now so we are sure if we run out of time
          * in the current DB we'll restart from the next. This allows to
@@ -1701,11 +1710,6 @@ void databasesCron(vr_worker *worker) {
      * other processes saving the DB on disk. Otherwise rehashing is bad
      * as will cause a lot of copy-on-write of memory pages. */
     if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
-        /* We use global counters so if we stop the computation at a given
-         * DB we'll be able to start from the successive in the next
-         * cron loop iteration. */
-        static unsigned int resize_db = 0;
-        static unsigned int rehash_db = 0;
         int dbs_per_call = CRON_DBS_PER_CALL;
         int j;
 
@@ -1714,15 +1718,15 @@ void databasesCron(vr_worker *worker) {
 
         /* Resize */
         for (j = 0; j < dbs_per_call; j++) {
-            tryResizeHashTablesForDb(resize_db % server.dbnum);
-            resize_db++;
+            tryResizeHashTablesForDb(worker->resize_db%server.dbnum);
+            worker->resize_db++;
         }
 
         /* Rehash */
         if (server.activerehashing) {
             for (j = 0; j < dbs_per_call; j++) {
-                int work_done = incrementallyRehashForDb(rehash_db % server.dbnum);
-                rehash_db++;
+                int work_done = incrementallyRehashForDb(worker->rehash_db%server.dbnum);
+                worker->rehash_db++;
                 if (work_done) {
                     /* If the function did some work, stop here, we'll do
                      * more at the next cron loop. */

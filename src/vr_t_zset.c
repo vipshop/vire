@@ -1415,7 +1415,7 @@ void zaddGenericCommand(client *c, int flags) {
             != VR_OK) goto cleanup;
     }
 
-    dispatch_target_db(c, key);
+    fetchInternalDbByKey(c, key);
     pthread_rwlock_wrlock(&c->db->rwl);
     /* Lookup the key and create the sorted set if does not exist. */
     zobj = lookupKeyWrite(c->db,key);
@@ -1624,7 +1624,7 @@ void zremCommand(client *c) {
     robj *zobj;
     int deleted = 0, keyremoved = 0, j;
 
-    dispatch_target_db(c, key);
+    fetchInternalDbByKey(c, key);
     pthread_rwlock_wrlock(&c->db->rwl);
     if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) {
@@ -2468,7 +2468,7 @@ void zrangeGenericCommand(client *c, int reverse) {
         return;
     }
 
-    dispatch_target_db(c, key);
+    fetchInternalDbByKey(c, key);
     pthread_rwlock_rdlock(&c->db->rwl);
     if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL) {
         pthread_rwlock_unlock(&c->db->rwl);
@@ -2857,7 +2857,7 @@ void zcountCommand(client *c) {
         return;
     }
 
-    dispatch_target_db(c, key);
+    fetchInternalDbByKey(c, key);
     pthread_rwlock_rdlock(&c->db->rwl);
     /* Lookup the sorted set */
     if ((zobj = lookupKeyReadOrReply(c, key, shared.czero)) == NULL) {
@@ -3214,7 +3214,7 @@ void zcardCommand(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
 
-    dispatch_target_db(c, key);
+    fetchInternalDbByKey(c, key);
     pthread_rwlock_rdlock(&c->db->rwl);
     if ((zobj = lookupKeyReadOrReply(c,key,shared.czero)) == NULL) {
         pthread_rwlock_unlock(&c->db->rwl);

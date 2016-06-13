@@ -107,6 +107,8 @@ vr_worker_init(vr_worker *worker)
     worker->current_db = 0;
     worker->timelimit_exit = 0;
     worker->last_fast_cycle = 0;
+    worker->resize_db = 0;
+    worker->rehash_db = 0;
 
     worker->vel.thread.fun_run = worker_thread_run;
     worker->vel.thread.data = worker;

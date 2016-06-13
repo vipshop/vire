@@ -531,7 +531,7 @@ void hsetCommand(client *c) {
     int update;
     robj *o;
 
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_wrlock(&c->db->rwl);
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) {
         pthread_rwlock_unlock(&c->db->rwl);
@@ -704,7 +704,7 @@ void hgetCommand_original(client *c) {
 void hgetCommand(client *c) {
     robj *o;
 
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_rdlock(&c->db->rwl);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL) {
         pthread_rwlock_unlock(&c->db->rwl);
@@ -771,7 +771,7 @@ void hdelCommand(client *c) {
     robj *o;
     int j, deleted = 0, keyremoved = 0;
     
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_wrlock(&c->db->rwl);
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) {
@@ -809,7 +809,7 @@ void hlenCommand_original(client *c) {
 void hlenCommand(client *c) {
     robj *o;
 
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_rdlock(&c->db->rwl);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
         pthread_rwlock_unlock(&c->db->rwl);

@@ -84,8 +84,12 @@ struct vr_server {
     char *executable;           /* Absolute executable file path. */
     char *configfile;           /* Absolute config file path, or NULL */
     int hz;                     /* serverCron() calls frequency in hertz */
-    struct array dbs;           /* database array */
-    int dbnum;                  /* Total number of configured DBs */
+
+    struct array dbs;           /* database array, type: redisDB */
+    int dbnum;                  /* Total number of DBs */
+    int dblnum;                 /* Logical number of configured DBs */
+    int dbpnum;                 /* Number of DBs for per logical DB */
+    
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     

@@ -199,7 +199,7 @@ void pushGenericCommand(client *c, int where) {
     int j, waiting = 0, pushed = 0;
     robj *lobj;
 
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_wrlock(&c->db->rwl);
     lobj = lookupKeyWrite(c->db,c->argv[1]);
     if (lobj && lobj->type != OBJ_LIST) {
@@ -306,7 +306,7 @@ void llenCommand_original(client *c) {
 void llenCommand(client *c) {
     robj *o;
     
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_rdlock(&c->db->rwl);
     o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
     if (o == NULL) {
@@ -404,7 +404,7 @@ void popGenericCommand(client *c, int where) {
     robj *o;
     robj *value;
     
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_wrlock(&c->db->rwl);
     o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL || checkType(c,o,OBJ_LIST)) {
@@ -488,7 +488,7 @@ void lrangeCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != VR_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != VR_OK)) return;
 
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_rdlock(&c->db->rwl);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL) {
         pthread_rwlock_unlock(&c->db->rwl);

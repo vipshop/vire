@@ -93,7 +93,8 @@ int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 
-int dispatch_target_db(struct client *c, robj *key);
+int fetchInternalDbByKey(struct client *c, robj *key);
+int fetchInternalDbById(struct client *c, int idx);
 
 void tryResizeHashTablesForDb(int dbid);
 int incrementallyRehashForDb(int dbid);

@@ -254,7 +254,9 @@ init_server(struct instance *nci)
     server.pid = getpid();
     server.configfile = getAbsolutePath(nci->conf_filename);
     server.hz = 10;
-    server.dbnum = 16;
+    server.dblnum = 16;
+    server.dbpnum = 16;
+    server.dbnum = server.dblnum*server.dbpnum;
     array_init(&server.dbs, server.dbnum, sizeof(redisDb));
     server.pidfile = nci->pid_filename;
     server.executable = NULL;
@@ -435,21 +437,25 @@ int htNeedsResize(dict *dict) {
             (used*100/size < HASHTABLE_MIN_FILL));
 }
 
+struct keys_statistics {
+    long long keys_all;
+    long long vkeys_all;
+    long long avg_ttl_all;
+    int nexist;
+};
+
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
 sds genVireInfoString(char *section) {
     sds info = sdsempty();
     time_t uptime = time(NULL)-server.starttime;
-    int j, numcommands;
+    int j, k, numcommands;
     struct rusage self_ru;
     unsigned long lol, bib;
     int allsections = 0, defsections = 0;
     int sections = 0;
-    long long keys_all, vkeys_all, avg_ttl_all;
-    int nexit = 0;
-    
-    keys_all = vkeys_all = avg_ttl_all = 0;
+    struct array *kss = NULL;  /* type: keys_statistics */
 
     if (section == NULL) section = "default";
     allsections = strcasecmp(section,"all") == 0;
@@ -634,49 +640,82 @@ sds genVireInfoString(char *section) {
     /* Internal */
     if (allsections || !strcasecmp(section,"internal")) {
         redisDb *db;
+        struct keys_statistics *ks;
         long long keys, vkeys, avg_ttl;
+        
+        kss = array_create(server.dblnum, sizeof(struct keys_statistics));
+        
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Internal\r\n");
-        for (j = 0; j < server.dbnum; j++) {
-            db = array_get(&server.dbs, j);
-            pthread_rwlock_rdlock(&db->rwl);
-            keys = dictSize(db->dict);
-            vkeys = dictSize(db->expires);
-            avg_ttl = db->avg_ttl;
-            pthread_rwlock_unlock(&db->rwl);
-            if (keys || vkeys) {
-                info = sdscatprintf(info,
-                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
-                    j, keys, vkeys, db->avg_ttl);
+        for (j = 0; j < server.dblnum; j++) {
+            ks = array_push(kss);
+            ks->keys_all = ks->vkeys_all = ks->avg_ttl_all = 0;
+            ks->nexist = 0;
+            for (k = 0; k < server.dbpnum; k ++) {
+                db = array_get(&server.dbs, (uint32_t)(j*server.dbpnum+k));
+                pthread_rwlock_rdlock(&db->rwl);
+                keys = dictSize(db->dict);
+                vkeys = dictSize(db->expires);
+                avg_ttl = db->avg_ttl;
+                pthread_rwlock_unlock(&db->rwl);
+                if (keys || vkeys) {
+                    info = sdscatprintf(info,
+                        "db%d-%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
+                        j, k, keys, vkeys, db->avg_ttl);
+                }
+                ks->keys_all += keys;
+                ks->vkeys_all += vkeys;
+                ks->avg_ttl_all += avg_ttl;
+                if (avg_ttl > 0) ks->nexist ++;
             }
-            keys_all += keys;
-            vkeys_all += vkeys;
-            avg_ttl_all += avg_ttl;
-            if (avg_ttl > 0) nexit ++;
         }
     }
 
     /* Key space */
     if (allsections || defsections || !strcasecmp(section,"keyspace")) {
         redisDb *db;
+        struct keys_statistics *ks;
+        long long keys_all, vkeys_all, avg_ttl_all;
+        int nexist;
+        
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
-        if (keys_all == 0) {
-            for (j = 0; j < server.dbnum; j++) {
-                db = array_get(&server.dbs, j);
-                pthread_rwlock_rdlock(&db->rwl);
-                keys_all += dictSize(db->dict);
-                vkeys_all += dictSize(db->expires);
-                avg_ttl_all += db->avg_ttl;
-                if (db->avg_ttl > 0) nexit ++;
-                pthread_rwlock_unlock(&db->rwl);
+        if (kss == NULL) {
+            for (j = 0; j < server.dblnum; j++) {
+                keys_all = vkeys_all = avg_ttl_all = 0;
+                nexist = 0;
+                for (k = 0; k < server.dbpnum; k ++) {
+                    db = array_get(&server.dbs, (uint32_t)(j*server.dbpnum+k));
+                    pthread_rwlock_rdlock(&db->rwl);
+                    keys_all += dictSize(db->dict);
+                    vkeys_all += dictSize(db->expires);
+                    avg_ttl_all += db->avg_ttl;
+                    if (db->avg_ttl > 0) nexist ++;
+                    pthread_rwlock_unlock(&db->rwl);
+                }
+                if (keys_all || vkeys_all) {
+                    info = sdscatprintf(info,
+                        "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
+                        j, keys_all, vkeys_all, nexist>0?(avg_ttl_all/nexist):0);
+                }
+            }
+        } else {
+            for (j = 0; j < server.dblnum; j ++) {
+                ks = array_get(kss, j);
+                if (ks->keys_all || ks->vkeys_all) {
+                    info = sdscatprintf(info,
+                        "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
+                        j, ks->keys_all, ks->vkeys_all, 
+                        ks->nexist>0?(ks->avg_ttl_all/ks->nexist):0);
+                }
             }
         }
-        if (keys_all || vkeys_all) {
-            info = sdscatprintf(info,
-                "keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
-                keys_all, vkeys_all, nexit > 0 ? (avg_ttl_all/nexit) : 0);
-        }
+    }
+
+    if (kss != NULL) {
+        kss->nelem = 0;
+        array_destroy(kss);
+        kss = NULL;
     }
 
     return info;

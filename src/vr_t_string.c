@@ -80,7 +80,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
     }
 
-    dispatch_target_db(c, key);
+    fetchInternalDbByKey(c, key);
     now = vr_msec_now();
 
     pthread_rwlock_wrlock(&c->db->rwl);
@@ -205,7 +205,7 @@ void getCommand(client *c) {
     robj *val;
     long long when;
     
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
 
     pthread_rwlock_rdlock(&c->db->rwl);
     val = lookupKey(c->db, c->argv[1]);
@@ -439,7 +439,7 @@ void incrDecrCommand(client *c, long long incr) {
     long long when;
     int expired = 0;
 
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
 
     pthread_rwlock_wrlock(&c->db->rwl);
     o = lookupKey(c->db, c->argv[1]);
@@ -593,7 +593,7 @@ void appendCommand(client *c) {
     long long when;
     int expired = 0;
 
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
 
     pthread_rwlock_wrlock(&c->db->rwl);
     o = lookupKey(c->db, c->argv[1]);
@@ -654,7 +654,7 @@ void strlenCommand(client *c) {
     robj *val;
     long long when;
     
-    dispatch_target_db(c, c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
     pthread_rwlock_rdlock(&c->db->rwl);
     val = lookupKey(c->db, c->argv[1]);
     if (val == NULL) {
