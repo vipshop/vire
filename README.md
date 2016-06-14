@@ -110,6 +110,7 @@ A quick checklist:
 + lrem
 + ltrim
 + lindex
++ lset
 
 #### Set
 

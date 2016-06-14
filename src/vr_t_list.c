@@ -393,7 +393,7 @@ void lindexCommand(client *c) {
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
-void lsetCommand(client *c) {
+void lsetCommand_original(client *c) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
@@ -417,6 +417,39 @@ void lsetCommand(client *c) {
     } else {
         serverPanic("Unknown list encoding");
     }
+}
+
+void lsetCommand(client *c) {
+    robj *o;
+    long index;
+    robj *value = c->argv[3];
+
+    if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != VR_OK))
+        return;
+
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
+    if (o == NULL || checkType(c,o,OBJ_LIST)) {
+        unlockDb(c->db);
+        return;
+    }
+    
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+        quicklist *ql = o->ptr;
+        int replaced = quicklistReplaceAtIndex(ql, index,
+                                               value->ptr, sdslen(value->ptr));
+        if (!replaced) {
+            addReply(c,shared.outofrangeerr);
+        } else {
+            addReply(c,shared.ok);
+            server.dirty++;
+        }
+    } else {
+        serverPanic("Unknown list encoding");
+    }
+
+    unlockDb(c->db);
 }
 
 void popGenericCommand_original(client *c, int where) {
