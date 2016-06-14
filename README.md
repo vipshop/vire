@@ -108,6 +108,7 @@ A quick checklist:
 + lpop
 + llen
 + lrem
++ ltrim
 
 #### Set
 
