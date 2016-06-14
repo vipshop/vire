@@ -324,7 +324,7 @@ void llenCommand(client *c) {
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
-void lindexCommand(client *c) {
+void lindexCommand_original(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
@@ -349,6 +349,48 @@ void lindexCommand(client *c) {
     } else {
         serverPanic("Unknown list encoding");
     }
+}
+
+void lindexCommand(client *c) {
+    robj *o;
+    long index;
+    robj *value = NULL;
+
+    if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != VR_OK))
+        return;
+
+    fetchInternalDbByKey(c,c->argv[1]);
+    lockDbRead(c->db);
+    o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk);
+    if (o == NULL) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,o,OBJ_LIST)) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
+
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+        quicklistEntry entry;
+        if (quicklistIndex(o->ptr, index, &entry)) {
+            if (entry.value) {
+                value = createStringObject((char*)entry.value,entry.sz);
+            } else {
+                value = createStringObjectFromLongLong(entry.longval);
+            }
+            addReplyBulk(c,value);
+            decrRefCount(value);
+        } else {
+            addReply(c,shared.nullbulk);
+        }
+    } else {
+        serverPanic("Unknown list encoding");
+    }
+
+    unlockDb(c->db);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void lsetCommand(client *c) {

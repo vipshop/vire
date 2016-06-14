@@ -111,6 +111,7 @@ struct redisCommand redisCommandTable[] = {
     {"llen",llenCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"lrem",lremCommand,4,"w",0,NULL,1,1,1,0,0},
     {"ltrim",ltrimCommand,4,"w",0,NULL,1,1,1,0,0},
+    {"lindex",lindexCommand,3,"r",0,NULL,1,1,1,0,0},
     /* Set */
     {"sadd",saddCommand,-3,"wmF",0,NULL,1,1,1,0,0},
     {"smembers",smembersCommand,2,"rS",0,NULL,1,1,1,0,0},

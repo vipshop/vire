@@ -109,6 +109,7 @@ A quick checklist:
 + llen
 + lrem
 + ltrim
++ lindex
 
 #### Set
 
