@@ -89,6 +89,7 @@ A quick checklist:
 + decrby
 + append
 + strlen
++ getset
 
 #### Hash
 

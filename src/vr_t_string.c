@@ -234,12 +234,50 @@ void getCommand(client *c) {
     }
 }
 
-void getsetCommand(client *c) {
+void getsetCommand_original(client *c) {
     if (getGenericCommand(c) == VR_ERROR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setKey(c->db,c->argv[1],c->argv[2]);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
+}
+
+void getsetCommand(client *c) {
+    robj *key, *val;
+    int exist = 0;
+
+    key = c->argv[1];
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
+    
+    fetchInternalDbByKey(c,key);
+    pthread_rwlock_wrlock(&c->db->rwl);
+    val = lookupKeyWriteOrReply(c,key,shared.nullbulk);
+    if (val == NULL) {
+        dbAdd(c->db,key,dupStringObject(c->argv[2]));
+    } else {
+        exist = 1;
+        
+        if (val->type != OBJ_STRING) {
+            pthread_rwlock_unlock(&c->db->rwl);
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
+            addReply(c,shared.wrongtypeerr);
+            return;
+        }
+
+        addReplyBulk(c,val);
+        
+        dbOverwrite(c->db,key,dupStringObject(c->argv[2]));
+        removeExpire(c->db,key);
+    }
+    
+    pthread_rwlock_unlock(&c->db->rwl);
+
+    server.dirty++;
+    if (exist) {
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+    } else {
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+    }
 }
 
 void setrangeCommand(client *c) {
