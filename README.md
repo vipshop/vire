@@ -107,6 +107,7 @@ A quick checklist:
 + rpop
 + lpop
 + llen
++ lrem
 
 #### Set
 

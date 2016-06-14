@@ -588,7 +588,7 @@ void ltrimCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-void lremCommand(client *c) {
+void lremCommand_original(client *c) {
     robj *subject, *obj;
     obj = c->argv[3];
     long toremove;
@@ -629,6 +629,50 @@ void lremCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
 
+    addReplyLongLong(c,removed);
+}
+
+void lremCommand(client *c) {
+    robj *subject, *obj;
+    obj = c->argv[3];
+    long toremove;
+    long removed = 0;
+
+    if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != VR_OK))
+        return;
+
+    fetchInternalDbByKey(c, c->argv[1]);
+    pthread_rwlock_wrlock(&c->db->rwl);
+    subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero);
+    if (subject == NULL || checkType(c,subject,OBJ_LIST)) {
+        pthread_rwlock_unlock(&c->db->rwl);
+        return;
+    }
+    
+    listTypeIterator *li;
+    if (toremove < 0) {
+        toremove = -toremove;
+        li = listTypeInitIterator(subject,-1,LIST_HEAD);
+    } else {
+        li = listTypeInitIterator(subject,0,LIST_TAIL);
+    }
+
+    listTypeEntry entry;
+    while (listTypeNext(li,&entry)) {
+        if (listTypeEqual(&entry,obj)) {
+            listTypeDelete(li, &entry);
+            server.dirty++;
+            removed++;
+            if (toremove && removed == toremove) break;
+        }
+    }
+    listTypeReleaseIterator(li);
+
+    if (listTypeLength(subject) == 0) {
+        dbDelete(c->db,c->argv[1]);
+    }
+    
+    pthread_rwlock_unlock(&c->db->rwl);
     addReplyLongLong(c,removed);
 }
 
