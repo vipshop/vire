@@ -90,6 +90,7 @@ A quick checklist:
 + append
 + strlen
 + getset
++ incrbyfloat
 
 #### Hash
 

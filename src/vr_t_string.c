@@ -558,7 +558,7 @@ void decrbyCommand(client *c) {
     incrDecrCommand(c,-incr);
 }
 
-void incrbyfloatCommand(client *c) {
+void incrbyfloatCommand_original(client *c) {
     long double incr, value;
     robj *o, *new, *aux;
 
@@ -590,6 +590,35 @@ void incrbyfloatCommand(client *c) {
     rewriteClientCommandArgument(c,0,aux);
     decrRefCount(aux);
     rewriteClientCommandArgument(c,2,new);
+}
+
+void incrbyfloatCommand(client *c) {
+    long double incr, value;
+    robj *o, *new;
+
+    fetchInternalDbByKey(c, c->argv[1]);
+    pthread_rwlock_wrlock(&c->db->rwl);
+    o = lookupKeyWrite(c->db,c->argv[1]);
+    if (o != NULL && checkType(c,o,OBJ_STRING)) goto end;
+    if (getLongDoubleFromObjectOrReply(c,o,&value,NULL) != VR_OK ||
+        getLongDoubleFromObjectOrReply(c,c->argv[2],&incr,NULL) != VR_OK)
+        goto end;
+
+    value += incr;
+    if (isnan(value) || isinf(value)) {
+        addReplyError(c,"increment would produce NaN or Infinity");
+        goto end;;
+    }
+    new = createStringObjectFromLongDouble(value,1);
+    if (o)
+        dbOverwrite(c->db,c->argv[1],new);
+    else
+        dbAdd(c->db,c->argv[1],new);
+    server.dirty++;
+    addReplyBulk(c,new);
+
+end:
+    pthread_rwlock_unlock(&c->db->rwl);
 }
 
 void appendCommand_original(client *c) {

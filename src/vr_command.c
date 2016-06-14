@@ -96,6 +96,7 @@ struct redisCommand redisCommandTable[] = {
     {"append",appendCommand,3,"wm",0,NULL,1,1,1,0,0},
     {"strlen",strlenCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"getset",getsetCommand,3,"wm",0,NULL,1,1,1,0,0},
+    {"incrbyfloat",incrbyfloatCommand,3,"wmF",0,NULL,1,1,1,0,0},
     /* Hash */
     {"hset",hsetCommand,4,"wmF",0,NULL,1,1,1,0,0},
     {"hget",hgetCommand,3,"rF",0,NULL,1,1,1,0,0},
@@ -248,6 +249,7 @@ void call(client *c, int flags) {
     c->cmd->proc(c);
     duration = vr_usec_now()-start;
     dirty = server.dirty-dirty;
+    dirty = 0;
     if (dirty < 0) dirty = 0;
 
     /* When EVAL is called loading the AOF we don't want commands called
