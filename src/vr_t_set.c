@@ -272,14 +272,14 @@ void saddCommand(client *c) {
     int j, added = 0;
 
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     set = lookupKeyWrite(c->db,c->argv[1]);
     if (set == NULL) {
         set = setTypeCreate(c->argv[2]);
         dbAdd(c->db,c->argv[1],set);
     } else {
         if (set->type != OBJ_SET) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             addReply(c,shared.wrongtypeerr);
             return;
         }
@@ -292,7 +292,7 @@ void saddCommand(client *c) {
         decrRefCount(value);
     }
 
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     server.dirty += added;
     addReplyLongLong(c,added);
 }
@@ -330,10 +330,10 @@ void sremCommand(client *c) {
     int j, deleted = 0, keyremoved = 0;
 
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,set,OBJ_SET)) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         return;
     }
     
@@ -348,7 +348,7 @@ void sremCommand(client *c) {
         }
     }
 
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     
     if (deleted) {
         server.dirty += deleted;
@@ -435,19 +435,19 @@ void scardCommand(client *c) {
     robj *o;
 
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_rdlock(&c->db->rwl);
+    lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     } else if (checkType(c,o,OBJ_SET)) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
         return;
     }
     
     addReplyLongLong(c,setTypeSize(o));
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
@@ -834,14 +834,14 @@ void smembersCommand(client *c) {
     int encoding;
 
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_rdlock(&c->db->rwl);
+    lockDbRead(c->db);
     set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk);
     if (set == NULL) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     } else if(checkType(c,set,OBJ_SET)) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
         return;
     }
@@ -857,7 +857,7 @@ void smembersCommand(client *c) {
     }
     setTypeReleaseIterator(si);
 
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 

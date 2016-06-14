@@ -653,11 +653,11 @@ sds genVireInfoString(char *section) {
             ks->nexist = 0;
             for (k = 0; k < server.dbpnum; k ++) {
                 db = array_get(&server.dbs, (uint32_t)(j*server.dbpnum+k));
-                pthread_rwlock_rdlock(&db->rwl);
+                lockDbRead(db);
                 keys = dictSize(db->dict);
                 vkeys = dictSize(db->expires);
                 avg_ttl = db->avg_ttl;
-                pthread_rwlock_unlock(&db->rwl);
+                unlockDb(db);
                 if (keys || vkeys) {
                     info = sdscatprintf(info,
                         "db%d-%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
@@ -686,12 +686,12 @@ sds genVireInfoString(char *section) {
                 nexist = 0;
                 for (k = 0; k < server.dbpnum; k ++) {
                     db = array_get(&server.dbs, (uint32_t)(j*server.dbpnum+k));
-                    pthread_rwlock_rdlock(&db->rwl);
+                    lockDbRead(db);
                     keys_all += dictSize(db->dict);
                     vkeys_all += dictSize(db->expires);
                     avg_ttl_all += db->avg_ttl;
                     if (db->avg_ttl > 0) nexist ++;
-                    pthread_rwlock_unlock(&db->rwl);
+                    unlockDb(db);
                 }
                 if (keys_all || vkeys_all) {
                     info = sdscatprintf(info,

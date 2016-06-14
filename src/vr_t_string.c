@@ -83,7 +83,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     fetchInternalDbByKey(c, key);
     now = vr_msec_now();
 
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     o = lookupKey(c->db, c->argv[1]);
     if (o != NULL) {
         exist = true;
@@ -93,12 +93,12 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
             exist = false;
             expired ++;
         } else if (flags & OBJ_SET_NX) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             addReply(c, abort_reply ? abort_reply : shared.nullbulk);
             return;
         }
     } else if (o == NULL && flags & OBJ_SET_XX) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
     }
@@ -111,7 +111,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     removeExpire(c->db,key);
     signalModifiedKey(c->db,key);
     if (expire) setExpire(c->db,key,now+milliseconds);
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     addReply(c, ok_reply ? ok_reply : shared.ok);
 
     if (expired > 0) {
@@ -206,29 +206,28 @@ void getCommand(client *c) {
     long long when;
     
     fetchInternalDbByKey(c, c->argv[1]);
-
-    pthread_rwlock_rdlock(&c->db->rwl);
+    lockDbRead(c->db);
     val = lookupKey(c->db, c->argv[1]);
     if (val != NULL) {
         when = getExpire(c->db,c->argv[1]);
         if (when >= 0 && vr_msec_now() > when) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             addReply(c, shared.nullbulk);
             update_stats_add(c->vel->stats, keyspace_misses, 1);
             return;
         }
 
         if (checkType(c,val,OBJ_STRING)) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             update_stats_add(c->vel->stats, keyspace_hits, 1);
             return;
         }
         
         addReplyBulk(c, val);
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
     } else {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         addReply(c, shared.nullbulk);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
     }
@@ -250,7 +249,7 @@ void getsetCommand(client *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     
     fetchInternalDbByKey(c,key);
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     val = lookupKeyWriteOrReply(c,key,shared.nullbulk);
     if (val == NULL) {
         dbAdd(c->db,key,dupStringObject(c->argv[2]));
@@ -258,7 +257,7 @@ void getsetCommand(client *c) {
         exist = 1;
         
         if (val->type != OBJ_STRING) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             update_stats_add(c->vel->stats, keyspace_hits, 1);
             addReply(c,shared.wrongtypeerr);
             return;
@@ -270,7 +269,7 @@ void getsetCommand(client *c) {
         removeExpire(c->db,key);
     }
     
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
 
     server.dirty++;
     if (exist) {
@@ -478,8 +477,7 @@ void incrDecrCommand(client *c, long long incr) {
     int expired = 0;
 
     fetchInternalDbByKey(c, c->argv[1]);
-
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     o = lookupKey(c->db, c->argv[1]);
     if (o != NULL) {
         when = getExpire(c->db,c->argv[1]);
@@ -488,10 +486,10 @@ void incrDecrCommand(client *c, long long incr) {
             value = 0;
             expired ++;
         } else if (checkType(c,o,OBJ_STRING)) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             return;
         } else if (getLongLongFromObjectOrReply(c,o,&value,NULL) != VR_OK) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             return;
         }
     } else {
@@ -501,7 +499,7 @@ void incrDecrCommand(client *c, long long incr) {
     oldvalue = value;
     if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
         (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue))) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         addReplyError(c,"increment or decrement would overflow");
 
         if (expired > 0) {
@@ -525,7 +523,7 @@ void incrDecrCommand(client *c, long long incr) {
             dbAdd(c->db,c->argv[1],new);
         }
     }
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     server.dirty++;
     addReply(c,shared.colon);
     addReply(c,new);
@@ -597,7 +595,7 @@ void incrbyfloatCommand(client *c) {
     robj *o, *new;
 
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o != NULL && checkType(c,o,OBJ_STRING)) goto end;
     if (getLongDoubleFromObjectOrReply(c,o,&value,NULL) != VR_OK ||
@@ -618,7 +616,7 @@ void incrbyfloatCommand(client *c) {
     addReplyBulk(c,new);
 
 end:
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
 }
 
 void appendCommand_original(client *c) {
@@ -661,8 +659,7 @@ void appendCommand(client *c) {
     int expired = 0;
 
     fetchInternalDbByKey(c, c->argv[1]);
-
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     o = lookupKey(c->db, c->argv[1]);
     if (o != NULL) {
         when = getExpire(c->db,c->argv[1]);
@@ -671,7 +668,7 @@ void appendCommand(client *c) {
             o = NULL;
             expired ++;
         } else if (checkType(c,o,OBJ_STRING)) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             return;
         }
     } 
@@ -687,7 +684,7 @@ void appendCommand(client *c) {
         append = c->argv[2];
         totlen = stringObjectLen(o)+sdslen(append->ptr);
         if (checkStringLength(c,totlen) != VR_OK) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
 
             if (expired > 0) {
                 update_stats_add(c->vel->stats, expiredkeys, expired);
@@ -701,7 +698,7 @@ void appendCommand(client *c) {
         totlen = sdslen(o->ptr);
     }
     
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     server.dirty++;
     addReplyLongLong(c,totlen);
 
@@ -722,30 +719,30 @@ void strlenCommand(client *c) {
     long long when;
     
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_rdlock(&c->db->rwl);
+    lockDbRead(c->db);
     val = lookupKey(c->db, c->argv[1]);
     if (val == NULL) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         addReply(c, shared.czero);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     } else {
         when = getExpire(c->db,c->argv[1]);    
         if (when >= 0 && vr_msec_now() > when) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             addReply(c, shared.czero);
             update_stats_add(c->vel->stats, keyspace_misses, 1);
             return;
         }
         
         if (checkType(c,val,OBJ_STRING)) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             update_stats_add(c->vel->stats, keyspace_hits, 1);
             return;
         }
     }
 
     addReplyLongLong(c,stringObjectLen(val));
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }

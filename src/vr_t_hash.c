@@ -532,15 +532,15 @@ void hsetCommand(client *c) {
     robj *o;
 
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         return;
     }
     hashTypeTryConversion(o,c->argv,2,3);
     hashTypeTryObjectEncoding(o,&c->argv[2], &c->argv[3]);
     update = hashTypeSet(o,c->argv[2],c->argv[3]);
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     addReply(c, update ? shared.czero : shared.cone);
     server.dirty++;
 }
@@ -705,19 +705,19 @@ void hgetCommand(client *c) {
     robj *o;
 
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_rdlock(&c->db->rwl);
+    lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     } else if (checkType(c,o,OBJ_HASH)) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
         return;
     }
     
     addHashFieldToReply(c, o, c->argv[2]);
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
@@ -772,10 +772,10 @@ void hdelCommand(client *c) {
     int j, deleted = 0, keyremoved = 0;
     
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         return;
     }
     
@@ -789,7 +789,7 @@ void hdelCommand(client *c) {
             }
         }
     }
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
 
     if (deleted) {
         server.dirty += deleted;
@@ -810,19 +810,19 @@ void hlenCommand(client *c) {
     robj *o;
 
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_rdlock(&c->db->rwl);
+    lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     } else if (checkType(c,o,OBJ_HASH)) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
         return;
     }
     
     addReplyLongLong(c,hashTypeLength(o));
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 

@@ -75,6 +75,27 @@ redisDbDeinit(redisDb *db)
     return VR_OK;
 }
 
+int
+lockDbRead(redisDb *db)
+{
+    pthread_rwlock_rdlock(&db->rwl);
+    return VR_OK;
+}
+
+int
+lockDbWrite(redisDb *db)
+{
+    pthread_rwlock_wrlock(&db->rwl);
+    return VR_OK;
+}
+
+int
+unlockDb(redisDb *db)
+{
+    pthread_rwlock_unlock(&db->rwl);
+    return VR_OK;
+}
+
 robj *lookupKey(redisDb *db, robj *key) {
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
@@ -356,10 +377,10 @@ void flushallCommand(client *c) {
 
     for (idx = 0; idx < server.dbnum; idx ++) {
         db = array_get(&server.dbs, (uint32_t)idx);
-        pthread_rwlock_wrlock(&db->rwl);
+        lockDbWrite(db);
         dictEmpty(db->dict,NULL);
         dictEmpty(db->expires,NULL);
-        pthread_rwlock_unlock(&db->rwl);
+        unlockDb(db);
     }
 
     addReply(c,shared.ok);
@@ -388,13 +409,13 @@ void delCommand(client *c) {
 
     for (j = 1; j < c->argc; j++) {
         fetchInternalDbByKey(c, c->argv[j]);
-        pthread_rwlock_wrlock(&c->db->rwl);
+        lockDbWrite(c->db);
         o = lookupKey(c->db, c->argv[j]);
         if (o != NULL) {
             when = getExpire(c->db,c->argv[1]);    
             if (when >= 0 && now > when) {
                 dbDelete(c->db, c->argv[1]);
-                pthread_rwlock_unlock(&c->db->rwl);
+                unlockDb(c->db);
                 expired ++;
                 continue;
             }
@@ -402,7 +423,7 @@ void delCommand(client *c) {
                 deleted++;
             }
         }
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
     }
     addReplyLongLong(c,deleted);
 
@@ -433,7 +454,7 @@ void existsCommand(client *c) {
 
     for (j = 1; j < c->argc; j++) {
         fetchInternalDbByKey(c, c->argv[j]);
-        pthread_rwlock_wrlock(&c->db->rwl);
+        lockDbWrite(c->db);
         if (lookupKey(c->db, c->argv[j]) != NULL) {
             when = getExpire(c->db,c->argv[j]);
             if (when >= 0 && vr_msec_now() > when) {
@@ -443,7 +464,7 @@ void existsCommand(client *c) {
                 count++;
             }
         }
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
     }
     addReplyLongLong(c,count);
 
@@ -489,22 +510,22 @@ void randomkeyCommand(client *c) {
 
 retry:
     fetchInternalDbById(c, idx);
-    pthread_rwlock_rdlock(&c->db->rwl);
+    lockDbRead(c->db);
     if ((key = dbRandomKey(c->db)) == NULL) {
         if (retry_count++ < server.dbpnum) {
             if (++idx >= server.dbpnum) {
                 idx = 0;
             }
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             goto retry;
         }
 
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         addReply(c,shared.nullbulk);
         return;
     }
 
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     addReplyBulk(c,key);
     decrRefCount(key);
 }
@@ -814,11 +835,11 @@ void typeCommand(client *c) {
     char *type;
 
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_rdlock(&c->db->rwl);
+    lockDbRead(c->db);
     o = lookupKeyRead(c->db,c->argv[1]);
     if (o == NULL) {
         type = "none";
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         addReplyStatus(c,type);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
@@ -833,7 +854,7 @@ void typeCommand(client *c) {
         }
     }
 
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     addReplyStatus(c,type);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
@@ -1143,19 +1164,19 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 
     fetchInternalDbByKey(c, key);
 
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     if (lookupKey(c->db, key) != NULL) {
         expire = getExpire(c->db, key);
         if (expire >= 0 && vr_msec_now() > expire) {
             serverAssertWithInfo(c,key,dbDelete(c->db, key));
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             addReply(c,shared.czero);
 
             update_stats_add(c->vel->stats, expiredkeys, 1);
             return;
         }
     } else {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         addReply(c,shared.czero);
         return;
     }
@@ -1169,12 +1190,12 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     if (when <= vr_msec_now() && !server.loading && !repl.masterhost) {
         serverAssertWithInfo(c,key,dbDelete(c->db,key));
         server.dirty++;
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         addReply(c, shared.cone);
         return;
     } else {
         setExpire(c->db,key,when);
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         addReply(c,shared.cone);
         server.dirty++;
         return;
@@ -1225,16 +1246,16 @@ void ttlGenericCommand(client *c, int output_ms) {
 
     fetchInternalDbByKey(c, c->argv[1]);
 
-    pthread_rwlock_rdlock(&c->db->rwl);
+    lockDbRead(c->db);
     /* If the key does not exist at all, return -2 */
     if (lookupKey(c->db, c->argv[1]) == NULL) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         addReplyLongLong(c,-2);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     }
     expire = getExpire(c->db,c->argv[1]);
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     if (expire >= 0 && now > expire) {
         addReplyLongLong(c,-2);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
@@ -1281,19 +1302,18 @@ void persistCommand(client *c) {
     dictEntry *de;
     
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_wrlock(&c->db->rwl);
-
+    lockDbWrite(c->db);
     de = dictFind(c->db->dict,c->argv[1]->ptr);
     if (de == NULL) {        
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         addReply(c,shared.czero);
     } else {
         if (removeExpire(c->db,c->argv[1])) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             addReply(c,shared.cone);
             server.dirty++;
         } else {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             addReply(c,shared.czero);
         }
     }
@@ -1493,12 +1513,12 @@ void tryResizeHashTablesForDb(int dbid) {
     redisDb *db;
 
     db = array_get(&server.dbs, dbid);
-    pthread_rwlock_wrlock(&db->rwl);
+    lockDbWrite(db);
     if (htNeedsResize(db->dict))
         dictResize(db->dict);
     if (htNeedsResize(db->expires))
         dictResize(db->expires);
-    pthread_rwlock_unlock(&db->rwl);
+    unlockDb(db);
 }
 
 /* Our hash table implementation performs rehashing incrementally while
@@ -1512,22 +1532,22 @@ int incrementallyRehashForDb(int dbid) {
     redisDb *db;
 
     db = array_get(&server.dbs, dbid);
-    pthread_rwlock_wrlock(&db->rwl);
+    lockDbWrite(db);
     
     /* Keys dictionary */
     if (dictIsRehashing(db->dict)) {
         dictRehashMilliseconds(db->dict,1);
-        pthread_rwlock_unlock(&db->rwl);
+        unlockDb(db);
         return 1; /* already used our millisecond for this loop... */
     }
     /* Expires */
     if (dictIsRehashing(db->expires)) {
         dictRehashMilliseconds(db->expires,1);
-        pthread_rwlock_unlock(&db->rwl);
+        unlockDb(db);
         return 1; /* already used our millisecond for this loop... */
     }
 
-    pthread_rwlock_unlock(&db->rwl);
+    unlockDb(db);
     return 0;
 }
 
@@ -1598,7 +1618,7 @@ void activeExpireCycle(vr_worker *worker, int type) {
          * distribute the time evenly across DBs. */
         worker->current_db++;
         
-        pthread_rwlock_wrlock(&db->rwl);
+        lockDbWrite(db);
         /* Continue to expire if at the end of the cycle more than 25%
          * of the keys were expired. */
         do {
@@ -1666,7 +1686,7 @@ void activeExpireCycle(vr_worker *worker, int type) {
                 if (elapsed > timelimit) worker->timelimit_exit = 1;
             }
             if (worker->timelimit_exit) {
-                pthread_rwlock_unlock(&db->rwl);
+                unlockDb(db);
 
                 if (expired_total > 0) {
                     update_stats_add(worker->vel.stats, expiredkeys, expired_total);
@@ -1676,7 +1696,7 @@ void activeExpireCycle(vr_worker *worker, int type) {
             /* We don't repeat the cycle if there are less than 25% of keys
              * found expired in the current DB. */
         } while (expired > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP/4);
-        pthread_rwlock_unlock(&db->rwl);
+        unlockDb(db);
     }
 
     if (expired_total > 0) {

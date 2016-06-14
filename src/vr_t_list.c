@@ -200,10 +200,10 @@ void pushGenericCommand(client *c, int where) {
     robj *lobj;
 
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     lobj = lookupKeyWrite(c->db,c->argv[1]);
     if (lobj && lobj->type != OBJ_LIST) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         addReply(c,shared.wrongtypeerr);
         return;
     }
@@ -221,7 +221,7 @@ void pushGenericCommand(client *c, int where) {
     }
     
     addReplyLongLong(c, waiting + (lobj ? listTypeLength(lobj) : 0));    
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     server.dirty += pushed;
 }
 
@@ -307,20 +307,20 @@ void llenCommand(client *c) {
     robj *o;
     
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_rdlock(&c->db->rwl);
+    lockDbRead(c->db);
     o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
     if (o == NULL) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     } else if(checkType(c,o,OBJ_LIST)) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
         return;
     }
 
     addReplyLongLong(c,listTypeLength(o));
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
@@ -405,10 +405,10 @@ void popGenericCommand(client *c, int where) {
     robj *value;
     
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL || checkType(c,o,OBJ_LIST)) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         return;
     }
     
@@ -424,7 +424,7 @@ void popGenericCommand(client *c, int where) {
         server.dirty++;
     }
 
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
 }
 
 void lpopCommand(client *c) {
@@ -489,13 +489,13 @@ void lrangeCommand(client *c) {
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != VR_OK)) return;
 
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_rdlock(&c->db->rwl);
+    lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     } else if (checkType(c,o,OBJ_LIST)) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
         return;
     }
@@ -511,7 +511,7 @@ void lrangeCommand(client *c) {
      * The range is empty when start > end or start >= length. */
     if (start > end || start >= llen) {
         addReply(c,shared.emptymultibulk);
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
         return;
     }
@@ -538,7 +538,7 @@ void lrangeCommand(client *c) {
         serverPanic("List encoding is not QUICKLIST!");
     }
 
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
@@ -642,10 +642,10 @@ void lremCommand(client *c) {
         return;
 
     fetchInternalDbByKey(c, c->argv[1]);
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero);
     if (subject == NULL || checkType(c,subject,OBJ_LIST)) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         return;
     }
     
@@ -672,7 +672,7 @@ void lremCommand(client *c) {
         dbDelete(c->db,c->argv[1]);
     }
     
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     addReplyLongLong(c,removed);
 }
 

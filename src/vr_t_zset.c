@@ -1416,12 +1416,12 @@ void zaddGenericCommand(client *c, int flags) {
     }
 
     fetchInternalDbByKey(c, key);
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     /* Lookup the key and create the sorted set if does not exist. */
     zobj = lookupKeyWrite(c->db,key);
     if (zobj == NULL) {
         if (xx) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             goto reply_to_client; /* No key + XX option: nothing to do. */
         }
         if (server.zset_max_ziplist_entries == 0 ||
@@ -1434,7 +1434,7 @@ void zaddGenericCommand(client *c, int flags) {
         dbAdd(c->db,key,zobj);
     } else {
         if (zobj->type != OBJ_ZSET) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             addReply(c,shared.wrongtypeerr);
             goto cleanup;
         }
@@ -1453,7 +1453,7 @@ void zaddGenericCommand(client *c, int flags) {
                 if (incr) {
                     score += curscore;
                     if (isnan(score)) {
-                        pthread_rwlock_unlock(&c->db->rwl);
+                        unlockDb(c->db);
                         addReplyError(c,nanerr);
                         goto cleanup;
                     }
@@ -1495,7 +1495,7 @@ void zaddGenericCommand(client *c, int flags) {
                 if (incr) {
                     score += curscore;
                     if (isnan(score)) {
-                        pthread_rwlock_unlock(&c->db->rwl);
+                        unlockDb(c->db);
                         addReplyError(c,nanerr);
                         /* Don't need to check if the sorted set is empty
                          * because we know it has at least one element. */
@@ -1530,7 +1530,7 @@ void zaddGenericCommand(client *c, int flags) {
         }
     }
 
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
 
 reply_to_client:
     if (incr) { /* ZINCRBY or INCR option. */
@@ -1625,10 +1625,10 @@ void zremCommand(client *c) {
     int deleted = 0, keyremoved = 0, j;
 
     fetchInternalDbByKey(c, key);
-    pthread_rwlock_wrlock(&c->db->rwl);
+    lockDbWrite(c->db);
     if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         return;
     }
 
@@ -1674,7 +1674,7 @@ void zremCommand(client *c) {
         serverPanic("Unknown sorted set encoding");
     }
 
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
 
     if (deleted) {
         server.dirty += deleted;
@@ -2469,13 +2469,13 @@ void zrangeGenericCommand(client *c, int reverse) {
     }
 
     fetchInternalDbByKey(c, key);
-    pthread_rwlock_rdlock(&c->db->rwl);
+    lockDbRead(c->db);
     if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     } else if (checkType(c,zobj,OBJ_ZSET)) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
         return;
     }
@@ -2489,7 +2489,7 @@ void zrangeGenericCommand(client *c, int reverse) {
     /* Invariant: start >= 0, so this test will be true when end < 0.
      * The range is empty when start > end or start >= length. */
     if (start > end || start >= llen) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
         addReply(c,shared.emptymultibulk);
         return;
@@ -2561,7 +2561,7 @@ void zrangeGenericCommand(client *c, int reverse) {
         serverPanic("Unknown sorted set encoding");
     }
     
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
@@ -2858,14 +2858,14 @@ void zcountCommand(client *c) {
     }
 
     fetchInternalDbByKey(c, key);
-    pthread_rwlock_rdlock(&c->db->rwl);
+    lockDbRead(c->db);
     /* Lookup the sorted set */
     if ((zobj = lookupKeyReadOrReply(c, key, shared.czero)) == NULL) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     } else if (checkType(c, zobj, OBJ_ZSET)) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
         return;
     }
@@ -2880,7 +2880,7 @@ void zcountCommand(client *c) {
 
         /* No "first" element */
         if (eptr == NULL) {
-            pthread_rwlock_unlock(&c->db->rwl);
+            unlockDb(c->db);
             update_stats_add(c->vel->stats, keyspace_hits, 1);
             addReply(c, shared.czero);
             return;
@@ -2930,7 +2930,7 @@ void zcountCommand(client *c) {
         serverPanic("Unknown sorted set encoding");
     }
 
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 
     addReplyLongLong(c, count);
@@ -3215,20 +3215,20 @@ void zcardCommand(client *c) {
     robj *zobj;
 
     fetchInternalDbByKey(c, key);
-    pthread_rwlock_rdlock(&c->db->rwl);
+    lockDbRead(c->db);
     if ((zobj = lookupKeyReadOrReply(c,key,shared.czero)) == NULL) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
     } else if (checkType(c,zobj,OBJ_ZSET)) {
-        pthread_rwlock_unlock(&c->db->rwl);
+        unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
         return;
     }
     
     addReplyLongLong(c,zsetLength(zobj));
 
-    pthread_rwlock_unlock(&c->db->rwl);
+    unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 

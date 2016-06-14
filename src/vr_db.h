@@ -36,6 +36,11 @@ extern dictType keylistDictType;
 
 int redisDbInit(redisDb *db);
 int redisDbDeinit(redisDb *db);
+
+int lockDbRead(redisDb *db);
+int lockDbWrite(redisDb *db);
+int unlockDb(redisDb *db);
+
 robj *lookupKey(redisDb *db, robj *key);
 robj *lookupKeyRead(redisDb *db, robj *key);
 robj *lookupKeyWrite(redisDb *db, robj *key);
