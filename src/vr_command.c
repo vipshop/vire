@@ -109,6 +109,7 @@ struct redisCommand redisCommandTable[] = {
     {"hincrby",hincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0},
     {"hincrbyfloat",hincrbyfloatCommand,4,"wmF",0,NULL,1,1,1,0,0},
     {"hmget",hmgetCommand,-3,"r",0,NULL,1,1,1,0,0},
+    {"hmset",hmsetCommand,-4,"wm",0,NULL,1,1,1,0,0},
     /* List */
     {"rpush",rpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},
     {"lpush",lpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},

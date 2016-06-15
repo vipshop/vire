@@ -572,15 +572,22 @@ void hmsetCommand(client *c) {
         return;
     }
 
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) {
+        unlockDb(c->db);
+        return;
+    }
+    
     hashTypeTryConversion(o,c->argv,2,c->argc-1);
     for (i = 2; i < c->argc; i += 2) {
         hashTypeTryObjectEncoding(o,&c->argv[i], &c->argv[i+1]);
         hashTypeSet(o,c->argv[i],c->argv[i+1]);
     }
+
+    unlockDb(c->db);
+    
     addReply(c, shared.ok);
-    signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
     server.dirty++;
 }
 
