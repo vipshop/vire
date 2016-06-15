@@ -216,7 +216,8 @@ int hashTypeSet_original(robj *o, robj *field, robj *value) {
 /* Add an element, discard the old if the key already exists.
  * Return 0 on insert and 1 on update.
  * This function will take care of incrementing the reference count of the
- * retained fields and value objects. */
+ * retained fields and value objects. 
+ * Filed and value objects just borrow to hashTypeSet(). */
 int hashTypeSet(robj *o, robj *field, robj *value) {
     int update = 0;
 
@@ -625,7 +626,7 @@ void hincrbyCommand(client *c) {
 
     fetchInternalDbByKey(c, c->argv[1]);
     lockDbWrite(c->db);
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) goto end;    
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) goto end;
     if ((current = hashTypeGetObject(o,c->argv[2])) != NULL) {
         if (getLongLongFromObjectOrReply(c,current,&value,
             "hash value is not an integer") != VR_OK) {
@@ -655,7 +656,7 @@ end:
     unlockDb(c->db);
 }
 
-void hincrbyfloatCommand(client *c) {
+void hincrbyfloatCommand_original(client *c) {
     double long value, incr;
     robj *o, *current, *new, *aux;
 
@@ -680,6 +681,49 @@ void hincrbyfloatCommand(client *c) {
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
+
+    /* Always replicate HINCRBYFLOAT as an HSET command with the final value
+     * in order to make sure that differences in float pricision or formatting
+     * will not create differences in replicas or after an AOF restart. */
+    aux = createStringObject("HSET",4);
+    rewriteClientCommandArgument(c,0,aux);
+    decrRefCount(aux);
+    rewriteClientCommandArgument(c,3,new);
+    decrRefCount(new);
+}
+
+void hincrbyfloatCommand(client *c) {
+    double long value, incr;
+    robj *o, *current, *new, *aux;
+
+    if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != VR_OK) return;
+
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) {
+        unlockDb(c->db);
+        return;
+    }
+    if ((current = hashTypeGetObject(o,c->argv[2])) != NULL) {
+        if (getLongDoubleFromObjectOrReply(c,current,&value,
+            "hash value is not a valid float") != VR_OK) {
+            decrRefCount(current);
+            unlockDb(c->db);
+            return;
+        }
+        decrRefCount(current);
+    } else {
+        value = 0;
+    }
+
+    value += incr;
+    new = createStringObjectFromLongDouble(value,1);
+    hashTypeTryObjectEncoding(o,&c->argv[2],NULL);
+    hashTypeSet(o,c->argv[2],new);
+    addReplyBulk(c,new);
+    server.dirty++;
+
+    unlockDb(c->db);    /* Unlock db here, because of new object never had relationship with the hash */
 
     /* Always replicate HINCRBYFLOAT as an HSET command with the final value
      * in order to make sure that differences in float pricision or formatting

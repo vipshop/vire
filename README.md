@@ -103,6 +103,7 @@ A quick checklist:
 + hvals
 + hgetall
 + hincrby
++ hincrbyfloat
 
 #### List
 
