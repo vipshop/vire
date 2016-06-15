@@ -546,7 +546,7 @@ void hsetCommand(client *c) {
     server.dirty++;
 }
 
-void hsetnxCommand(client *c) {
+void hsetnxCommand_original(client *c) {
     robj *o;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     hashTypeTryConversion(o,c->argv,2,3);
@@ -561,6 +561,50 @@ void hsetnxCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
         server.dirty++;
     }
+}
+
+void hsetnxCommand(client *c) {
+    robj *o;
+
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) {
+        unlockDb(c->db);
+        return;
+    }
+    
+    hashTypeTryConversion(o,c->argv,2,3);
+
+    if (hashTypeExists(o, c->argv[2])) {
+        addReply(c, shared.czero);
+    } else {
+        hashTypeTryObjectEncoding(o,&c->argv[2], &c->argv[3]);
+        hashTypeSet(o,c->argv[2],c->argv[3]);
+        addReply(c, shared.cone);
+        server.dirty++;
+    }
+    unlockDb(c->db);
+}
+
+void hmsetCommand_original(client *c) {
+    int i;
+    robj *o;
+
+    if ((c->argc % 2) == 1) {
+        addReplyError(c,"wrong number of arguments for HMSET");
+        return;
+    }
+
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    hashTypeTryConversion(o,c->argv,2,c->argc-1);
+    for (i = 2; i < c->argc; i += 2) {
+        hashTypeTryObjectEncoding(o,&c->argv[i], &c->argv[i+1]);
+        hashTypeSet(o,c->argv[i],c->argv[i+1]);
+    }
+    addReply(c, shared.ok);
+    signalModifiedKey(c->db,c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+    server.dirty++;
 }
 
 void hmsetCommand(client *c) {

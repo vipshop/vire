@@ -106,6 +106,7 @@ A quick checklist:
 + hincrbyfloat
 + hmget
 + hmset
++ hsetnx
 
 #### List
 
