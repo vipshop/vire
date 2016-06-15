@@ -592,7 +592,7 @@ void incrbyfloatCommand_original(client *c) {
 
 void incrbyfloatCommand(client *c) {
     long double incr, value;
-    robj *o, *new;
+    robj *o, *new, *aux;
 
     fetchInternalDbByKey(c, c->argv[1]);
     lockDbWrite(c->db);
@@ -614,6 +614,16 @@ void incrbyfloatCommand(client *c) {
         dbAdd(c->db,c->argv[1],new);
     server.dirty++;
     addReplyBulk(c,new);
+
+    /* Always replicate INCRBYFLOAT as a SET command with the final value
+     * in order to make sure that differences in float precision or formatting
+     * will not create differences in replicas or after an AOF restart. */
+    aux = createStringObject("SET",3);
+    rewriteClientCommandArgument(c,0,aux);
+    decrRefCount(aux);
+    aux = dupStringObject(new);
+    rewriteClientCommandArgument(c,2,aux);
+    decrRefCount(aux);
 
 end:
     unlockDb(c->db);
