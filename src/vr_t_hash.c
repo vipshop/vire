@@ -990,12 +990,33 @@ void hlenCommand(client *c) {
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
-void hstrlenCommand(client *c) {
+void hstrlenCommand_original(client *c) {
     robj *o;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
     addReplyLongLong(c,hashTypeGetValueLength(o,c->argv[2]));
+}
+
+void hstrlenCommand(client *c) {
+    robj *o;
+
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbRead(c->db);
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,o,OBJ_HASH)) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
+    
+    addReplyLongLong(c,hashTypeGetValueLength(o,c->argv[2]));
+
+    unlockDb(c->db);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int what) {

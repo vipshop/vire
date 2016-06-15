@@ -107,6 +107,7 @@ A quick checklist:
 + hmget
 + hmset
 + hsetnx
++ hstrlen
 
 #### List
 
