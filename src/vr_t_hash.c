@@ -803,7 +803,7 @@ void hgetCommand(client *c) {
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
-void hmgetCommand(client *c) {
+void hmgetCommand_original(client *c) {
     robj *o;
     int i;
 
@@ -819,6 +819,37 @@ void hmgetCommand(client *c) {
     for (i = 2; i < c->argc; i++) {
         addHashFieldToReply(c, o, c->argv[i]);
     }
+}
+
+void hmgetCommand(client *c) {
+    robj *o;
+    int i;
+
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbRead(c->db);
+    /* Don't abort when the key cannot be found. Non-existing keys are empty
+     * hashes, where HMGET should respond with a series of null bulks. */
+    o = lookupKeyRead(c->db, c->argv[1]);
+    if (o != NULL && o->type != OBJ_HASH) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        addReply(c, shared.wrongtypeerr);
+        return;
+    }
+
+    addReplyMultiBulkLen(c, c->argc-2);
+    for (i = 2; i < c->argc; i++) {
+        addHashFieldToReply(c, o, c->argv[i]);
+    }
+
+    if (o == NULL) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    }
+
+    unlockDb(c->db);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void hdelCommand_original(client *c) {

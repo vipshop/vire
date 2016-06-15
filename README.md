@@ -104,6 +104,7 @@ A quick checklist:
 + hgetall
 + hincrby
 + hincrbyfloat
++ hmget
 
 #### List
 
