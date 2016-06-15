@@ -102,6 +102,7 @@ struct redisCommand redisCommandTable[] = {
     {"hget",hgetCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"hlen",hlenCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"hdel",hdelCommand,-3,"wF",0,NULL,1,1,1,0,0},
+    {"hexists",hexistsCommand,3,"rF",0,NULL,1,1,1,0,0},
     /* List */
     {"rpush",rpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},
     {"lpush",lpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},

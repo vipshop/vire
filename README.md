@@ -1,6 +1,6 @@
 # vire
 
-**vire** (pronounced "vip-redis") is a multithread redis maintains in vipshop.
+**vire** (pronounced "vip-redis") is a multithread redis(based on redis-3.2.0) maintains in vipshop.
 
 ## Build
 
@@ -98,6 +98,7 @@ A quick checklist:
 + hget
 + hlen
 + hdel
++ hexists
 
 #### List
 

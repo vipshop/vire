@@ -901,12 +901,32 @@ void hgetallCommand(client *c) {
     genericHgetallCommand(c,OBJ_HASH_KEY|OBJ_HASH_VALUE);
 }
 
-void hexistsCommand(client *c) {
+void hexistsCommand_original(client *c) {
     robj *o;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
     addReply(c, hashTypeExists(o,c->argv[2]) ? shared.cone : shared.czero);
+}
+
+void hexistsCommand(client *c) {
+    robj *o;
+
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbRead(c->db);
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,o,OBJ_HASH)) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
+    
+    addReply(c, hashTypeExists(o,c->argv[2]) ? shared.cone : shared.czero);
+    unlockDb(c->db);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void hscanCommand(client *c) {
