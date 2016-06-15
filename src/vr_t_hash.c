@@ -583,7 +583,7 @@ void hmsetCommand(client *c) {
     server.dirty++;
 }
 
-void hincrbyCommand(client *c) {
+void hincrbyCommand_original(client *c) {
     long long value, incr, oldvalue;
     robj *o, *current, *new;
 
@@ -615,6 +615,44 @@ void hincrbyCommand(client *c) {
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
     server.dirty++;
+}
+
+void hincrbyCommand(client *c) {
+    long long value, incr, oldvalue;
+    robj *o, *current, *new;
+
+    if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != VR_OK) return;
+
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) goto end;    
+    if ((current = hashTypeGetObject(o,c->argv[2])) != NULL) {
+        if (getLongLongFromObjectOrReply(c,current,&value,
+            "hash value is not an integer") != VR_OK) {
+            decrRefCount(current);
+            goto end;
+        }
+        decrRefCount(current);
+    } else {
+        value = 0;
+    }
+
+    oldvalue = value;
+    if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
+        (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue))) {
+        addReplyError(c,"increment or decrement would overflow");
+        goto end;
+    }
+    value += incr;
+    new = createStringObjectFromLongLong(value);
+    hashTypeTryObjectEncoding(o,&c->argv[2],NULL);
+    hashTypeSet(o,c->argv[2],new);
+    decrRefCount(new);
+    addReplyLongLong(c,value);
+    server.dirty++;
+
+end:
+    unlockDb(c->db);
 }
 
 void hincrbyfloatCommand(client *c) {

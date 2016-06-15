@@ -102,6 +102,7 @@ A quick checklist:
 + hkeys
 + hvals
 + hgetall
++ hincrby
 
 #### List
 
