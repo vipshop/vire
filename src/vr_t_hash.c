@@ -858,7 +858,7 @@ static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int wh
     }
 }
 
-void genericHgetallCommand(client *c, int flags) {
+void genericHgetallCommand_original(client *c, int flags) {
     robj *o;
     hashTypeIterator *hi;
     int multiplier = 0;
@@ -887,6 +887,48 @@ void genericHgetallCommand(client *c, int flags) {
 
     hashTypeReleaseIterator(hi);
     ASSERT(count == length);
+}
+
+void genericHgetallCommand(client *c, int flags) {
+    robj *o;
+    hashTypeIterator *hi;
+    int multiplier = 0;
+    int length, count = 0;
+
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbRead(c->db);
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,o,OBJ_HASH)) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
+    if (flags & OBJ_HASH_KEY) multiplier++;
+    if (flags & OBJ_HASH_VALUE) multiplier++;
+
+    length = hashTypeLength(o) * multiplier;
+    addReplyMultiBulkLen(c, length);
+
+    hi = hashTypeInitIterator(o);
+    while (hashTypeNext(hi) != VR_ERROR) {
+        if (flags & OBJ_HASH_KEY) {
+            addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
+            count++;
+        }
+        if (flags & OBJ_HASH_VALUE) {
+            addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
+            count++;
+        }
+    }
+
+    hashTypeReleaseIterator(hi);
+    ASSERT(count == length);
+    
+    unlockDb(c->db);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void hkeysCommand(client *c) {

@@ -72,7 +72,7 @@ typedef struct client {
     struct conn *conn;
     vr_eventloop *vel;
     
-    redisDb *db;            /* Pointer to currently SELECTed DB. */
+    redisDb *db;            /* Pointer to currently dispatch DB. */
     int dictid;             /* ID of the currently SELECTed DB. */
     robj *name;             /* As set by CLIENT SETNAME. */
     sds querybuf;           /* Buffer we use to accumulate client queries. */

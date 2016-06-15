@@ -99,6 +99,9 @@ A quick checklist:
 + hlen
 + hdel
 + hexists
++ hkeys
++ hvals
++ hgetall
 
 #### List
 
