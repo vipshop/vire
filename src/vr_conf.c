@@ -60,6 +60,12 @@ static conf_option conf_common_options[] = {
 };
 
 static conf_option conf_server_options[] = {
+    { (char*)"databases",
+      conf_set_number_non_zero,
+      offsetof(conf_server, databases) },
+    { (char*)"internal-dbs-per-databases",
+      conf_set_number_non_zero,
+      offsetof(conf_server, internal_dbs_per_databases) },
     { (char*)"maxmemory",
       conf_set_maxmemory,
       offsetof(conf_server, maxmemory) },
@@ -67,7 +73,7 @@ static conf_option conf_server_options[] = {
       conf_set_maxmemory_policy,
       offsetof(conf_server, maxmemory_policy) },
     { (char*)"maxmemory-samples",
-      conf_set_maxmemory_samples,
+      conf_set_number_non_zero,
       offsetof(conf_server, maxmemory_samples) },
     { NULL, NULL, 0 }
 };
@@ -231,7 +237,7 @@ conf_set_maxmemory_policy(void *obj, conf_option *opt, void *data)
 }
 
 int
-conf_set_maxmemory_samples(void *obj, conf_option *opt, void *data)
+conf_set_number_non_zero(void *obj, conf_option *opt, void *data)
 {
     uint8_t *p;
     conf_value *cv = data;
@@ -442,6 +448,8 @@ static int conf_server_init(conf_server *cs)
         return VR_ERROR;
     }
 
+    cs->databases = CONF_UNSET_NUM;
+    cs->internal_dbs_per_databases = CONF_UNSET_NUM;
     cs->maxmemory = CONF_UNSET_NUM;
     cs->maxmemory_policy = CONF_UNSET_NUM;
     cs->maxmemory_samples = CONF_UNSET_NUM;
@@ -455,6 +463,8 @@ static void conf_server_deinit(conf_server *cs)
         return;
     }
 
+    cs->databases = CONF_UNSET_NUM;
+    cs->internal_dbs_per_databases = CONF_UNSET_NUM;
     cs->maxmemory = CONF_UNSET_NUM;
     cs->maxmemory_policy = CONF_UNSET_NUM;
     cs->maxmemory_samples = CONF_UNSET_NUM;

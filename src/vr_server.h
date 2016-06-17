@@ -5,6 +5,9 @@
 #define PROTO_SHARED_SELECT_CMDS 10
 #define CRON_DBS_PER_CALL 16
 
+#define CONFIG_DEFAULT_LOGICAL_DBNUM    6
+#define CONFIG_DEFAULT_INTERNAL_DBNUM   6
+
 #define CONFIG_DEFAULT_MAXMEMORY 0
 #define CONFIG_DEFAULT_MAXMEMORY_SAMPLES 5
 #define CONFIG_DEFAULT_MAX_CLIENTS 10000
@@ -86,7 +89,7 @@ struct vr_server {
     struct array dbs;           /* database array, type: redisDB */
     int dbnum;                  /* Total number of DBs */
     int dblnum;                 /* Logical number of configured DBs */
-    int dbpnum;                 /* Number of DBs for per logical DB */
+    int dbinum;                 /* Number of internal DBs for per logical DB */
     
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */

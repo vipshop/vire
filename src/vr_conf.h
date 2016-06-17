@@ -39,6 +39,8 @@ static char* evictpolicy_strings[] = {
 #undef DEFINE_ACTION
 
 typedef struct conf_server {
+    int           databases;
+    int           internal_dbs_per_databases;
     long long     maxmemory;
     int           maxmemory_policy;
     int           maxmemory_samples;
@@ -73,7 +75,7 @@ void conf_destroy(vr_conf *cf);
 
 int conf_set_maxmemory(void *obj, conf_option *opt, void *data);
 int conf_set_maxmemory_policy(void *obj, conf_option *opt, void *data);
-int conf_set_maxmemory_samples(void *obj, conf_option *opt, void *data);
+int conf_set_number_non_zero(void *obj, conf_option *opt, void *data);
 
 int conf_set_string(void *obj, conf_option *opt, void *data);
 int conf_set_num(void *obj, conf_option *opt, void *data);

@@ -249,9 +249,11 @@ init_server(struct instance *nci)
     server.pid = getpid();
     server.configfile = getAbsolutePath(nci->conf_filename);
     server.hz = 10;
-    server.dblnum = 16;
-    server.dbpnum = 16;
-    server.dbnum = server.dblnum*server.dbpnum;
+    server.dblnum = conf->cserver.databases == CONF_UNSET_NUM ?
+        CONFIG_DEFAULT_LOGICAL_DBNUM : conf->cserver.databases;
+    server.dbinum = conf->cserver.internal_dbs_per_databases == CONF_UNSET_NUM ?
+        CONFIG_DEFAULT_INTERNAL_DBNUM : conf->cserver.internal_dbs_per_databases;
+    server.dbnum = server.dblnum*server.dbinum;
     array_init(&server.dbs, server.dbnum, sizeof(redisDb));
     server.pidfile = nci->pid_filename;
     server.executable = NULL;
@@ -694,7 +696,9 @@ sds genVireInfoString(char *section) {
             "uptime_in_days:%jd\r\n"
             "hz:%d\r\n"
             "executable:%s\r\n"
-            "config_file:%s\r\n",
+            "config_file:%s\r\n"
+            "databases:%d\r\n"
+            "internal_databases:%d\r\n",
             VR_VERSION_STRING,
             mode,
             name.sysname, name.release, name.machine,
@@ -712,7 +716,9 @@ sds genVireInfoString(char *section) {
             (intmax_t)(uptime/(3600*24)),
             server.hz,
             server.executable ? server.executable : "",
-            server.configfile ? server.configfile : "");
+            server.configfile ? server.configfile : "",
+            server.dblnum,
+            server.dbinum);
     }
 
     /* Memory */
@@ -859,8 +865,8 @@ sds genVireInfoString(char *section) {
             ks = array_push(kss);
             ks->keys_all = ks->vkeys_all = ks->avg_ttl_all = 0;
             ks->nexist = 0;
-            for (k = 0; k < server.dbpnum; k ++) {
-                db = array_get(&server.dbs, (uint32_t)(j*server.dbpnum+k));
+            for (k = 0; k < server.dbinum; k ++) {
+                db = array_get(&server.dbs, (uint32_t)(j*server.dbinum+k));
                 lockDbRead(db);
                 keys = dictSize(db->dict);
                 vkeys = dictSize(db->expires);
@@ -892,8 +898,8 @@ sds genVireInfoString(char *section) {
             for (j = 0; j < server.dblnum; j++) {
                 keys_all = vkeys_all = avg_ttl_all = 0;
                 nexist = 0;
-                for (k = 0; k < server.dbpnum; k ++) {
-                    db = array_get(&server.dbs, (uint32_t)(j*server.dbpnum+k));
+                for (k = 0; k < server.dbinum; k ++) {
+                    db = array_get(&server.dbs, (uint32_t)(j*server.dbinum+k));
                     lockDbRead(db);
                     keys_all += dictSize(db->dict);
                     vkeys_all += dictSize(db->expires);

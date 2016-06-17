@@ -507,14 +507,14 @@ void randomkeyCommand(client *c) {
     robj *key;
     int idx, retry_count = 0;
 
-    idx = random()%server.dbpnum;
+    idx = random()%server.dbinum;
 
 retry:
     fetchInternalDbById(c, idx);
     lockDbRead(c->db);
     if ((key = dbRandomKey(c->db)) == NULL) {
-        if (retry_count++ < server.dbpnum) {
-            if (++idx >= server.dbpnum) {
+        if (retry_count++ < server.dbinum) {
+            if (++idx >= server.dbinum) {
                 idx = 0;
             }
             unlockDb(c->db);
@@ -1499,12 +1499,12 @@ int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkey
 }
 
 int fetchInternalDbByKey(client *c, robj *key) {
-    c->db = array_get(&server.dbs, (hash_crc16(key->ptr,stringObjectLen(key))&0x3FFF)%server.dbpnum+c->dictid*server.dbpnum);
+    c->db = array_get(&server.dbs, (hash_crc16(key->ptr,stringObjectLen(key))&0x3FFF)%server.dbinum+c->dictid*server.dbinum);
     return VR_OK;
 }
 
 int fetchInternalDbById(client *c, int idx) {
-    c->db = array_get(&server.dbs, idx+c->dictid*server.dbpnum);
+    c->db = array_get(&server.dbs, idx+c->dictid*server.dbinum);
     return VR_OK;
 }
 
