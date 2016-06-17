@@ -128,6 +128,7 @@ A quick checklist:
 + smembers
 + scard
 + srem
++ spop
 
 #### SortedSet
 

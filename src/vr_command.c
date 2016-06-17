@@ -128,6 +128,7 @@ struct redisCommand redisCommandTable[] = {
     {"smembers",smembersCommand,2,"rS",0,NULL,1,1,1,0,0},
     {"scard",scardCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"srem",sremCommand,-3,"wF",0,NULL,1,1,1,0,0},
+    {"spop",spopCommand,-2,"wRsF",0,NULL,1,1,1,0,0},
     /* SortedSet */
     {"zadd",zaddCommand,-4,"wmF",0,NULL,1,1,1,0,0},
     {"zincrby",zincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0},
