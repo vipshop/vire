@@ -6,8 +6,7 @@
 #define CONF_TOKEN_ARRAY_START          "-"
 
 #define CONF_ORGANIZATION_NAME_COMMAN   "common"
-#define CONF_ORGANIZATION_NAME_SOURCE   "source"
-#define CONF_ORGANIZATION_NAME_TARGET   "target"
+#define CONF_ORGANIZATION_NAME_SERVER   "server"
 
 #define CONF_VALUE_TRUE                 "true"
 #define CONF_VALUE_FALSE                "false"
@@ -44,57 +43,32 @@ static char* dist_strings[] = {
 };
 #undef DEFINE_ACTION
 
-#define DEFINE_ACTION(_group, _name) (char*)(#_name),
-static char* group_strings[] = {
-    GROUP_CODEC( DEFINE_ACTION )
-    NULL
-};
-#undef DEFINE_ACTION
-
-static conf_option conf_pool_options[] = {
-    { (char*)"type",
-      conf_pool_set_type,
-      offsetof(conf_pool, type) },
-    { (char*)"hash",
-      conf_pool_set_hash,
-      offsetof(conf_pool, hash) },
-    { (char*)"hash_tag",
-      conf_pool_set_hash_tag,
-      offsetof(conf_pool, hash_tag) },
-    { (char*)"distribution",
-      conf_pool_set_distribution,
-      offsetof(conf_pool, distribution) },
-    { (char*)"redis_auth",
-      conf_set_string,
-      offsetof(conf_pool, redis_auth) },
-    { (char*)"redis_db",
-      conf_set_num,
-      offsetof(conf_pool, redis_db) },
-    { (char*)"timeout",
-      conf_set_num,
-      offsetof(conf_pool, timeout) },
-    { (char*)"servers",
-      conf_pool_set_servers,
-      offsetof(conf_pool, servers) },
-    { NULL, NULL, 0 }
-};
-
 static conf_option conf_common_options[] = {
     { (char*)"listen",
       conf_set_string,
       offsetof(vr_conf, listen) },
-    { (char*)"maxmemory",
-      conf_common_set_maxmemory,
-      offsetof(vr_conf, maxmemory) },
     { (char*)"threads",
       conf_set_num,
       offsetof(vr_conf, threads) },
     { (char*)"dir",
       conf_set_string,
       offsetof(vr_conf, dir) },
-    { (char*)"max_clients",
+    { (char*)"maxclients",
       conf_set_num,
-      offsetof(vr_conf, max_clients) },
+      offsetof(vr_conf, maxclients) },
+    { NULL, NULL, 0 }
+};
+
+static conf_option conf_server_options[] = {
+    { (char*)"maxmemory",
+      conf_set_maxmemory,
+      offsetof(conf_server, maxmemory) },
+    { (char*)"maxmemory-policy",
+      conf_set_maxmemory_policy,
+      offsetof(conf_server, maxmemory_policy) },
+    { (char*)"maxmemory-samples",
+      conf_set_maxmemory_samples,
+      offsetof(conf_server, maxmemory_samples) },
     { NULL, NULL, 0 }
 };
 
@@ -187,205 +161,8 @@ conf_organizations_dump(vr_conf *cf)
     dictReleaseIterator(di);
 }
 
-
 int
-conf_pool_set_type(void *obj, conf_option *opt, void *data)
-{
-    uint8_t *p;
-    conf_value *cv = data;
-    group_type_t *gt;
-    char **type;
-
-    if(cv->type != CONF_VALUE_STRING){
-        log_error("conf pool %s in the conf file error",
-            opt->name);
-        return VR_ERROR;
-    }
-
-    p = obj;
-    gt = (group_type_t *)(p + opt->offset);
-
-    for (type = group_strings; *type; type++) {
-        if(strcmp(cv->value, *type) == 0){
-            *gt = type - group_strings;
-            break;
-        }
-    }    
-
-    if(*gt == CONF_UNSET_GROUP){
-        log_error("conf pool type in the conf file can not be %s", 
-            cv->value);
-        return VR_ERROR;
-    }
-
-    return VR_OK;
-}
-
-int
-conf_pool_set_hash(void *obj, conf_option *opt, void *data)
-{
-    uint8_t *p;
-    conf_value *cv = data;
-    hash_type_t *gt;
-    char **hash;
-
-    if(cv->type != CONF_VALUE_STRING){
-        log_error("conf pool %s in the conf file error", 
-            opt->name);
-        return VR_ERROR;
-    }
-
-    p = obj;
-    gt = (hash_type_t *)(p + opt->offset);
-
-    for (hash = hash_strings; *hash; hash++) {
-        if(strcmp(cv->value, *hash) == 0){
-            *gt = hash - hash_strings;
-            break;
-        }
-    }    
-
-    if(*gt == CONF_UNSET_HASH){
-        log_error("conf pool hash in the conf file can not be %s", 
-            cv->value);
-        return VR_ERROR;
-    }
-
-    return VR_OK;
-}
-
-int
-conf_pool_set_hash_tag(void *obj, conf_option *opt, void *data)
-{
-    uint8_t *p;
-    conf_value *cv = data;
-    sds *gt, str;
-    
-    if(cv->type != CONF_VALUE_STRING){
-        log_error("conf pool %s in the conf file error", 
-            opt->name);
-        return VR_ERROR;
-    }
-
-    str = cv->value;
-
-    if(sdslen(str) < 2){
-        log_error("%s is not a valid hash tag string with two characters", 
-            cv->value);
-        return VR_ERROR;
-    }
-
-    if(*(str) == '"'){
-        if(*(str+sdslen(str)-1) != '"'){
-            log_error("%s is not a valid hash tag string with two characters", 
-                cv->value);
-            return VR_ERROR;
-        }
-
-        sdsrange(str,1,-2);
-    }
-
-    if (sdslen(str) != 2) {
-        log_error("%s is not a valid hash tag string with two characters", 
-            cv->value);
-        return VR_ERROR;
-    }
-
-    p = obj;
-    gt = (sds*)(p + opt->offset);
-
-    *gt = sdsdup(str);
-
-    return VR_OK;
-}
-
-int
-conf_pool_set_distribution(void *obj, conf_option *opt, void *data)
-{
-    uint8_t *p;
-    conf_value *cv = data;
-    dist_type_t *gt;
-    char **dist;
-
-    if(cv->type != CONF_VALUE_STRING){
-        log_error("conf pool %s in the conf file error",
-            opt->name);
-        return VR_ERROR;
-    }
-
-    p = obj;
-    gt = (dist_type_t *)(p + opt->offset);
-
-    for (dist = dist_strings; *dist; dist++) {
-        if(strcmp(cv->value, *dist) == 0){
-            *gt = dist - dist_strings;
-            break;
-        }
-    }    
-
-    if(*gt == CONF_UNSET_DIST){
-        log_error("conf pool distribution in the conf file can not be %s", 
-            cv->value);
-        return VR_ERROR;
-    }
-
-    return VR_OK;
-}
-
-int
-conf_pool_set_servers(void *obj, conf_option *opt, void *data)
-{
-    uint8_t *p;
-    conf_value *cv = data, **cv_sub;
-    struct array **gt;
-    sds *str;
-    uint32_t i, count;
-
-    if(cv->type != CONF_VALUE_ARRAY){
-        log_error("conf pool %s in the conf file is not a string", 
-            opt->name);
-        return VR_ERROR;
-    }
-
-    count = array_n(cv->value);
-
-    if(count == 0){
-        log_error("conf pool %s in the conf file has no elements",
-            opt->name);
-        return VR_ERROR;
-    }
-
-    p = obj;
-    gt = (struct array **)(p + opt->offset);
-    
-    if(*gt == NULL){
-        *gt = array_create(count, sizeof(sds));
-        if(*gt == NULL){
-            log_error("out of memory");
-            return VR_ENOMEM;
-        }
-    }
-
-    for(i = 0; i < count; i++){
-        cv_sub = array_get(cv->value, i);
-        
-        if((*cv_sub)->type != CONF_VALUE_STRING){
-            log_error("conf pool %s in the conf file is array," 
-                "but element is not string", opt->name);
-            return VR_ERROR;
-        }
-
-        ASSERT((*cv_sub)->value != NULL);
-
-        str = array_push(*gt);
-        *str = sdsdup((*cv_sub)->value);
-    }
-
-    return VR_OK;
-}
-
-int
-conf_common_set_maxmemory(void *obj, conf_option *opt, void *data)
+conf_set_maxmemory(void *obj, conf_option *opt, void *data)
 {
     uint8_t *p;
     conf_value *cv = data;
@@ -410,6 +187,82 @@ conf_common_set_maxmemory(void *obj, conf_option *opt, void *data)
     }
 
     *gt = (long long)value;
+
+    return VR_OK;
+}
+
+int
+conf_set_maxmemory_policy(void *obj, conf_option *opt, void *data)
+{
+    uint8_t *p;
+    conf_value *cv = data;
+    int *gt;
+    char **policy;
+
+    if(cv->type != CONF_VALUE_STRING){
+        log_error("conf server in the conf file is not a string");
+        return VR_ERROR;
+    }
+
+    p = obj;
+    gt = (int*)(p + opt->offset);
+
+    for (policy = evictpolicy_strings; *policy; policy ++) {
+        if (strcmp(cv->value, *policy) == 0) {
+            *gt = policy - evictpolicy_strings;
+            break;
+        }
+    }
+
+    if (*gt == MAXMEMORY_VOLATILE_LRU || *gt == MAXMEMORY_ALLKEYS_LRU) {
+        log_error("ERROR: Conf maxmemory policy now is not support %s and %s", 
+            evictpolicy_strings[MAXMEMORY_VOLATILE_LRU], 
+            evictpolicy_strings[MAXMEMORY_ALLKEYS_LRU]);
+        return VR_ERROR;
+    }
+
+    if (*gt == CONF_UNSET_NUM) {
+        log_error("ERROR: Conf maxmemory policy in the conf file can not be %s", 
+            cv->value);
+        return VR_ERROR;
+    }
+
+    return VR_OK;
+}
+
+int
+conf_set_maxmemory_samples(void *obj, conf_option *opt, void *data)
+{
+    uint8_t *p;
+    conf_value *cv = data;
+    int *gt;
+
+    if(cv->type != CONF_VALUE_STRING){
+        log_error("conf pool %s in the conf file error", 
+            opt->name);
+        return VR_ERROR;
+    }
+
+    p = obj;
+    gt = (int*)(p + opt->offset);
+
+    if(!sdsIsNum(cv->value)){
+        log_error("value of the key %s in conf file is not a number", 
+            opt->name);
+        return VR_ERROR;
+    }
+
+    *gt = vr_atoi(cv->value, sdslen(cv->value));
+
+    if (*gt < 0) {
+        log_error("value of the key %s in conf file is invalid", 
+            opt->name);
+        return VR_ERROR;
+    } else if (*gt < 1) {
+        log_error("value of the key %s in conf file must be 1 or greater", 
+            opt->name);
+        return VR_ERROR;
+    }
 
     return VR_OK;
 }
@@ -458,6 +311,12 @@ conf_set_num(void *obj, conf_option *opt, void *data)
     }
 
     *gt = vr_atoi(cv->value, sdslen(cv->value));
+
+    if (*gt < 0) {
+        log_error("value of the key %s in conf file is invalid", 
+            opt->name);
+        return VR_ERROR;
+    }
 
     return VR_OK;
 }
@@ -577,67 +436,28 @@ void conf_value_destroy(conf_value *cv)
     vr_free(cv);
 }
 
-static int conf_pool_init(conf_pool *cp)
+static int conf_server_init(conf_server *cs)
 {
-    if(cp == NULL){
+    if(cs == NULL){
         return VR_ERROR;
     }
 
-    cp->type = CONF_UNSET_GROUP;
-    cp->servers = CONF_UNSET_PTR;
-    cp->hash = CONF_UNSET_HASH;
-    cp->distribution = CONF_UNSET_DIST;
-    cp->hash_tag = CONF_UNSET_PTR;
-    cp->redis_auth = CONF_UNSET_PTR;
-    cp->redis_db = CONF_UNSET_NUM;
-    cp->timeout = CONF_UNSET_NUM;
-    cp->backlog = CONF_UNSET_NUM;
-
-    cp->servers = array_create(3, sizeof(sds));
-    if(cp->servers == NULL){
-        log_error("out of memory");
-        return VR_ENOMEM;
-    }
+    cs->maxmemory = CONF_UNSET_NUM;
+    cs->maxmemory_policy = CONF_UNSET_NUM;
+    cs->maxmemory_samples = CONF_UNSET_NUM;
 
     return VR_OK;
 }
 
-static void conf_pool_deinit(conf_pool *cp)
+static void conf_server_deinit(conf_server *cs)
 {
-    sds *str;
-
-    if(cp == NULL){
+    if(cs == NULL){
         return;
     }
 
-    cp->type = CONF_UNSET_GROUP;
-
-    if(cp->servers != NULL){
-        while(array_n(cp->servers) > 0){
-            str = array_pop(cp->servers);
-            sdsfree(*str);
-        }
-
-        array_destroy(cp->servers);
-        cp->servers = CONF_UNSET_PTR;
-    }
-    
-    cp->hash = CONF_UNSET_HASH;
-    cp->distribution = CONF_UNSET_DIST;
-
-    if(cp->hash_tag != NULL){
-        sdsfree(cp->hash_tag);
-        cp->hash_tag = CONF_UNSET_PTR;
-    }
-
-    if(cp->redis_auth != NULL){
-        sdsfree(cp->redis_auth);
-        cp->redis_auth = CONF_UNSET_PTR;
-    }
-    
-    cp->redis_db = CONF_UNSET_NUM;
-    cp->timeout = CONF_UNSET_NUM;
-    cp->backlog = CONF_UNSET_NUM;
+    cs->maxmemory = CONF_UNSET_NUM;
+    cs->maxmemory_policy = CONF_UNSET_NUM;
+    cs->maxmemory_samples = CONF_UNSET_NUM;
 }
 
 static int conf_init(vr_conf *cf)
@@ -657,12 +477,14 @@ static int conf_init(vr_conf *cf)
         return VR_ERROR;
     }
 
+    conf_server_init(&cf->cserver);
+
     cf->listen = CONF_UNSET_PTR;
     cf->maxmemory = CONF_UNSET_NUM;
     cf->threads = CONF_UNSET_NUM;
     cf->dir = CONF_UNSET_PTR;
 
-    cf->max_clients = CONF_UNSET_NUM;
+    cf->maxclients = CONF_UNSET_NUM;
     
     return VR_OK;
 }
@@ -688,6 +510,8 @@ static void conf_deinit(vr_conf *cf)
         cf->organizations = NULL;
     }
 
+    conf_server_deinit(&cf->cserver);
+
     if(cf->listen != NULL){
         sdsfree(cf->listen);
         cf->listen = CONF_UNSET_PTR;
@@ -703,37 +527,22 @@ static void conf_deinit(vr_conf *cf)
 }
 
 static void
-conf_pool_dump(conf_pool *cp, int log_level)
-{    
-    uint32_t j, nserver;
-    sds *s;
-    if(cp == NULL){
+conf_server_dump(conf_server *cs, int log_level)
+{
+    if(cs == NULL){
         return;
     }
 
-    log_debug(log_level, "  type : %d", cp->type);
-    log_debug(log_level, "  hash : %d", cp->hash);    
-    log_debug(log_level, "  hash_tag : %s", cp->hash_tag);
-    log_debug(log_level, "  distribution : %d", cp->distribution);
-    log_debug(log_level, "  redis_auth : %s", cp->redis_auth);
-    log_debug(log_level, "  redis_db : %d", cp->redis_db);
-    log_debug(log_level, "  timeout : %d", cp->timeout);
-    log_debug(log_level, "  backlog : %d", cp->backlog);
-
-
-    nserver = array_n(cp->servers);
-    log_debug(log_level, "  servers: %"PRIu32"", nserver);
-    for (j = 0; j < nserver; j++) {
-        s = array_get(cp->servers, j);
-        log_debug(log_level, "    %.*s", sdslen(*s), *s);
-    }
+    log_debug(log_level, "  maxmemory : %lld", cs->maxmemory);
+    log_debug(log_level, "  maxmemory_policy : %d", cs->maxmemory_policy);    
+    log_debug(log_level, "  maxmemory_samples : %d", cs->maxmemory_samples);
 }
 
 static void
 conf_dump(vr_conf *cf)
 {
     int log_level = LOG_VERB;
-    conf_pool *source_pool, *target_pool;
+    conf_server *cs;
     
     if(cf == NULL){
         return;
@@ -744,7 +553,12 @@ conf_dump(vr_conf *cf)
     log_debug(log_level, "  maxmemory: %lld", cf->maxmemory);
     log_debug(log_level, "  threads: %d", cf->threads);
     log_debug(log_level, "  dir: %s", cf->dir);
-    log_debug(log_level, "  max_clients: %s", cf->max_clients);
+    log_debug(log_level, "  maxclients: %d", cf->maxclients);
+    log_debug(log_level, "");
+
+    cs = &cf->cserver;
+    log_debug(log_level, "server in conf file");
+    conf_server_dump(cs, log_level);
     log_debug(log_level, "");
 }
 
@@ -921,7 +735,7 @@ conf_pre_validate(vr_conf *cf)
             (*cv_sub)->value = str;
             str = NULL;
         }else{        
-            key_value = sdssplitlenonce(str,sdslen(str),":",1,&key_value_count);
+            key_value = sdssplitlenonce(str,sdslen(str)," ",1,&key_value_count);
             log_debug(LOG_VVERB, "key_value_count: %d", key_value_count);
             if(key_value == NULL || key_value_count == 0){
                 log_error("line %s split by : failed", str);
@@ -1039,37 +853,6 @@ error:
 }
 
 static int
-conf_parse_conf_pool(conf_pool *cp, dict *org)
-{
-    int ret;
-    conf_option *opt;
-    dictEntry *de;
-    sds key;
-    
-    if(cp == NULL || org == NULL){
-        return VR_ERROR;
-    }
-
-    key = sdsempty();
-
-    for(opt = conf_pool_options; opt&&opt->name; opt++){
-        key = sdscpy(key, opt->name);
-        de = dictFind(org, key);
-        if(de != NULL){
-            ret = opt->set(cp, opt, dictGetVal(de));
-            if(ret != VR_OK){
-                log_error("parse key %s in conf file error", key);
-                sdsfree(key);
-                return VR_ERROR;
-            }
-        }
-    }
-
-    sdsfree(key);
-    return VR_OK;
-}
-
-static int
 conf_parse_conf_common(vr_conf *cf, dict *org)
 {
     int ret;
@@ -1102,27 +885,58 @@ conf_parse_conf_common(vr_conf *cf, dict *org)
 }
 
 static int
+conf_parse_conf_server(conf_server *cs, dict *org)
+{
+    int ret;
+    conf_option *opt;
+    dictEntry *de;
+    sds key;
+    
+    if(cs == NULL || org == NULL){
+        return VR_ERROR;
+    }
+
+    key = sdsempty();
+
+    for (opt = conf_server_options; opt&&opt->name; opt++) {
+        key = sdscpy(key, opt->name);
+        de = dictFind(org, key);
+        if (de != NULL) {
+            ret = opt->set(cs, opt, dictGetVal(de));
+            if(ret != VR_OK){
+                log_error("parse key %s in conf file error", key);
+                sdsfree(key);
+                return VR_ERROR;
+            }
+        }
+    }
+
+    sdsfree(key);
+
+    return VR_OK;
+}
+
+static int
 conf_parse(vr_conf *cf)
 {
     int ret;
-    conf_pool *cp;
     dict *orgs, *org;
     dictEntry *de;
     sds key;
     
-    if(cf == NULL){
+    if (cf == NULL) {
         return VR_ERROR;
     }
 
     orgs = cf->organizations;
-    if(orgs == NULL){
+    if (orgs == NULL) {
         return VR_ERROR;
     }
 
-    //common
+    /* common */
     key = sdsnew(CONF_ORGANIZATION_NAME_COMMAN);
     de = dictFind(orgs, key);
-    if(de == NULL){
+    if (de == NULL) {
         log_error("can not find %s organization in conf file %s", 
             CONF_ORGANIZATION_NAME_COMMAN, cf->fname);
         sdsfree(key);
@@ -1130,18 +944,43 @@ conf_parse(vr_conf *cf)
     }
 
     org = dictGetVal(de);
-    if(org == NULL){
+    if (org == NULL) {
         log_error("dict %s entry value is NULL", dictGetKey(de));
         sdsfree(key);
         return VR_ERROR;
     }
 
     ret = conf_parse_conf_common(cf, org);
-    if(ret != VR_OK){
+    if (ret != VR_OK) {
         log_error("common conf parse error");
         sdsfree(key);
         return VR_ERROR;
-    }    
+    }
+
+    /* server */
+    sdsclear(key);
+    key = sdscat(key, CONF_ORGANIZATION_NAME_SERVER);
+    de = dictFind(orgs, key);
+    if (de == NULL) {
+        log_error("can not find %s organization in conf file %s", 
+            CONF_ORGANIZATION_NAME_SERVER, cf->fname);
+        sdsfree(key);
+        return VR_ERROR;
+    }
+
+    org = dictGetVal(de);
+    if (org == NULL) {
+        log_error("dict %s entry value is NULL", dictGetKey(de));
+        sdsfree(key);
+        return VR_ERROR;
+    }
+
+    ret = conf_parse_conf_server(&cf->cserver, org);
+    if( ret != VR_OK) {
+        log_error("common conf parse error");
+        sdsfree(key);
+        return VR_ERROR;
+    }
 
     sdsfree(key);
     

@@ -16,34 +16,33 @@ typedef struct conf_option {
     int   offset;
 }conf_option;
 
-#define GROUP_CODEC(ACTION)                             \
-    ACTION( GROUP_TYPE_UNKNOW,          unknow        ) \
-    ACTION( GROUP_TYPE_SINGLE,          single        ) \
-    ACTION( GROUP_TYPE_TWEM,            twemproxy     ) \
-    ACTION( GROUP_TYPE_RCLUSTER,        redis cluster ) \
-    ACTION( GROUP_TYPE_RDBFILE,         rdb file      ) \
+#define EVICTPOLICY_CODEC(ACTION)                           \
+    ACTION( MAXMEMORY_VOLATILE_LRU,     volatile-lru)       \
+    ACTION( MAXMEMORY_VOLATILE_RANDOM,  volatile-random)    \
+    ACTION( MAXMEMORY_VOLATILE_TTL,     volatile-ttl)       \
+    ACTION( MAXMEMORY_ALLKEYS_LRU,      allkeys-lru)        \
+    ACTION( MAXMEMORY_ALLKEYS_RANDOM,   allkeys-random)     \
+    ACTION( MAXMEMORY_NO_EVICTION,      noeviction)         \
 
-#define DEFINE_ACTION(_group, _name) _group,
-typedef enum group_type {
-    GROUP_CODEC( DEFINE_ACTION )
-    GROUP_SENTINEL
-} group_type_t;
+#define DEFINE_ACTION(_policy, _name) _policy,
+typedef enum evictpolicy_type {
+    EVICTPOLICY_CODEC( DEFINE_ACTION )
+    EVICTPOLICY_SENTINEL
+} evictpolicy_type_t;
 #undef DEFINE_ACTION
 
-typedef struct conf_pool {
-    group_type_t        type;
-    struct array        *servers;   //type: sds
-    
-    hash_type_t         hash;
-    dist_type_t         distribution;
-    sds                 hash_tag;
+#define DEFINE_ACTION(_policy, _name) (char*)(#_name),
+static char* evictpolicy_strings[] = {
+    EVICTPOLICY_CODEC( DEFINE_ACTION )
+    NULL
+};
+#undef DEFINE_ACTION
 
-    sds                 redis_auth;
-    int                 redis_db;
-
-    int                 timeout;
-    int                 backlog;
-} conf_pool;
+typedef struct conf_server {
+    long long     maxmemory;
+    int           maxmemory_policy;
+    int           maxmemory_samples;
+} conf_server;
 
 typedef struct vr_conf {
     sds           fname;             /* file name , absolute path */
@@ -56,7 +55,9 @@ typedef struct vr_conf {
     int           threads;
     sds           dir;
 
-    int           max_clients;
+    int           maxclients;
+
+    conf_server   cserver;
 }vr_conf;
 
 typedef struct conf_value{
@@ -70,13 +71,9 @@ void conf_value_destroy(conf_value *cv);
 vr_conf *conf_create(char *filename);
 void conf_destroy(vr_conf *cf);
 
-int conf_pool_set_type(void *obj, conf_option *opt, void *data);
-int conf_pool_set_hash(void *obj, conf_option *opt, void *data);
-int conf_pool_set_hash_tag(void *obj, conf_option *opt, void *data);
-int conf_pool_set_distribution(void *obj, conf_option *opt, void *data);
-int conf_pool_set_servers(void *obj, conf_option *opt, void *data);
-
-int conf_common_set_maxmemory(void *obj, conf_option *opt, void *data);
+int conf_set_maxmemory(void *obj, conf_option *opt, void *data);
+int conf_set_maxmemory_policy(void *obj, conf_option *opt, void *data);
+int conf_set_maxmemory_samples(void *obj, conf_option *opt, void *data);
 
 int conf_set_string(void *obj, conf_option *opt, void *data);
 int conf_set_num(void *obj, conf_option *opt, void *data);

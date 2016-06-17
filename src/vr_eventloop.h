@@ -12,6 +12,8 @@ typedef struct vr_eventloop {
     time_t unixtime;            /* Unix time sampled every cron cycle. */
     long long mstime;           /* Like 'unixtime' but with milliseconds resolution. */
 
+    unsigned lruclock:LRU_BITS; /* Clock for LRU eviction */
+
     conn_base *cb;
 
     struct client *current_client;     /* Current client, only used on crash report */

@@ -5,6 +5,10 @@
 #define PROTO_SHARED_SELECT_CMDS 10
 #define CRON_DBS_PER_CALL 16
 
+#define CONFIG_DEFAULT_MAXMEMORY 0
+#define CONFIG_DEFAULT_MAXMEMORY_SAMPLES 5
+#define CONFIG_DEFAULT_MAX_CLIENTS 10000
+
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
 #define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* CPU max % for keys collection */
@@ -12,12 +16,6 @@
 #define ACTIVE_EXPIRE_CYCLE_FAST 1
 
 /* Redis maxmemory strategies */
-#define MAXMEMORY_VOLATILE_LRU 0
-#define MAXMEMORY_VOLATILE_TTL 1
-#define MAXMEMORY_VOLATILE_RANDOM 2
-#define MAXMEMORY_ALLKEYS_LRU 3
-#define MAXMEMORY_ALLKEYS_RANDOM 4
-#define MAXMEMORY_NO_EVICTION 5
 #define CONFIG_DEFAULT_MAXMEMORY_POLICY MAXMEMORY_NO_EVICTION
 
 /* Zip structure related defaults */
@@ -113,6 +111,7 @@ struct vr_server {
     unsigned int maxclients;            /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
+    int maxmemory_samples;          /* Pricision of random sampling */
     /* Zip structure config, see redis.conf for more information  */
     size_t hash_max_ziplist_entries;
     size_t hash_max_ziplist_value;
@@ -328,8 +327,6 @@ extern dictType zsetDictType;
 #define serverPanic(_e) _log(__FILE__, __LINE__, 1, "assert faild: %s", #_e)
 #define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_log(__FILE__, __LINE__, 1, "assert faild: %s", #_e)))
 
-unsigned int get_lru_clock(void);
-
 unsigned int dictSdsHash(const void *key);
 unsigned int dictSdsCaseHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
@@ -344,7 +341,9 @@ void dictListDestructor(void *privdata, void *val);
 
 rstatus_t init_server(struct instance *nci);
 
-int freeMemoryIfNeeded(void);
+unsigned int getLRUClock(void);
+
+int freeMemoryIfNeeded(vr_eventloop *vel);
 void pingCommand(struct client *c);
 int time_independent_strcmp(char *a, char *b);
 void authCommand(struct client *c) ;

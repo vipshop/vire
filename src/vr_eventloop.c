@@ -11,9 +11,11 @@ vr_eventloop_init(vr_eventloop *vel)
 
     vr_thread_init(&vel->thread);
     vel->el = NULL;
+    vel->hz = 10;
     vel->cronloops = 0;
-    vel->unixtime = 0;
-    vel->mstime = 0;
+    vel->unixtime = time(NULL);
+    vel->mstime = vr_msec_now();
+    vel->lruclock = getLRUClock();
     vel->cb = NULL;
     vel->current_client = NULL;
     vel->clients = NULL;

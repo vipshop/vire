@@ -105,7 +105,8 @@ robj *lookupKey(redisDb *db, robj *key) {
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
         if (server.rdb_child_pid == -1 && server.aof_child_pid == -1)
-            val->lru = LRU_CLOCK();
+            //val->lru = LRU_CLOCK();
+            val->lru = 0;
         return val;
     } else {
         return NULL;

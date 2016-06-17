@@ -153,11 +153,6 @@ dictType zsetDictType = {
     NULL                       /* val destructor */
 };
 
-unsigned int
-get_lru_clock(void) {
-    return (vr_msec_now()/LRU_CLOCK_RESOLUTION) & LRU_CLOCK_MAX;
-}
-
 /* =========================== Server initialization ======================== */
 
 static void createSharedObjects(void) {
@@ -267,10 +262,14 @@ init_server(struct instance *nci)
 
     server.starttime = time(NULL);
 
-    server.maxclients = conf->max_clients;
-    server.maxmemory = conf->maxmemory == CONF_UNSET_NUM ? 0 : conf->maxmemory;
-    server.maxmemory_policy = CONFIG_DEFAULT_MAXMEMORY_POLICY;
-
+    server.maxclients = conf->maxclients == CONF_UNSET_NUM ? 
+        CONFIG_DEFAULT_MAX_CLIENTS : conf->maxclients;
+    server.maxmemory = conf->cserver.maxmemory == CONF_UNSET_NUM ? 
+        CONFIG_DEFAULT_MAXMEMORY : conf->cserver.maxmemory;
+    server.maxmemory_policy = conf->cserver.maxmemory_policy == CONF_UNSET_NUM ? 
+        CONFIG_DEFAULT_MAXMEMORY_POLICY : conf->cserver.maxmemory_policy;
+    server.maxmemory_samples = conf->cserver.maxmemory_samples == CONF_UNSET_NUM ?
+        CONFIG_DEFAULT_MAXMEMORY_SAMPLES : conf->cserver.maxmemory_samples;
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
 
     server.commands = dictCreate(&commandTableDictType,NULL);
@@ -345,7 +344,208 @@ init_server(struct instance *nci)
     return VR_OK;
 }
 
-int freeMemoryIfNeeded(void) {
+unsigned int getLRUClock(void) {
+    return (vr_msec_now()/LRU_CLOCK_RESOLUTION) & LRU_CLOCK_MAX;
+}
+
+/* This is an helper function for freeMemoryIfNeeded(), it is used in order
+ * to populate the evictionPool with a few entries every time we want to
+ * expire a key. Keys with idle time smaller than one of the current
+ * keys are added. Keys are always added if there are free entries.
+ *
+ * We insert keys on place in ascending order, so keys with the smaller
+ * idle time are on the left, and keys with the higher idle time on the
+ * right. */
+
+#define EVICTION_SAMPLES_ARRAY_SIZE 16
+void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
+    int j, k, count;
+    dictEntry *_samples[EVICTION_SAMPLES_ARRAY_SIZE];
+    dictEntry **samples;
+
+    /* Try to use a static buffer: this function is a big hit...
+     * Note: it was actually measured that this helps. */
+    if (server.maxmemory_samples <= EVICTION_SAMPLES_ARRAY_SIZE) {
+        samples = _samples;
+    } else {
+        samples = vr_alloc(sizeof(samples[0])*server.maxmemory_samples);
+    }
+
+    count = dictGetSomeKeys(sampledict,samples,server.maxmemory_samples);
+    for (j = 0; j < count; j++) {
+        unsigned long long idle;
+        sds key;
+        robj *o;
+        dictEntry *de;
+
+        de = samples[j];
+        key = dictGetKey(de);
+        /* If the dictionary we are sampling from is not the main
+         * dictionary (but the expires one) we need to lookup the key
+         * again in the key dictionary to obtain the value object. */
+        if (sampledict != keydict) de = dictFind(keydict, key);
+        o = dictGetVal(de);
+        idle = estimateObjectIdleTime(o);
+
+        /* Insert the element inside the pool.
+         * First, find the first empty bucket or the first populated
+         * bucket that has an idle time smaller than our idle time. */
+        k = 0;
+        while (k < MAXMEMORY_EVICTION_POOL_SIZE &&
+               pool[k].key &&
+               pool[k].idle < idle) k++;
+        if (k == 0 && pool[MAXMEMORY_EVICTION_POOL_SIZE-1].key != NULL) {
+            /* Can't insert if the element is < the worst element we have
+             * and there are no empty buckets. */
+            continue;
+        } else if (k < MAXMEMORY_EVICTION_POOL_SIZE && pool[k].key == NULL) {
+            /* Inserting into empty position. No setup needed before insert. */
+        } else {
+            /* Inserting in the middle. Now k points to the first element
+             * greater than the element to insert.  */
+            if (pool[MAXMEMORY_EVICTION_POOL_SIZE-1].key == NULL) {
+                /* Free space on the right? Insert at k shifting
+                 * all the elements from k to end to the right. */
+                memmove(pool+k+1,pool+k,
+                    sizeof(pool[0])*(MAXMEMORY_EVICTION_POOL_SIZE-k-1));
+            } else {
+                /* No free space on right? Insert at k-1 */
+                k--;
+                /* Shift all elements on the left of k (included) to the
+                 * left, so we discard the element with smaller idle time. */
+                sdsfree(pool[0].key);
+                memmove(pool,pool+1,sizeof(pool[0])*k);
+            }
+        }
+        pool[k].key = sdsdup(key);
+        pool[k].idle = idle;
+    }
+    if (samples != _samples) vr_free(samples);
+}
+
+int freeMemoryIfNeeded(vr_eventloop *vel) {
+    size_t mem_used, mem_tofree, mem_freed;
+    mstime_t latency, eviction_latency;
+    int keys_freed = 0;
+
+    if (vr_alloc_used_memory() <= server.maxmemory) {
+        return VR_OK;
+    }
+
+    if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION)
+        return VR_ERROR; /* We need to free memory, but policy forbids. */
+    
+    while (1) {
+        int j, k;
+
+        keys_freed = 0;
+        for (j = 0; j < server.dbnum; j++) {
+            long bestval = 0; /* just to prevent warning */
+            sds bestkey = NULL;
+            dictEntry *de;
+            redisDb *db = array_get(&server.dbs, j);
+            dict *dict;
+
+            lockDbWrite(db);
+            if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LRU ||
+                server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM)
+            {
+                dict = db->dict;
+            } else {
+                dict = db->expires;
+            }
+            if (dictSize(dict) == 0) {
+                unlockDb(db);
+                continue;
+            }
+
+            /* volatile-random and allkeys-random policy */
+            if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM ||
+                server.maxmemory_policy == MAXMEMORY_VOLATILE_RANDOM)
+            {
+                de = dictGetRandomKey(dict);
+                bestkey = dictGetKey(de);
+            }
+
+            /* volatile-lru and allkeys-lru policy */
+            else if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LRU ||
+                server.maxmemory_policy == MAXMEMORY_VOLATILE_LRU)
+            {
+                struct evictionPoolEntry *pool = db->eviction_pool;
+
+                while(bestkey == NULL) {
+                    evictionPoolPopulate(dict, db->dict, db->eviction_pool);
+                    /* Go backward from best to worst element to evict. */
+                    for (k = MAXMEMORY_EVICTION_POOL_SIZE-1; k >= 0; k--) {
+                        if (pool[k].key == NULL) continue;
+                        de = dictFind(dict,pool[k].key);
+
+                        /* Remove the entry from the pool. */
+                        sdsfree(pool[k].key);
+                        /* Shift all elements on its right to left. */
+                        memmove(pool+k,pool+k+1,
+                            sizeof(pool[0])*(MAXMEMORY_EVICTION_POOL_SIZE-k-1));
+                        /* Clear the element on the right which is empty
+                         * since we shifted one position to the left.  */
+                        pool[MAXMEMORY_EVICTION_POOL_SIZE-1].key = NULL;
+                        pool[MAXMEMORY_EVICTION_POOL_SIZE-1].idle = 0;
+
+                        /* If the key exists, is our pick. Otherwise it is
+                         * a ghost and we need to try the next element. */
+                        if (de) {
+                            bestkey = dictGetKey(de);
+                            break;
+                        } else {
+                            /* Ghost... */
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            /* volatile-ttl */
+            else if (server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL) {
+                for (k = 0; k < server.maxmemory_samples; k++) {
+                    sds thiskey;
+                    long thisval;
+
+                    de = dictGetRandomKey(dict);
+                    thiskey = dictGetKey(de);
+                    thisval = (long) dictGetVal(de);
+
+                    /* Expire sooner (minor expire unix timestamp) is better
+                     * candidate for deletion */
+                    if (bestkey == NULL || thisval < bestval) {
+                        bestkey = thiskey;
+                        bestval = thisval;
+                    }
+                }
+            }
+
+            /* Finally remove the selected key. */
+            if (bestkey) {
+                robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
+                dbDelete(db,keyobj);
+                decrRefCount(keyobj);
+                keys_freed++;
+            }
+            
+            unlockDb(db);
+
+            if (vr_alloc_used_memory() <= server.maxmemory) {
+                goto stop;
+            }
+        }
+        
+        if (!keys_freed) {
+            return VR_ERROR; /* nothing to free... */
+        }
+
+        update_stats_add(vel->stats, evictedkeys, keys_freed);
+    }
+
+stop:
+    update_stats_add(vel->stats, evictedkeys, keys_freed);
     return VR_OK;
 }
 
@@ -525,6 +725,7 @@ sds genVireInfoString(char *section) {
         char maxmemory_hmem[64];
         size_t vr_used_memory = vr_alloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
+        const char *evict_policy = evictpolicy_strings[server.maxmemory_policy];
 
         /* Peak memory is updated from time to time by serverCron() so it
          * may happen that the instantaneous value is slightly bigger than
@@ -549,6 +750,7 @@ sds genVireInfoString(char *section) {
             "total_system_memory_human:%s\r\n"
             "maxmemory:%lld\r\n"
             "maxmemory_human:%s\r\n"
+            "maxmemory_policy:%s\r\n"
             "mem_allocator:%s\r\n",
             vr_used_memory,
             hmem,
@@ -558,6 +760,7 @@ sds genVireInfoString(char *section) {
             total_system_hmem,
             server.maxmemory,
             maxmemory_hmem,
+            evict_policy,
             VR_MALLOC_LIB
             );
     }
@@ -571,6 +774,7 @@ sds genVireInfoString(char *section) {
         long long stat_net_input_bytes=0, stat_net_output_bytes=0;
         long long stat_rejected_conn=0;
         long long stat_expiredkeys=0;
+        long long stat_evictedkeys=0;
         long long stat_keyspace_hits=0, stat_keyspace_misses=0;
 
         for (idx = 0; idx < array_n(&workers); idx ++) {
@@ -580,6 +784,7 @@ sds genVireInfoString(char *section) {
             stat_numcommands += update_stats_add(stats, numcommands, 0);
             stat_numconnections += update_stats_add(stats, numconnections, 0);
             stat_expiredkeys += update_stats_add(stats, expiredkeys, 0);
+            stat_evictedkeys += update_stats_add(stats, evictedkeys, 0);
             stat_net_input_bytes += update_stats_add(stats, net_input_bytes, 0);
             stat_net_output_bytes += update_stats_add(stats, net_output_bytes, 0);
             stat_keyspace_hits += update_stats_add(stats, keyspace_hits, 0);
@@ -589,6 +794,7 @@ sds genVireInfoString(char *section) {
             stat_numcommands += stats->numcommands;
             stat_numconnections += stats->numconnections;
             stat_expiredkeys += stats->expiredkeys;
+            stat_evictedkeys += stats->evictedkeys;
             stat_net_input_bytes += stats->net_input_bytes;
             stat_net_output_bytes += stats->net_output_bytes;
             stat_keyspace_hits += stats->keyspace_hits;
@@ -614,6 +820,7 @@ sds genVireInfoString(char *section) {
             "total_net_output_bytes:%lld\r\n"
             "rejected_connections:%lld\r\n"
             "expired_keys:%lld\r\n"
+            "evicted_keys:%lld\r\n"
             "keyspace_hits:%lld\r\n"
             "keyspace_misses:%lld\r\n",
             stat_numconnections,
@@ -622,6 +829,7 @@ sds genVireInfoString(char *section) {
             stat_net_output_bytes,
             stat_rejected_conn,
             stat_expiredkeys,
+            stat_evictedkeys,
             stat_keyspace_hits,
             stat_keyspace_misses);
     }

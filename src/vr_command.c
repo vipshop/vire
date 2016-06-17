@@ -403,7 +403,7 @@ int processCommand(client *c) {
      * keys in the dataset). If there are not the only thing we can do
      * is returning an error. */
     if (server.maxmemory) {
-        int retval = freeMemoryIfNeeded();
+        int retval = freeMemoryIfNeeded(c->vel);
         /* freeMemoryIfNeeded may flush slave output buffers. This may result
          * into a slave, that may be the active client, to be freed. */
         if (c->vel->current_client == NULL) return VR_ERROR;

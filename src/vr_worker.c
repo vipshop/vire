@@ -413,22 +413,26 @@ worker_before_sleep(struct aeEventLoop *eventLoop, void *private_data) {
 int
 worker_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     vr_worker *worker = clientData;
+    vr_eventloop *vel = &worker->vel;
 
     UNUSED(eventLoop);
     UNUSED(id);
     UNUSED(clientData);
 
-    ASSERT(eventLoop == worker->vel.el);
+    ASSERT(eventLoop == vel->el);
 
-    run_with_period(100, worker->vel.cronloops) {
+    vel->unixtime = time(NULL);
+    vel->mstime = vr_msec_now();
+
+    run_with_period(100, vel->cronloops) {
         
     }
 
     /* Close clients that need to be closed asynchronous */
-    freeClientsInAsyncFreeQueue(&worker->vel);
+    freeClientsInAsyncFreeQueue(vel);
 
     databasesCron(worker);
 
-    worker->vel.cronloops ++;
-    return 1000/server.hz;
+    vel->cronloops ++;
+    return 1000/vel->hz;
 }
