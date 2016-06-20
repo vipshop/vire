@@ -409,7 +409,7 @@ void smoveCommand(client *c) {
     addReply(c,shared.cone);
 }
 
-void sismemberCommand(client *c) {
+void sismemberCommand_original(client *c) {
     robj *set;
 
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
@@ -420,6 +420,31 @@ void sismemberCommand(client *c) {
         addReply(c,shared.cone);
     else
         addReply(c,shared.czero);
+}
+
+void sismemberCommand(client *c) {
+    robj *set;
+
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbRead(c->db);
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,set,OBJ_SET)) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
+    
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
+    if (setTypeIsMember(set,c->argv[2]))
+        addReply(c,shared.cone);
+    else
+        addReply(c,shared.czero);
+
+    unlockDb(c->db);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void scardCommand_original(client *c) {

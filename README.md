@@ -129,6 +129,7 @@ A quick checklist:
 + scard
 + srem
 + spop
++ sismember
 
 #### SortedSet
 
