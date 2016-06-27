@@ -60,6 +60,7 @@ A quick checklist:
 
 + info
 + flushall
++ flushdb
 + time
 
 #### Key
