@@ -2820,14 +2820,26 @@ void zscoreCommand(client *c) {
     robj *zobj;
     double score;
 
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) return;
+    fetchInternalDbByKey(c, key);
+    lockDbRead(c->db);
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,zobj,OBJ_ZSET)) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
 
     if (zsetScore(zobj,c->argv[2],&score) == VR_ERROR) {
         addReply(c,shared.nullbulk);
     } else {
         addReplyDouble(c,score);
     }
+
+    unlockDb(c->db);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void zrankGenericCommand(client *c, int reverse) {

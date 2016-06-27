@@ -145,6 +145,7 @@ A quick checklist:
 + zrevrangebyscore
 + zrank
 + zrevrank
++ zscore
 
 ## License
 
