@@ -2837,8 +2837,17 @@ void zrankGenericCommand(client *c, int reverse) {
     unsigned long llen;
     unsigned long rank;
 
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) return;
+    fetchInternalDbByKey(c, key);
+    lockDbRead(c->db);
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,zobj,OBJ_ZSET)) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
     llen = zsetLength(zobj);
 
     serverAssertWithInfo(c,ele,sdsEncodedObject(ele));
@@ -2890,6 +2899,9 @@ void zrankGenericCommand(client *c, int reverse) {
     } else {
         serverPanic("Unknown sorted set encoding");
     }
+
+    unlockDb(c->db);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void zrankCommand(client *c) {

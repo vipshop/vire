@@ -143,6 +143,8 @@ A quick checklist:
 + zcount
 + zrangebyscore
 + zrevrangebyscore
++ zrank
++ zrevrank
 
 ## License
 
