@@ -281,10 +281,18 @@ void signalFlushedDb(int dbid) {
  *----------------------------------------------------------------------------*/
 
 void flushdbCommand(client *c) {
-    server.dirty += dictSize(c->db->dict);
-    signalFlushedDb(c->db->id);
-    dictEmpty(c->db->dict,NULL);
-    dictEmpty(c->db->expires,NULL);
+    int idx;
+    redisDb *db;
+
+    for (idx = 0; idx < server.dbinum; idx ++) {
+        fetchInternalDbById(c, idx);
+        lockDbWrite(c->db);
+        c->vel->dirty += dictSize(c->db->dict);
+        signalFlushedDb(c->db->id);
+        dictEmpty(c->db->dict,NULL);
+        dictEmpty(c->db->expires,NULL);
+        unlockDb(c->db);
+    }
 
     addReply(c,shared.ok);
 }

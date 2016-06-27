@@ -306,6 +306,8 @@ init_server(struct instance *nci)
         db = array_push(&server.dbs);
         redisDbInit(db);
     }
+
+    server.clients = listCreate();
     
     server.monitors = listCreate();
 
