@@ -260,12 +260,11 @@ void call(client *c, int flags) {
     redisOpArrayInit(&server.also_propagate);
 
     /* Call the command. */
-    dirty = server.dirty;
+    dirty = c->vel->dirty;
     start = vr_usec_now();
     c->cmd->proc(c);
     duration = vr_usec_now()-start;
-    dirty = server.dirty-dirty;
-    dirty = 0;
+    dirty = c->vel->dirty-dirty;
     if (dirty < 0) dirty = 0;
 
     /* When EVAL is called loading the AOF we don't want commands called
@@ -522,13 +521,6 @@ int processCommand(client *c) {
             handleClientsBlockedOnLists();
     }
 
-#if defined(VR_ASSERT_LOG) || defined(VR_ASSERT_PANIC)
-    int j;
-    for (j = 0; j < c->argc; j++) {
-        ASSERT(c->argv[j]->refcount == 1);
-    }
-#endif
-
     return VR_OK;
 }
 
@@ -611,8 +603,7 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
 
     argvcopy = vr_alloc(sizeof(robj*)*(size_t)argc);
     for (j = 0; j < argc; j++) {
-        argvcopy[j] = argv[j];
-        incrRefCount(argv[j]);
+        argvcopy[j] = dupStringObjectUnconstant(argv[j]);
     }
     redisOpArrayAppend(&server.also_propagate,cmd,dbid,argvcopy,argc,target);
 }

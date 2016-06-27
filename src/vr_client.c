@@ -11,8 +11,11 @@ size_t sdsZmallocSize(sds s) {
 }
 
 void *dupClientReplyValue(void *o) {
-    incrRefCount((robj*)o);
     return o;
+}
+
+void freeClientReplyValue(void *o) {
+    freeObject(o);
 }
 
 int listMatchObjects(void *a, void *b) {
@@ -67,7 +70,7 @@ client *createClient(vr_eventloop *vel, struct conn *conn) {
     c->reply = listCreate();
     c->reply_bytes = 0;
     c->obuf_soft_limit_reached_time = 0;
-    listSetFreeMethod(c->reply,decrRefCountVoid);
+    listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
     c->btype = BLOCKED_NONE;
     c->bpop.timeout = 0;
@@ -155,9 +158,8 @@ robj *dupLastObjectIfNeeded(list *reply) {
     ASSERT(listLength(reply) > 0);
     ln = listLast(reply);
     cur = listNodeValue(ln);
-    if (cur->refcount > 1) {
+    if (cur->constant) {
         new = dupStringObject(cur);
-        decrRefCount(cur);
         listNodeValue(ln) = new;
     }
     return listNodeValue(ln);
@@ -185,14 +187,17 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
 }
 
 void _addReplyObjectToList(client *c, robj *o) {
-    robj *tail;
+    robj *tail, *obj;
 
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
     if (listLength(c->reply) == 0) {
-        incrRefCount(o);
-        listAddNodeTail(c->reply,o);
-        c->reply_bytes += getStringObjectSdsUsedMemory(o);
+        if (o->constant)
+            obj = o;
+        else
+            obj = dupStringObject(o);
+        listAddNodeTail(c->reply,obj);
+        c->reply_bytes += getStringObjectSdsUsedMemory(obj);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
@@ -206,9 +211,12 @@ void _addReplyObjectToList(client *c, robj *o) {
             tail->ptr = sdscatlen(tail->ptr,o->ptr,sdslen(o->ptr));
             c->reply_bytes += sdsZmallocSize(tail->ptr);
         } else {
-            incrRefCount(o);
-            listAddNodeTail(c->reply,o);
-            c->reply_bytes += getStringObjectSdsUsedMemory(o);
+            if (o->constant)
+                obj = o;
+            else
+                obj = dupStringObject(o);
+            listAddNodeTail(c->reply,obj);
+            c->reply_bytes += getStringObjectSdsUsedMemory(obj);
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
@@ -572,7 +580,7 @@ int clientHasPendingReplies(client *c) {
 static void freeClientArgv(client *c) {
     int j;
     for (j = 0; j < c->argc; j++)
-        decrRefCount(c->argv[j]);
+        freeObject(c->argv[j]);
     c->argc = 0;
     c->cmd = NULL;
 }
@@ -1481,9 +1489,8 @@ void clientCommand(client *c) {
     }
 }
 
-/* Rewrite the command vector of the client. All the new objects ref count
- * is incremented. The old command vector is freed, and the old objects
- * ref count is decremented. */
+/* Rewrite the command vector of the client. All the new objects should 
+ * be independent. The old command vector is freed. */
 void rewriteClientCommandVector(client *c, int argc, ...) {
     va_list ap;
     int j;
@@ -1493,15 +1500,11 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
     va_start(ap,argc);
     for (j = 0; j < argc; j++) {
         robj *a;
-
         a = va_arg(ap, robj*);
         argv[j] = a;
-        incrRefCount(a);
     }
-    /* We free the objects in the original vector at the end, so we are
-     * sure that if the same objects are reused in the new vector the
-     * refcount gets incremented before it gets decremented. */
-    for (j = 0; j < c->argc; j++) decrRefCount(c->argv[j]);
+    /* We free the objects in the original vector at the end. */
+    for (j = 0; j < c->argc; j++) freeObject(c->argv[j]);
     vr_free(c->argv);
     /* Replace argv and argc with our new versions. */
     c->argv = argv;
@@ -1522,7 +1525,7 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
 }
 
 /* Rewrite a single item in the command vector.
- * The new val ref count is incremented, and the old decremented.
+ * The new val should be independent, and the old freed.
  *
  * It is possible to specify an argument over the current size of the
  * argument vector: in this case the array of objects gets reallocated
@@ -1542,8 +1545,7 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     }
     oldval = c->argv[i];
     c->argv[i] = newval;
-    incrRefCount(newval);
-    if (oldval) decrRefCount(oldval);
+    if (oldval) freeObject(oldval);
 
     /* If this is the command name make sure to fix c->cmd. */
     if (i == 0) {

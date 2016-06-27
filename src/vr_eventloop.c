@@ -24,6 +24,7 @@ vr_eventloop_init(vr_eventloop *vel)
     vel->clients_paused = 0;
     vel->clients_pause_end_time = 0;
     vel->stats = NULL;
+    vel->dirty = 0;
     vel->bpop_blocked_clients = 0;
     vel->unblocked_clients = NULL;
     vel->clients_waiting_acks = NULL;

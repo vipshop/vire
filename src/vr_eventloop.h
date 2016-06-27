@@ -26,6 +26,8 @@ typedef struct vr_eventloop {
 
     vr_stats *stats;            /* stats for this thread */
 
+    long long dirty;            /* Changes to DB from the last save */
+
     /* Blocked clients */
     unsigned int bpop_blocked_clients; /* Number of clients blocked by lists */
     list *unblocked_clients;        /* list of clients to unblock before next loop */

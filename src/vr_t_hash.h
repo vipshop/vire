@@ -17,7 +17,7 @@ int hashTypeNext(hashTypeIterator *hi);
 void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what, unsigned char **vstr, unsigned int *vlen, long long *vll);
 void hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what, robj **dst);
 robj *hashTypeCurrentObject(hashTypeIterator *hi, int what);
-robj *hashTypeLookupWriteOrCreate(client *c, robj *key);
+robj *hashTypeLookupWriteOrCreate(client *c, robj *key, int *expired);
 void hashTypeConvertZiplist(robj *o, int enc);
 void hashTypeConvert(robj *o, int enc);
 void hsetCommand(client *c);

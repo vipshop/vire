@@ -38,6 +38,7 @@ typedef struct vr_object {
     unsigned type:4;
     unsigned encoding:4;
     unsigned lru:LRU_BITS; /* lru time (relative to server.lruclock) */
+    unsigned constant:1;
     int refcount;
     void *ptr;
 } robj;
@@ -46,6 +47,7 @@ void decrRefCount(robj *o);
 void decrRefCountVoid(void *o);
 void incrRefCount(robj *o);
 robj *resetRefCount(robj *obj);
+void freeObject(robj *o);
 void freeStringObject(robj *o);
 void freeListObject(robj *o);
 void freeSetObject(robj *o);
@@ -56,6 +58,7 @@ robj *createStringObject(const char *ptr, size_t len);
 robj *createRawStringObject(const char *ptr, size_t len);
 robj *createEmbeddedStringObject(const char *ptr, size_t len);
 robj *dupStringObject(robj *o);
+robj *dupStringObjectUnconstant(robj *o);
 int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
 robj *tryObjectEncoding(robj *o);
 robj *getDecodedObject(robj *o);

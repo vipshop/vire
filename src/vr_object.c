@@ -12,10 +12,8 @@ robj *createObject(int type, void *ptr) {
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
-    o->refcount = 1;
-
-    /* Set the LRU to the current lruclock (minutes resolution). */
-    //o->lru = LRU_CLOCK();
+    o->constant = 0;
+    o->refcount = -1;
     o->lru = 0;
     return o;
 }
@@ -36,8 +34,8 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->ptr = sh+1;
-    o->refcount = 1;
-    //o->lru = LRU_CLOCK();
+    o->constant = 0;
+    o->refcount = -1;
     o->lru = 0;
 
     sh->len = len;
@@ -69,7 +67,6 @@ robj *createStringObject(const char *ptr, size_t len) {
 robj *createStringObjectFromLongLong(long long value) {
     robj *o;
     if (value >= 0 && value < OBJ_SHARED_INTEGERS) {
-        incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
         if (value >= LONG_MIN && value <= LONG_MAX) {
@@ -154,6 +151,11 @@ robj *dupStringObject(robj *o) {
     }
 }
 
+robj *dupStringObjectUnconstant(robj *o) {
+    if (o->constant) return o;
+    return dupStringObject(o);
+}
+
 robj *createQuicklistObject(void) {
     quicklist *l = quicklistCreate();
     robj *o = createObject(OBJ_LIST,l);
@@ -189,6 +191,10 @@ robj *createHashObject(void) {
     return o;
 }
 
+/* The member object is stored in the zs->dict. 
+  * You can use the member in the zs->zsl just 
+  * when zs->dict was not released.
+  */
 robj *createZsetObject(void) {
     zset *zs = vr_alloc(sizeof(*zs));
     robj *o;
@@ -295,6 +301,20 @@ void decrRefCountVoid(void *o) {
     decrRefCount(o);
 }
 
+void freeObject(robj *o) {
+    if (o->constant) return;
+    
+    switch(o->type) {
+    case OBJ_STRING: freeStringObject(o); break;
+    case OBJ_LIST: freeListObject(o); break;
+    case OBJ_SET: freeSetObject(o); break;
+    case OBJ_ZSET: freeZsetObject(o); break;
+    case OBJ_HASH: freeHashObject(o); break;
+    default: serverPanic("Unknown object type"); break;
+    }
+    vr_free(o);
+}
+
 /* This function set the ref count to zero without freeing the object.
  * It is useful in order to pass a new object to functions incrementing
  * the ref count of the received object. Example:
@@ -331,86 +351,6 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
 }
 
 /* Try to encode a string object in order to save space */
-robj *tryObjectEncoding_original(robj *o) {
-    long value;
-    sds s = o->ptr;
-    size_t len;
-
-    /* Make sure this is a string object, the only type we encode
-     * in this function. Other types use encoded memory efficient
-     * representations but are handled by the commands implementing
-     * the type. */
-    serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
-
-    /* We try some specialized encoding only for objects that are
-     * RAW or EMBSTR encoded, in other words objects that are still
-     * in represented by an actually array of chars. */
-    if (!sdsEncodedObject(o)) return o;
-
-    /* It's not safe to encode shared objects: shared objects can be shared
-     * everywhere in the "object space" of Redis and may end in places where
-     * they are not handled. We handle them only as values in the keyspace. */
-     if (o->refcount > 1) return o;
-
-    /* Check if we can represent this string as a long integer.
-     * Note that we are sure that a string larger than 21 chars is not
-     * representable as a 32 nor 64 bit integer. */
-    len = sdslen(s);
-    if (len <= 21 && string2l(s,len,&value)) {
-        /* This object is encodable as a long. Try to use a shared object.
-         * Note that we avoid using shared integers when maxmemory is used
-         * because every object needs to have a private LRU field for the LRU
-         * algorithm to work well. */
-        if ((server.maxmemory == 0 ||
-             (server.maxmemory_policy != MAXMEMORY_VOLATILE_LRU &&
-              server.maxmemory_policy != MAXMEMORY_ALLKEYS_LRU)) &&
-            value >= 0 &&
-            value < OBJ_SHARED_INTEGERS)
-        {
-            decrRefCount(o);
-            incrRefCount(shared.integers[value]);
-            return shared.integers[value];
-        } else {
-            if (o->encoding == OBJ_ENCODING_RAW) sdsfree(o->ptr);
-            o->encoding = OBJ_ENCODING_INT;
-            o->ptr = (void*) value;
-            return o;
-        }
-    }
-
-    /* If the string is small and is still RAW encoded,
-     * try the EMBSTR encoding which is more efficient.
-     * In this representation the object and the SDS string are allocated
-     * in the same chunk of memory to save space and cache misses. */
-    if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT) {
-        robj *emb;
-
-        if (o->encoding == OBJ_ENCODING_EMBSTR) return o;
-        emb = createEmbeddedStringObject(s,sdslen(s));
-        decrRefCount(o);
-        return emb;
-    }
-
-    /* We can't encode the object...
-     *
-     * Do the last try, and at least optimize the SDS string inside
-     * the string object to require little space, in case there
-     * is more than 10% of free space at the end of the SDS string.
-     *
-     * We do that only for relatively large strings as this branch
-     * is only entered if the length of the string is greater than
-     * OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
-    if (o->encoding == OBJ_ENCODING_RAW &&
-        sdsavail(s) > len/10)
-    {
-        o->ptr = sdsRemoveFreeSpace(o->ptr);
-    }
-
-    /* Return the original object. */
-    return o;
-}
-
-/* Try to encode a string object in order to save space */
 robj *tryObjectEncoding(robj *o) {
     long value;
     sds s = o->ptr;
@@ -430,18 +370,34 @@ robj *tryObjectEncoding(robj *o) {
     /* It's not safe to encode shared objects: shared objects can be shared
      * everywhere in the "object space" of Redis and may end in places where
      * they are not handled. We handle them only as values in the keyspace. */
-     if (o->refcount > 1) return o;
+    if (o->refcount > 1) return o;
+
+    /* It's constant object, not encode it.  */
+    if (o->constant) return o;
 
     /* Check if we can represent this string as a long integer.
      * Note that we are sure that a string larger than 21 chars is not
      * representable as a 32 nor 64 bit integer. */
     len = sdslen(s);
-    if (len <= 21 && string2l(s,len,&value)) {       
-        if (o->encoding == OBJ_ENCODING_RAW) sdsfree(o->ptr);
-        o->encoding = OBJ_ENCODING_INT;
-        o->ptr = (void*) value;
-        return o;
-
+    if (len <= 21 && string2l(s,len,&value)) {
+        /* This object is encodable as a long. Try to use a shared object.
+         * Note that we avoid using shared integers when maxmemory is used
+         * because every object needs to have a private LRU field for the LRU
+         * algorithm to work well. */
+        if ((server.maxmemory == 0 ||
+             (server.maxmemory_policy != MAXMEMORY_VOLATILE_LRU &&
+              server.maxmemory_policy != MAXMEMORY_ALLKEYS_LRU)) &&
+            value >= 0 &&
+            value < OBJ_SHARED_INTEGERS)
+        {
+            freeObject(o);
+            return shared.integers[value];
+        } else {
+            if (o->encoding == OBJ_ENCODING_RAW) sdsfree(o->ptr);
+            o->encoding = OBJ_ENCODING_INT;
+            o->ptr = (void*) value;
+            return o;
+        }
     }
 
     /* If the string is small and is still RAW encoded,
@@ -453,7 +409,7 @@ robj *tryObjectEncoding(robj *o) {
 
         if (o->encoding == OBJ_ENCODING_EMBSTR) return o;
         emb = createEmbeddedStringObject(s,sdslen(s));
-        decrRefCount(o);
+        freeObject(o);
         return emb;
     }
 
@@ -482,7 +438,6 @@ robj *getDecodedObject(robj *o) {
     robj *dec;
 
     if (sdsEncodedObject(o)) {
-        incrRefCount(o);
         return o;
     }
     if (o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_INT) {

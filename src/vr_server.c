@@ -56,7 +56,7 @@ dictObjectDestructor(void *privdata, void *val)
     DICT_NOTUSED(privdata);
 
     if (val == NULL) return; /* Values of swapped out keys as set to NULL */
-    decrRefCount(val);
+    freeObject(val);
 }
 
 int
@@ -64,17 +64,18 @@ dictEncObjKeyCompare(void *privdata, const void *key1,
         const void *key2)
 {
     robj *o1 = (robj*) key1, *o2 = (robj*) key2;
+    robj *o1_new, *o2_new;
     int cmp;
 
     if (o1->encoding == OBJ_ENCODING_INT &&
         o2->encoding == OBJ_ENCODING_INT)
             return o1->ptr == o2->ptr;
 
-    o1 = getDecodedObject(o1);
-    o2 = getDecodedObject(o2);
-    cmp = dictSdsKeyCompare(privdata,o1->ptr,o2->ptr);
-    decrRefCount(o1);
-    decrRefCount(o2);
+    o1_new = getDecodedObject(o1);
+    o2_new = getDecodedObject(o2);
+    cmp = dictSdsKeyCompare(privdata,o1_new->ptr,o2_new->ptr);
+    if (o1_new != o1)  freeObject(o1_new);
+    if (o2_new != o2)  freeObject(o2_new);
     return cmp;
 }
 
@@ -93,10 +94,11 @@ dictEncObjHash(const void *key) {
             return dictGenHashFunction((unsigned char*)buf, len);
         } else {
             unsigned int hash;
+            robj *o_new;
 
-            o = getDecodedObject(o);
-            hash = dictGenHashFunction(o->ptr, sdslen((sds)o->ptr));
-            decrRefCount(o);
+            o_new = getDecodedObject(o);
+            hash = dictGenHashFunction(o_new->ptr, sdslen((sds)o_new->ptr));
+            if (o_new!= o) freeObject(o_new);
             return hash;
         }
     }
@@ -149,7 +151,7 @@ dictType zsetDictType = {
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictEncObjKeyCompare,      /* key compare */
-    dictObjectDestructor, /* key destructor */
+    dictObjectDestructor,      /* key destructor */
     NULL                       /* val destructor */
 };
 
@@ -157,6 +159,7 @@ dictType zsetDictType = {
 
 static void createSharedObjects(void) {
     int j;
+    robj **obj;
 
     shared.crlf = createObject(OBJ_STRING,sdsnew("\r\n"));
     shared.ok = createObject(OBJ_STRING,sdsnew("+OK\r\n"));
@@ -207,6 +210,16 @@ static void createSharedObjects(void) {
     shared.colon = createObject(OBJ_STRING,sdsnew(":"));
     shared.plus = createObject(OBJ_STRING,sdsnew("+"));
 
+    for (j = 0; j < PROTO_SHARED_SELECT_CMDS; j++) {
+        char dictid_str[64];
+        int dictid_len;
+
+        dictid_len = ll2string(dictid_str,sizeof(dictid_str),j);
+        shared.select[j] = createObject(OBJ_STRING,
+            sdscatprintf(sdsempty(),
+                "*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
+                dictid_len, dictid_str));
+    }
     shared.messagebulk = createStringObject("$7\r\nmessage\r\n",13);
     shared.pmessagebulk = createStringObject("$8\r\npmessage\r\n",14);
     shared.subscribebulk = createStringObject("$9\r\nsubscribe\r\n",15);
@@ -233,6 +246,11 @@ static void createSharedObjects(void) {
      * string in string comparisons for the ZRANGEBYLEX command. */
     shared.minstring = createStringObject("minstring",9);
     shared.maxstring = createStringObject("maxstring",9);
+
+    /* Set this objects to constant */
+    for (obj = &shared; *obj != NULL; obj ++) {
+        (*obj)->constant = 1;
+    }
 }
 
 rstatus_t
@@ -322,10 +340,12 @@ init_server(struct instance *nci)
     server.zset_max_ziplist_value = OBJ_ZSET_MAX_ZIPLIST_VALUE;
     server.hll_sparse_max_bytes = CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES;
 
+    server.notify_keyspace_events = 0;
+
     vr_replication_init();
     
     createSharedObjects();
-
+    
     status = master_init(conf);
     if (status != VR_OK) {
         log_error("init master thread failed");

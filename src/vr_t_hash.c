@@ -41,15 +41,16 @@ int hashTypeGetFromZiplist(robj *o, robj *field,
 {
     unsigned char *zl, *fptr = NULL, *vptr = NULL;
     int ret;
+    robj *field_new;
 
     ASSERT(o->encoding == OBJ_ENCODING_ZIPLIST);
 
-    field = getDecodedObject(field);
+    field_new = getDecodedObject(field);
 
     zl = o->ptr;
     fptr = ziplistIndex(zl, ZIPLIST_HEAD);
     if (fptr != NULL) {
-        fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
+        fptr = ziplistFind(fptr, field_new->ptr, sdslen(field_new->ptr), 1);
         if (fptr != NULL) {
             /* Grab pointer to the value (fptr points to the field) */
             vptr = ziplistNext(zl, fptr);
@@ -57,7 +58,7 @@ int hashTypeGetFromZiplist(robj *o, robj *field,
         }
     }
 
-    decrRefCount(field);
+    if (field_new != field) freeObject(field_new);
 
     if (vptr != NULL) {
         ret = ziplistGet(vptr, vstr, vlen, vll);
@@ -106,7 +107,6 @@ robj *hashTypeGetObject(robj *o, robj *field) {
         robj *aux;
 
         if (hashTypeGetFromHashTable(o, field, &aux) == 0) {
-            incrRefCount(aux);
             value = aux;
         }
     } else {
@@ -159,78 +159,23 @@ int hashTypeExists(robj *o, robj *field) {
 
 /* Add an element, discard the old if the key already exists.
  * Return 0 on insert and 1 on update.
- * This function will take care of incrementing the reference count of the
- * retained fields and value objects. */
-int hashTypeSet_original(robj *o, robj *field, robj *value) {
-    int update = 0;
-
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        unsigned char *zl, *fptr, *vptr;
-
-        field = getDecodedObject(field);
-        value = getDecodedObject(value);
-
-        zl = o->ptr;
-        fptr = ziplistIndex(zl, ZIPLIST_HEAD);
-        if (fptr != NULL) {
-            fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
-            if (fptr != NULL) {
-                /* Grab pointer to the value (fptr points to the field) */
-                vptr = ziplistNext(zl, fptr);
-                ASSERT(vptr != NULL);
-                update = 1;
-
-                /* Delete value */
-                zl = ziplistDelete(zl, &vptr);
-
-                /* Insert new value */
-                zl = ziplistInsert(zl, vptr, value->ptr, sdslen(value->ptr));
-            }
-        }
-
-        if (!update) {
-            /* Push new field/value pair onto the tail of the ziplist */
-            zl = ziplistPush(zl, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
-            zl = ziplistPush(zl, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
-        }
-        o->ptr = zl;
-        decrRefCount(field);
-        decrRefCount(value);
-
-        /* Check if the ziplist needs to be converted to a hash table */
-        if (hashTypeLength(o) > server.hash_max_ziplist_entries)
-            hashTypeConvert(o, OBJ_ENCODING_HT);
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        if (dictReplace(o->ptr, field, value)) { /* Insert */
-            incrRefCount(field);
-        } else { /* Update */
-            update = 1;
-        }
-        incrRefCount(value);
-    } else {
-        serverPanic("Unknown hash encoding");
-    }
-    return update;
-}
-
-/* Add an element, discard the old if the key already exists.
- * Return 0 on insert and 1 on update.
- * This function will take care of incrementing the reference count of the
- * retained fields and value objects. 
+ * This function will take care of dump the fields and value 
+ * objects when insert into the hash table.
  * Filed and value objects just borrow to hashTypeSet(). */
 int hashTypeSet(robj *o, robj *field, robj *value) {
     int update = 0;
+    robj *field_new, *value_new;
 
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl, *fptr, *vptr;
 
-        field = getDecodedObject(field);
-        value = getDecodedObject(value);
+        field_new = getDecodedObject(field);
+        value_new = getDecodedObject(value);
 
         zl = o->ptr;
         fptr = ziplistIndex(zl, ZIPLIST_HEAD);
         if (fptr != NULL) {
-            fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
+            fptr = ziplistFind(fptr, field_new->ptr, sdslen(field_new->ptr), 1);
             if (fptr != NULL) {
                 /* Grab pointer to the value (fptr points to the field) */
                 vptr = ziplistNext(zl, fptr);
@@ -241,30 +186,30 @@ int hashTypeSet(robj *o, robj *field, robj *value) {
                 zl = ziplistDelete(zl, &vptr);
 
                 /* Insert new value */
-                zl = ziplistInsert(zl, vptr, value->ptr, sdslen(value->ptr));
+                zl = ziplistInsert(zl, vptr, value_new->ptr, sdslen(value_new->ptr));
             }
         }
 
         if (!update) {
             /* Push new field/value pair onto the tail of the ziplist */
-            zl = ziplistPush(zl, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
-            zl = ziplistPush(zl, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
+            zl = ziplistPush(zl, field_new->ptr, sdslen(field_new->ptr), ZIPLIST_TAIL);
+            zl = ziplistPush(zl, value_new->ptr, sdslen(value_new->ptr), ZIPLIST_TAIL);
         }
         o->ptr = zl;
-        decrRefCount(field);
-        decrRefCount(value);
+        if (field_new != field) freeObject(field_new);
+        if (value_new != value) freeObject(value_new);
 
         /* Check if the ziplist needs to be converted to a hash table */
         if (hashTypeLength(o) > server.hash_max_ziplist_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT);
     } else if (o->encoding == OBJ_ENCODING_HT) {
-        field = dupStringObject(field);
-        value = dupStringObject(value);
-        if (dictReplace(o->ptr, field, value)) { /* Insert */
-            /*do nothing */
+        field_new = dupStringObjectUnconstant(field);
+        value_new = dupStringObjectUnconstant(value);
+        if (dictReplace(o->ptr, field_new, value_new)) { /* Insert */
+            /* Do nothing */
         } else { /* Update */
             update = 1;
-            decrRefCount(field);
+            freeObject(field_new);
         }
     } else {
         serverPanic("Unknown hash encoding");
@@ -279,13 +224,14 @@ int hashTypeDelete(robj *o, robj *field) {
 
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl, *fptr;
+        robj *field_new;
 
-        field = getDecodedObject(field);
+        field_new = getDecodedObject(field);
 
         zl = o->ptr;
         fptr = ziplistIndex(zl, ZIPLIST_HEAD);
         if (fptr != NULL) {
-            fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
+            fptr = ziplistFind(fptr, field_new->ptr, sdslen(field_new->ptr), 1);
             if (fptr != NULL) {
                 zl = ziplistDelete(zl,&fptr);
                 zl = ziplistDelete(zl,&fptr);
@@ -294,8 +240,7 @@ int hashTypeDelete(robj *o, robj *field) {
             }
         }
 
-        decrRefCount(field);
-
+        if (field_new != field) freeObject(field_new);
     } else if (o->encoding == OBJ_ENCODING_HT) {
         if (dictDelete((dict*)o->ptr, field) == VR_OK) {
             deleted = 1;
@@ -439,15 +384,14 @@ robj *hashTypeCurrentObject(hashTypeIterator *hi, int what) {
         }
     } else if (hi->encoding == OBJ_ENCODING_HT) {
         hashTypeCurrentFromHashTable(hi, what, &dst);
-        incrRefCount(dst);
     } else {
         serverPanic("Unknown hash encoding");
     }
     return dst;
 }
 
-robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
-    robj *o = lookupKeyWrite(c->db,key);
+robj *hashTypeLookupWriteOrCreate(client *c, robj *key, int *expired) {
+    robj *o = lookupKeyWrite(c->db,key,expired);
     if (o == NULL) {
         o = createHashObject();
         dbAdd(c->db,key,o);
@@ -514,41 +458,40 @@ void hashTypeConvert(robj *o, int enc) {
  * Hash type commands
  *----------------------------------------------------------------------------*/
 
-void hsetCommand_original(client *c) {
+void hsetCommand(client *c) {
     int update;
     robj *o;
+    int expired = 0;
 
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1],&expired)) == NULL) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
+        return;
+    }
     hashTypeTryConversion(o,c->argv,2,3);
     hashTypeTryObjectEncoding(o,&c->argv[2], &c->argv[3]);
     update = hashTypeSet(o,c->argv[2],c->argv[3]);
     addReply(c, update ? shared.czero : shared.cone);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
-    server.dirty++;
+    c->vel->dirty++;
+    unlockDb(c->db);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
-void hsetCommand(client *c) {
-    int update;
+void hsetnxCommand(client *c) {
     robj *o;
+    int expired = 0;
 
     fetchInternalDbByKey(c, c->argv[1]);
     lockDbWrite(c->db);
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) {
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1],&expired)) == NULL) {
         unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
         return;
     }
-    hashTypeTryConversion(o,c->argv,2,3);
-    hashTypeTryObjectEncoding(o,&c->argv[2], &c->argv[3]);
-    update = hashTypeSet(o,c->argv[2],c->argv[3]);
-    unlockDb(c->db);
-    addReply(c, update ? shared.czero : shared.cone);
-    server.dirty++;
-}
-
-void hsetnxCommand_original(client *c) {
-    robj *o;
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     hashTypeTryConversion(o,c->argv,2,3);
 
     if (hashTypeExists(o, c->argv[2])) {
@@ -561,41 +504,28 @@ void hsetnxCommand_original(client *c) {
         notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
         server.dirty++;
     }
-}
 
-void hsetnxCommand(client *c) {
-    robj *o;
-
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) {
-        unlockDb(c->db);
-        return;
-    }
-    
-    hashTypeTryConversion(o,c->argv,2,3);
-
-    if (hashTypeExists(o, c->argv[2])) {
-        addReply(c, shared.czero);
-    } else {
-        hashTypeTryObjectEncoding(o,&c->argv[2], &c->argv[3]);
-        hashTypeSet(o,c->argv[2],c->argv[3]);
-        addReply(c, shared.cone);
-        server.dirty++;
-    }
     unlockDb(c->db);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
-void hmsetCommand_original(client *c) {
+void hmsetCommand(client *c) {
     int i;
     robj *o;
+    int expired = 0;
 
     if ((c->argc % 2) == 1) {
         addReplyError(c,"wrong number of arguments for HMSET");
         return;
     }
 
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1],&expired)) == NULL) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
+        return;
+    }
     hashTypeTryConversion(o,c->argv,2,c->argc-1);
     for (i = 2; i < c->argc; i += 2) {
         hashTypeTryObjectEncoding(o,&c->argv[i], &c->argv[i+1]);
@@ -604,87 +534,29 @@ void hmsetCommand_original(client *c) {
     addReply(c, shared.ok);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
-    server.dirty++;
-}
-
-void hmsetCommand(client *c) {
-    int i;
-    robj *o;
-
-    if ((c->argc % 2) == 1) {
-        addReplyError(c,"wrong number of arguments for HMSET");
-        return;
-    }
-
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) {
-        unlockDb(c->db);
-        return;
-    }
+    c->vel->dirty++;
     
-    hashTypeTryConversion(o,c->argv,2,c->argc-1);
-    for (i = 2; i < c->argc; i += 2) {
-        hashTypeTryObjectEncoding(o,&c->argv[i], &c->argv[i+1]);
-        hashTypeSet(o,c->argv[i],c->argv[i+1]);
-    }
-
     unlockDb(c->db);
-    
-    addReply(c, shared.ok);
-    server.dirty++;
-}
-
-void hincrbyCommand_original(client *c) {
-    long long value, incr, oldvalue;
-    robj *o, *current, *new;
-
-    if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != VR_OK) return;
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    if ((current = hashTypeGetObject(o,c->argv[2])) != NULL) {
-        if (getLongLongFromObjectOrReply(c,current,&value,
-            "hash value is not an integer") != VR_OK) {
-            decrRefCount(current);
-            return;
-        }
-        decrRefCount(current);
-    } else {
-        value = 0;
-    }
-
-    oldvalue = value;
-    if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
-        (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue))) {
-        addReplyError(c,"increment or decrement would overflow");
-        return;
-    }
-    value += incr;
-    new = createStringObjectFromLongLong(value);
-    hashTypeTryObjectEncoding(o,&c->argv[2],NULL);
-    hashTypeSet(o,c->argv[2],new);
-    decrRefCount(new);
-    addReplyLongLong(c,value);
-    signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
-    server.dirty++;
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
 void hincrbyCommand(client *c) {
     long long value, incr, oldvalue;
     robj *o, *current, *new;
+    int expired = 0;
 
     if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != VR_OK) return;
 
     fetchInternalDbByKey(c, c->argv[1]);
     lockDbWrite(c->db);
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) goto end;
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1],&expired)) == NULL) goto end;
     if ((current = hashTypeGetObject(o,c->argv[2])) != NULL) {
         if (getLongLongFromObjectOrReply(c,current,&value,
             "hash value is not an integer") != VR_OK) {
-            decrRefCount(current);
-            goto end;
+            if (o->encoding == OBJ_ENCODING_ZIPLIST) freeObject(current);
+            return;
         }
-        decrRefCount(current);
+        if (o->encoding == OBJ_ENCODING_ZIPLIST) freeObject(current);
     } else {
         value = 0;
     }
@@ -693,33 +565,42 @@ void hincrbyCommand(client *c) {
     if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
         (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue))) {
         addReplyError(c,"increment or decrement would overflow");
-        goto end;
+        return;
     }
     value += incr;
     new = createStringObjectFromLongLong(value);
     hashTypeTryObjectEncoding(o,&c->argv[2],NULL);
     hashTypeSet(o,c->argv[2],new);
-    decrRefCount(new);
+    freeObject(new);
     addReplyLongLong(c,value);
-    server.dirty++;
+    signalModifiedKey(c->db,c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
+    c->vel->dirty++;
 
 end:
     unlockDb(c->db);
+    if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
 }
 
-void hincrbyfloatCommand_original(client *c) {
+void hincrbyfloatCommand(client *c) {
     double long value, incr;
     robj *o, *current, *new, *aux;
+    int expired = 0;
 
     if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != VR_OK) return;
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1],&expired)) == NULL) return;
     if ((current = hashTypeGetObject(o,c->argv[2])) != NULL) {
         if (getLongDoubleFromObjectOrReply(c,current,&value,
             "hash value is not a valid float") != VR_OK) {
-            decrRefCount(current);
+            if (o->encoding == OBJ_ENCODING_ZIPLIST) freeObject(current);
+            unlockDb(c->db);
+            if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
             return;
         }
-        decrRefCount(current);
+        if (o->encoding == OBJ_ENCODING_ZIPLIST) freeObject(current);
     } else {
         value = 0;
     }
@@ -731,59 +612,17 @@ void hincrbyfloatCommand_original(client *c) {
     addReplyBulk(c,new);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
-    server.dirty++;
+    c->vel->dirty++;
+
+    unlockDb(c->db);
+    if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
 
     /* Always replicate HINCRBYFLOAT as an HSET command with the final value
      * in order to make sure that differences in float pricision or formatting
      * will not create differences in replicas or after an AOF restart. */
     aux = createStringObject("HSET",4);
     rewriteClientCommandArgument(c,0,aux);
-    decrRefCount(aux);
     rewriteClientCommandArgument(c,3,new);
-    decrRefCount(new);
-}
-
-void hincrbyfloatCommand(client *c) {
-    double long value, incr;
-    robj *o, *current, *new, *aux;
-
-    if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != VR_OK) return;
-
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) {
-        unlockDb(c->db);
-        return;
-    }
-    if ((current = hashTypeGetObject(o,c->argv[2])) != NULL) {
-        if (getLongDoubleFromObjectOrReply(c,current,&value,
-            "hash value is not a valid float") != VR_OK) {
-            decrRefCount(current);
-            unlockDb(c->db);
-            return;
-        }
-        decrRefCount(current);
-    } else {
-        value = 0;
-    }
-
-    value += incr;
-    new = createStringObjectFromLongDouble(value,1);
-    hashTypeTryObjectEncoding(o,&c->argv[2],NULL);
-    hashTypeSet(o,c->argv[2],new);
-    addReplyBulk(c,new);
-    server.dirty++;
-
-    unlockDb(c->db);    /* Unlock db here, because of new object never had relationship with the hash */
-
-    /* Always replicate HINCRBYFLOAT as an HSET command with the final value
-     * in order to make sure that differences in float pricision or formatting
-     * will not create differences in replicas or after an AOF restart. */
-    aux = createStringObject("HSET",4);
-    rewriteClientCommandArgument(c,0,aux);
-    decrRefCount(aux);
-    rewriteClientCommandArgument(c,3,new);
-    decrRefCount(new);
 }
 
 static void addHashFieldToReply(client *c, robj *o, robj *field) {
@@ -825,15 +664,6 @@ static void addHashFieldToReply(client *c, robj *o, robj *field) {
     }
 }
 
-void hgetCommand_original(client *c) {
-    robj *o;
-
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,o,OBJ_HASH)) return;
-
-    addHashFieldToReply(c, o, c->argv[2]);
-}
-
 void hgetCommand(client *c) {
     robj *o;
 
@@ -852,24 +682,6 @@ void hgetCommand(client *c) {
     addHashFieldToReply(c, o, c->argv[2]);
     unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
-}
-
-void hmgetCommand_original(client *c) {
-    robj *o;
-    int i;
-
-    /* Don't abort when the key cannot be found. Non-existing keys are empty
-     * hashes, where HMGET should respond with a series of null bulks. */
-    o = lookupKeyRead(c->db, c->argv[1]);
-    if (o != NULL && o->type != OBJ_HASH) {
-        addReply(c, shared.wrongtypeerr);
-        return;
-    }
-
-    addReplyMultiBulkLen(c, c->argc-2);
-    for (i = 2; i < c->argc; i++) {
-        addHashFieldToReply(c, o, c->argv[i]);
-    }
 }
 
 void hmgetCommand(client *c) {
@@ -903,12 +715,19 @@ void hmgetCommand(client *c) {
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
-void hdelCommand_original(client *c) {
+void hdelCommand(client *c) {
     robj *o;
     int j, deleted = 0, keyremoved = 0;
+    int expired = 0;
 
-    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_HASH)) return;
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero,&expired)) == NULL ||
+        checkType(c,o,OBJ_HASH)) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
+        return;
+    }
 
     for (j = 2; j < c->argc; j++) {
         if (hashTypeDelete(o,c->argv[j])) {
@@ -920,6 +739,10 @@ void hdelCommand_original(client *c) {
             }
         }
     }
+
+    unlockDb(c->db);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
+    
     if (deleted) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
@@ -929,45 +752,6 @@ void hdelCommand_original(client *c) {
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
-}
-
-void hdelCommand(client *c) {
-    robj *o;
-    int j, deleted = 0, keyremoved = 0;
-    
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_HASH)) {
-        unlockDb(c->db);
-        return;
-    }
-    
-    for (j = 2; j < c->argc; j++) {
-        if (hashTypeDelete(o,c->argv[j])) {
-            deleted++;
-            if (hashTypeLength(o) == 0) {
-                dbDelete(c->db,c->argv[1]);
-                keyremoved = 1;
-                break;
-            }
-        }
-    }
-    unlockDb(c->db);
-
-    if (deleted) {
-        server.dirty += deleted;
-    }
-    addReplyLongLong(c,deleted);
-}
-
-void hlenCommand_original(client *c) {
-    robj *o;
-
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_HASH)) return;
-
-    addReplyLongLong(c,hashTypeLength(o));
 }
 
 void hlenCommand(client *c) {
@@ -988,14 +772,6 @@ void hlenCommand(client *c) {
     addReplyLongLong(c,hashTypeLength(o));
     unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
-}
-
-void hstrlenCommand_original(client *c) {
-    robj *o;
-
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_HASH)) return;
-    addReplyLongLong(c,hashTypeGetValueLength(o,c->argv[2]));
 }
 
 void hstrlenCommand(client *c) {
@@ -1041,37 +817,6 @@ static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int wh
     } else {
         serverPanic("Unknown hash encoding");
     }
-}
-
-void genericHgetallCommand_original(client *c, int flags) {
-    robj *o;
-    hashTypeIterator *hi;
-    int multiplier = 0;
-    int length, count = 0;
-
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
-        || checkType(c,o,OBJ_HASH)) return;
-
-    if (flags & OBJ_HASH_KEY) multiplier++;
-    if (flags & OBJ_HASH_VALUE) multiplier++;
-
-    length = hashTypeLength(o) * multiplier;
-    addReplyMultiBulkLen(c, length);
-
-    hi = hashTypeInitIterator(o);
-    while (hashTypeNext(hi) != VR_ERROR) {
-        if (flags & OBJ_HASH_KEY) {
-            addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
-            count++;
-        }
-        if (flags & OBJ_HASH_VALUE) {
-            addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
-            count++;
-        }
-    }
-
-    hashTypeReleaseIterator(hi);
-    ASSERT(count == length);
 }
 
 void genericHgetallCommand(client *c, int flags) {
@@ -1126,14 +871,6 @@ void hvalsCommand(client *c) {
 
 void hgetallCommand(client *c) {
     genericHgetallCommand(c,OBJ_HASH_KEY|OBJ_HASH_VALUE);
-}
-
-void hexistsCommand_original(client *c) {
-    robj *o;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_HASH)) return;
-
-    addReply(c, hashTypeExists(o,c->argv[2]) ? shared.cone : shared.czero);
 }
 
 void hexistsCommand(client *c) {

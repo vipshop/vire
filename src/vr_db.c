@@ -71,7 +71,6 @@ int
 redisDbDeinit(redisDb *db)
 {
     pthread_rwlockattr_destroy(&db->rwl);
-    
     return VR_OK;
 }
 
@@ -113,56 +112,13 @@ robj *lookupKey(redisDb *db, robj *key) {
     }
 }
 
-robj *lookupKeyRead_original(redisDb *db, robj *key) {
-    robj *val;
-
-    if (expireIfNeeded(db,key) == 1) {
-        /* Key expired. If we are in the context of a master, expireIfNeeded()
-         * returns 0 only when the key does not exist at all, so it's save
-         * to return NULL ASAP. */
-        if (repl.masterhost == NULL) return NULL;
-
-        /* However if we are in the context of a slave, expireIfNeeded() will
-         * not really try to expire the key, it only returns information
-         * about the "logical" status of the key: key expiring is up to the
-         * master in order to have a consistent view of master's data set.
-         *
-         * However, if the command caller is not the master, and as additional
-         * safety measure, the command invoked is a read-only command, we can
-         * safely return NULL here, and provide a more consistent behavior
-         * to clients accessign expired values in a read-only fashion, that
-         * will say the key as non exisitng.
-         *
-         * Notably this covers GETs when slaves are used to scale reads. */
-        //if (server.current_client &&
-        //    server.current_client != repl.master &&
-        //    server.current_client->cmd &&
-        //    server.current_client->cmd->flags & CMD_READONLY)
-        //{
-        //    return NULL;
-        //}
-    }
-    val = lookupKey(db,key);
-    /*if (val == NULL)
-        server.stat_keyspace_misses++;
-    else
-        server.stat_keyspace_hits++;*/
-    return val;
-}
-
 robj *lookupKeyRead(redisDb *db, robj *key) {
-    long long when;
-
-    when = getExpire(db,key);
-    if (when > 0 && vr_msec_now() > when) {
-        return NULL;
-    }
-    
+    if (checkIfExpired(db, key)) return NULL;
     return lookupKey(db,key);
 }
 
-robj *lookupKeyWrite(redisDb *db, robj *key) {
-    expireIfNeeded(db,key);
+robj *lookupKeyWrite(redisDb *db, robj *key, int *expired) {
+    if (expired) *expired = expireIfNeeded(db,key);
     return lookupKey(db,key);
 }
 
@@ -172,8 +128,8 @@ robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
     return o;
 }
 
-robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
-    robj *o = lookupKeyWrite(c->db, key);
+robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply, int *expired) {
+    robj *o = lookupKeyWrite(c->db, key, expired);
     if (!o) addReply(c,reply);
     return o;
 }
@@ -185,7 +141,6 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
 void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
     int retval = dictAdd(db->dict, copy, val);
-
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
     if (val->type == OBJ_LIST) signalListAsReady(db, key);
  }
@@ -208,15 +163,14 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * 1) The ref count of the value object is incremented.
  * 2) clients WATCHing for the destination key notified.
  * 3) The expire time of the key is reset (the key is made persistent). */
-void setKey(redisDb *db, robj *key, robj *val) {
-    if (lookupKeyWrite(db,key) == NULL) {
+void setKey(redisDb *db, robj *key, robj *val, int *expired) {
+    if (lookupKeyWrite(db,key,expired) == NULL) {
         dbAdd(db,key,val);
     } else {
         dbOverwrite(db,key,val);
     }
-    incrRefCount(val);
+    
     removeExpire(db,key);
-    signalModifiedKey(db,key);
 }
 
 int dbExists(redisDb *db, robj *key) {
@@ -234,17 +188,23 @@ robj *dbRandomKey(redisDb *db) {
         sds key;
         robj *keyobj;
 
+        lockDbRead(db);
         de = dictGetRandomKey(db->dict);
-        if (de == NULL) return NULL;
+        if (de == NULL) {
+            unlockDb(db);
+            return NULL;
+        }
 
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
         if (dictFind(db->expires,key)) {
-            if (expireIfNeeded(db,keyobj)) {
-                decrRefCount(keyobj);
+            if (checkIfExpired(db,keyobj)) {
+                unlockDb(db);
+                freeObject(keyobj);
                 continue; /* search for another key. This expired. */
             }
         }
+        unlockDb(db);
         return keyobj;
     }
 }
@@ -261,40 +221,15 @@ int dbDelete(redisDb *db, robj *key) {
     }
 }
 
-/* Prepare the string object stored at 'key' to be modified destructively
- * to implement commands like SETBIT or APPEND.
- *
- * An object is usually ready to be modified unless one of the two conditions
- * are true:
- *
- * 1) The object 'o' is shared (refcount > 1), we don't want to affect
- *    other users.
- * 2) The object encoding is not "RAW".
- *
- * If the object is found in one of the above conditions (or both) by the
- * function, an unshared / not-encoded copy of the string object is stored
- * at 'key' in the specified 'db'. Otherwise the object 'o' itself is
- * returned.
- *
- * USAGE:
- *
- * The object 'o' is what the caller already obtained by looking up 'key'
- * in 'db', the usage pattern looks like this:
- *
- * o = lookupKeyWrite(db,key);
- * if (checkType(c,o,OBJ_STRING)) return;
- * o = dbUnshareStringValue(db,key,o);
- *
- * At this point the caller is ready to modify the object, for example
- * using an sdscat() call to append some data, or anything else.
- */
-robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
+robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {    
     ASSERT(o->type == OBJ_STRING);
-    if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
-        robj *decoded = getDecodedObject(o);
-        o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
-        decrRefCount(decoded);
-        dbOverwrite(db,key,o);
+    if (o->constant || o->encoding != OBJ_ENCODING_RAW) {
+        robj *decoded, *new;
+        decoded = getDecodedObject(o);
+        new = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
+        if (decoded != o) freeObject(decoded);
+        dbOverwrite(db,key,new);
+        return new;
     }
     return o;
 }
@@ -354,24 +289,6 @@ void flushdbCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-void flushallCommand_original(client *c) {
-    signalFlushedDb(-1);
-    server.dirty += emptyDb(NULL);
-    addReply(c,shared.ok);
-    if (server.rdb_child_pid != -1) {
-        kill(server.rdb_child_pid,SIGUSR1);
-        rdbRemoveTempFile(server.rdb_child_pid);
-    }
-    if (server.saveparamslen > 0) {
-        /* Normally rdbSave() will reset dirty, but we don't want this here
-         * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
-        int saved_dirty = server.dirty;
-        rdbSave(server.rdb_filename);
-        server.dirty = saved_dirty;
-    }
-    server.dirty++;
-}
-
 void flushallCommand(client *c) {
     int idx;
     redisDb *db;
@@ -387,42 +304,20 @@ void flushallCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-void delCommand_original(client *c) {
-    int deleted = 0, j;
-
-    for (j = 1; j < c->argc; j++) {
-        expireIfNeeded(c->db,c->argv[j]);
-        if (dbDelete(c->db,c->argv[j])) {
-            signalModifiedKey(c->db,c->argv[j]);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,
-                "del",c->argv[j],c->db->id);
-            server.dirty++;
-            deleted++;
-        }
-    }
-    addReplyLongLong(c,deleted);
-}
-
 void delCommand(client *c) {
-    int deleted = 0, expired = 0, j;
-    long long when, now = vr_msec_now();
-    robj *o;
+    int deleted = 0, j;
+    int expired = 0;
 
     for (j = 1; j < c->argc; j++) {
         fetchInternalDbByKey(c, c->argv[j]);
         lockDbWrite(c->db);
-        o = lookupKey(c->db, c->argv[j]);
-        if (o != NULL) {
-            when = getExpire(c->db,c->argv[1]);    
-            if (when >= 0 && now > when) {
-                dbDelete(c->db, c->argv[1]);
-                unlockDb(c->db);
-                expired ++;
-                continue;
-            }
-            if (dbDelete(c->db,c->argv[j])) {
-                deleted++;
-            }
+        expired += expireIfNeeded(c->db,c->argv[j]);
+        if (dbDelete(c->db,c->argv[j])) {
+            signalModifiedKey(c->db,c->argv[j]);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,
+                "del",c->argv[j],c->db->id);
+            c->vel->dirty++;
+            deleted++;
         }
         unlockDb(c->db);
     }
@@ -431,50 +326,28 @@ void delCommand(client *c) {
     if (expired > 0) {
         update_stats_add(c->vel->stats, expiredkeys, expired);
     }
-}
-
-/* EXISTS key1 key2 ... key_N.
- * Return value is the number of keys existing. */
-void existsCommand_original(client *c) {
-    long long count = 0;
-    int j;
-
-    for (j = 1; j < c->argc; j++) {
-        expireIfNeeded(c->db,c->argv[j]);
-        if (dbExists(c->db,c->argv[j])) count++;
-    }
-    addReplyLongLong(c,count);
 }
 
 /* EXISTS key1 key2 ... key_N.
  * Return value is the number of keys existing. */
 void existsCommand(client *c) {
-    long long count = 0, expired = 0;
-    long long when;
+    long long count = 0;
     int j;
 
     for (j = 1; j < c->argc; j++) {
-        fetchInternalDbByKey(c, c->argv[j]);
-        lockDbWrite(c->db);
-        if (lookupKey(c->db, c->argv[j]) != NULL) {
-            when = getExpire(c->db,c->argv[j]);
-            if (when >= 0 && vr_msec_now() > when) {
-                dbDelete(c->db, c->argv[j]);
-                expired ++;
-            } else {
-                count++;
-            }
+        fetchInternalDbByKey(c,c->argv[j]);
+        lockDbRead(c->db);
+        if (checkIfExpired(c->db,c->argv[j])) {
+            unlockDb(c->db);
+            continue;
         }
+        if (dbExists(c->db,c->argv[j])) count++;
         unlockDb(c->db);
     }
     addReplyLongLong(c,count);
 
-    if (expired > 0) {
-        update_stats_add(c->vel->stats, expiredkeys, expired);
-    }
-
     update_stats_add(c->vel->stats, keyspace_hits, count);
-    update_stats_add(c->vel->stats, keyspace_misses, c->argc-count);
+    update_stats_add(c->vel->stats, keyspace_misses, c->argc-1-count);
 }
 
 void selectCommand(client *c) {
@@ -491,18 +364,6 @@ void selectCommand(client *c) {
     }
 }
 
-void randomkeyCommand_original(client *c) {
-    robj *key;
-
-    if ((key = dbRandomKey(c->db)) == NULL) {
-        addReply(c,shared.nullbulk);
-        return;
-    }
-
-    addReplyBulk(c,key);
-    decrRefCount(key);
-}
-
 void randomkeyCommand(client *c) {
     robj *key;
     int idx, retry_count = 0;
@@ -511,24 +372,20 @@ void randomkeyCommand(client *c) {
 
 retry:
     fetchInternalDbById(c, idx);
-    lockDbRead(c->db);
     if ((key = dbRandomKey(c->db)) == NULL) {
         if (retry_count++ < server.dbinum) {
             if (++idx >= server.dbinum) {
                 idx = 0;
             }
-            unlockDb(c->db);
             goto retry;
         }
 
-        unlockDb(c->db);
         addReply(c,shared.nullbulk);
         return;
     }
 
-    unlockDb(c->db);
     addReplyBulk(c,key);
-    decrRefCount(key);
+    freeObject(key);
 }
 
 void keysCommand(client *c) {
@@ -811,26 +668,6 @@ void lastsaveCommand(client *c) {
     addReplyLongLong(c,server.lastsave);
 }
 
-void typeCommand_original(client *c) {
-    robj *o;
-    char *type;
-
-    o = lookupKeyRead(c->db,c->argv[1]);
-    if (o == NULL) {
-        type = "none";
-    } else {
-        switch(o->type) {
-        case OBJ_STRING: type = "string"; break;
-        case OBJ_LIST: type = "list"; break;
-        case OBJ_SET: type = "set"; break;
-        case OBJ_ZSET: type = "zset"; break;
-        case OBJ_HASH: type = "hash"; break;
-        default: type = "unknown"; break;
-        }
-    }
-    addReplyStatus(c,type);
-}
-
 void typeCommand(client *c) {
     robj *o;
     char *type;
@@ -897,7 +734,7 @@ void renameGenericCommand(client *c, int nx) {
      * if the key exists, however we still return an error on unexisting key. */
     if (sdscmp(c->argv[1]->ptr,c->argv[2]->ptr) == 0) samekey = 1;
 
-    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr)) == NULL)
+    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr,NULL)) == NULL)
         return;
 
     if (samekey) {
@@ -907,7 +744,7 @@ void renameGenericCommand(client *c, int nx) {
 
     incrRefCount(o);
     expire = getExpire(c->db,c->argv[1]);
-    if (lookupKeyWrite(c->db,c->argv[2]) != NULL) {
+    if (lookupKeyWrite(c->db,c->argv[2],NULL) != NULL) {
         if (nx) {
             decrRefCount(o);
             addReply(c,shared.czero);
@@ -966,7 +803,7 @@ void moveCommand(client *c) {
     }
 
     /* Check if the element exists and get a reference */
-    o = lookupKeyWrite(c->db,c->argv[1]);
+    o = lookupKeyWrite(c->db,c->argv[1],NULL);
     if (!o) {
         addReply(c,shared.czero);
         return;
@@ -974,7 +811,7 @@ void moveCommand(client *c) {
     expire = getExpire(c->db,c->argv[1]);
 
     /* Return zero if the key already exists in the target DB */
-    if (lookupKeyWrite(dst,c->argv[1]) != NULL) {
+    if (lookupKeyWrite(dst,c->argv[1],NULL) != NULL) {
         addReply(c,shared.czero);
         return;
     }
@@ -1048,6 +885,18 @@ void propagateExpire(redisDb *db, robj *key) {
     decrRefCount(argv[1]);
 }
 
+/* Check if the key exists in the db and had expired */
+int checkIfExpired(redisDb *db, robj *key) {
+    long long when;
+
+    when = getExpire(db,key);
+    if (when > 0 && vr_msec_now() > when) {
+        return 1;
+    }
+
+    return 0;
+}
+
 int expireIfNeeded(redisDb *db, robj *key) {
     long long when = getExpire(db,key);
     long long now;
@@ -1077,7 +926,6 @@ int expireIfNeeded(redisDb *db, robj *key) {
     if (now <= when) return 0;
 
     /* Delete the key */
-    //server.stat_expiredkeys++;
     propagateExpire(db,key);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,
         "expired",key,db->id);
@@ -1095,9 +943,10 @@ int expireIfNeeded(redisDb *db, robj *key) {
  *
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
  * the argv[2] parameter. The basetime is always specified in milliseconds. */
-void expireGenericCommand_original(client *c, long long basetime, int unit) {
+void expireGenericCommand(client *c, long long basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
+    int expired = 0;
 
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != VR_OK)
         return;
@@ -1105,8 +954,12 @@ void expireGenericCommand_original(client *c, long long basetime, int unit) {
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
 
+    fetchInternalDbByKey(c, key);
+    lockDbWrite(c->db);
     /* No key, return zero. */
-    if (lookupKeyWrite(c->db,key) == NULL) {
+    if (lookupKeyWrite(c->db,key,&expired) == NULL) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
         addReply(c,shared.czero);
         return;
     }
@@ -1121,14 +974,15 @@ void expireGenericCommand_original(client *c, long long basetime, int unit) {
         robj *aux;
 
         serverAssertWithInfo(c,key,dbDelete(c->db,key));
-        server.dirty++;
+        c->vel->dirty++;
 
         /* Replicate/AOF this as an explicit DEL. */
-        aux = createStringObject("DEL",3);
-        rewriteClientCommandVector(c,2,aux,key);
-        decrRefCount(aux);
+        aux = dupStringObjectUnconstant(key);
+        rewriteClientCommandVector(c,2,shared.del,aux);
         signalModifiedKey(c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
         addReply(c, shared.cone);
         return;
     } else {
@@ -1136,69 +990,9 @@ void expireGenericCommand_original(client *c, long long basetime, int unit) {
         addReply(c,shared.cone);
         signalModifiedKey(c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
-        server.dirty++;
-        return;
-    }
-}
-
-/*-----------------------------------------------------------------------------
- * Expires Commands
- *----------------------------------------------------------------------------*/
-
-/* This is the generic command implementation for EXPIRE, PEXPIRE, EXPIREAT
- * and PEXPIREAT. Because the commad second argument may be relative or absolute
- * the "basetime" argument is used to signal what the base time is (either 0
- * for *AT variants of the command, or the current time for relative expires).
- *
- * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
- * the argv[2] parameter. The basetime is always specified in milliseconds. */
-void expireGenericCommand(client *c, long long basetime, int unit) {
-    robj *key = c->argv[1], *param = c->argv[2];
-    long long when; /* unix time in milliseconds when the key will expire. */
-    long long expire;
-
-    if (getLongLongFromObjectOrReply(c, param, &when, NULL) != VR_OK)
-        return;
-
-    if (unit == UNIT_SECONDS) when *= 1000;
-    when += basetime;
-
-    fetchInternalDbByKey(c, key);
-
-    lockDbWrite(c->db);
-    if (lookupKey(c->db, key) != NULL) {
-        expire = getExpire(c->db, key);
-        if (expire >= 0 && vr_msec_now() > expire) {
-            serverAssertWithInfo(c,key,dbDelete(c->db, key));
-            unlockDb(c->db);
-            addReply(c,shared.czero);
-
-            update_stats_add(c->vel->stats, expiredkeys, 1);
-            return;
-        }
-    } else {
         unlockDb(c->db);
-        addReply(c,shared.czero);
-        return;
-    }
-
-    /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
-     * should never be executed as a DEL when load the AOF or in the context
-     * of a slave instance.
-     *
-     * Instead we take the other branch of the IF statement setting an expire
-     * (possibly in the past) and wait for an explicit DEL from the master. */
-    if (when <= vr_msec_now() && !server.loading && !repl.masterhost) {
-        serverAssertWithInfo(c,key,dbDelete(c->db,key));
-        server.dirty++;
-        unlockDb(c->db);
-        addReply(c, shared.cone);
-        return;
-    } else {
-        setExpire(c->db,key,when);
-        unlockDb(c->db);
-        addReply(c,shared.cone);
-        server.dirty++;
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
+        c->vel->dirty++;
         return;
     }
 }
@@ -1219,17 +1013,24 @@ void pexpireatCommand(client *c) {
     expireGenericCommand(c,0,UNIT_MILLISECONDS);
 }
 
-void ttlGenericCommand_original(client *c, int output_ms) {
+void ttlGenericCommand(client *c, int output_ms) {
     long long expire, ttl = -1;
 
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbRead(c->db);
     /* If the key does not exist at all, return -2 */
     if (lookupKeyRead(c->db,c->argv[1]) == NULL) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
         addReplyLongLong(c,-2);
         return;
     }
     /* The key exists. Return -1 if it has no expire, or the actual
      * TTL value otherwise. */
     expire = getExpire(c->db,c->argv[1]);
+    unlockDb(c->db);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
+    
     if (expire != -1) {
         ttl = expire-vr_msec_now();
         if (ttl < 0) ttl = 0;
@@ -1241,40 +1042,6 @@ void ttlGenericCommand_original(client *c, int output_ms) {
     }
 }
 
-void ttlGenericCommand(client *c, int output_ms) {
-    long long expire, ttl;
-    long long now = vr_msec_now();
-
-    fetchInternalDbByKey(c, c->argv[1]);
-
-    lockDbRead(c->db);
-    /* If the key does not exist at all, return -2 */
-    if (lookupKey(c->db, c->argv[1]) == NULL) {
-        unlockDb(c->db);
-        addReplyLongLong(c,-2);
-        update_stats_add(c->vel->stats, keyspace_misses, 1);
-        return;
-    }
-    expire = getExpire(c->db,c->argv[1]);
-    unlockDb(c->db);
-    if (expire >= 0 && now > expire) {
-        addReplyLongLong(c,-2);
-        update_stats_add(c->vel->stats, keyspace_misses, 1);
-        return;
-    }
-    
-    /* The key exists. Return -1 if it has no expire, or the actual
-     * TTL value otherwise. */
-    if (expire == -1) {
-        addReplyLongLong(c,-1);
-    } else {
-        ttl = expire - now;
-        addReplyLongLong(c,output_ms ? ttl : ((ttl+500)/1000));
-    }
-
-    update_stats_add(c->vel->stats, keyspace_hits, 1);
-}
-
 void ttlCommand(client *c) {
     ttlGenericCommand(c, 0);
 }
@@ -1283,41 +1050,23 @@ void pttlCommand(client *c) {
     ttlGenericCommand(c, 1);
 }
 
-void persistCommand_original(client *c) {
+void persistCommand(client *c) {
     dictEntry *de;
 
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
     de = dictFind(c->db->dict,c->argv[1]->ptr);
     if (de == NULL) {
         addReply(c,shared.czero);
     } else {
         if (removeExpire(c->db,c->argv[1])) {
             addReply(c,shared.cone);
-            server.dirty++;
+            c->vel->dirty++;
         } else {
             addReply(c,shared.czero);
         }
     }
-}
-
-void persistCommand(client *c) {
-    dictEntry *de;
-    
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    de = dictFind(c->db->dict,c->argv[1]->ptr);
-    if (de == NULL) {        
-        unlockDb(c->db);
-        addReply(c,shared.czero);
-    } else {
-        if (removeExpire(c->db,c->argv[1])) {
-            unlockDb(c->db);
-            addReply(c,shared.cone);
-            server.dirty++;
-        } else {
-            unlockDb(c->db);
-            addReply(c,shared.czero);
-        }
-    }
+    unlockDb(c->db);
 }
 
 /* -----------------------------------------------------------------------------
@@ -1711,7 +1460,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
         dbDelete(db,keyobj);
-        decrRefCount(keyobj);
+        freeObject(keyobj);
         return 1;
     } else {
         return 0;

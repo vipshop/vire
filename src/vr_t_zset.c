@@ -28,7 +28,7 @@ zskiplist *zslCreate(void) {
 }
 
 void zslFreeNode(zskiplistNode *node) {
-    decrRefCount(node->obj);
+    /* node->obj is stored in the dict of the zset object, so we just free the node. */
     vr_free(node);
 }
 
@@ -862,16 +862,17 @@ unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec *range) {
 
 unsigned char *zzlFind(unsigned char *zl, robj *ele, double *score) {
     unsigned char *eptr = ziplistIndex(zl,0), *sptr;
+    robj *ele_new;
 
-    ele = getDecodedObject(ele);
+    ele_new = getDecodedObject(ele);
     while (eptr != NULL) {
         sptr = ziplistNext(zl,eptr);
-        serverAssertWithInfo(NULL,ele,sptr != NULL);
+        serverAssertWithInfo(NULL,ele_new,sptr != NULL);
 
-        if (ziplistCompare(eptr,ele->ptr,sdslen(ele->ptr))) {
+        if (ziplistCompare(eptr,ele_new->ptr,sdslen(ele_new->ptr))) {
             /* Matching element, pull out score. */
             if (score != NULL) *score = zzlGetScore(sptr);
-            decrRefCount(ele);
+            if (ele_new!= ele) freeObject(ele_new);
             return eptr;
         }
 
@@ -879,7 +880,7 @@ unsigned char *zzlFind(unsigned char *zl, robj *ele, double *score) {
         eptr = ziplistNext(zl,sptr);
     }
 
-    decrRefCount(ele);
+    if (ele_new!= ele) freeObject(ele_new);
     return NULL;
 }
 
@@ -924,23 +925,24 @@ unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, robj *ele, do
 unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score) {
     unsigned char *eptr = ziplistIndex(zl,0), *sptr;
     double s;
+    robj *ele_new;
 
-    ele = getDecodedObject(ele);
+    ele_new = getDecodedObject(ele);
     while (eptr != NULL) {
         sptr = ziplistNext(zl,eptr);
-        serverAssertWithInfo(NULL,ele,sptr != NULL);
+        serverAssertWithInfo(NULL,ele_new,sptr != NULL);
         s = zzlGetScore(sptr);
 
         if (s > score) {
             /* First element with score larger than score for element to be
              * inserted. This means we should take its spot in the list to
              * maintain ordering. */
-            zl = zzlInsertAt(zl,eptr,ele,score);
+            zl = zzlInsertAt(zl,eptr,ele_new,score);
             break;
         } else if (s == score) {
             /* Ensure lexicographical ordering for elements. */
-            if (zzlCompareElements(eptr,ele->ptr,sdslen(ele->ptr)) > 0) {
-                zl = zzlInsertAt(zl,eptr,ele,score);
+            if (zzlCompareElements(eptr,ele_new->ptr,sdslen(ele_new->ptr)) > 0) {
+                zl = zzlInsertAt(zl,eptr,ele_new,score);
                 break;
             }
         }
@@ -951,9 +953,9 @@ unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score) {
 
     /* Push on tail of list when it was not yet inserted. */
     if (eptr == NULL)
-        zl = zzlInsertAt(zl,NULL,ele,score);
+        zl = zzlInsertAt(zl,NULL,ele_new,score);
 
-    decrRefCount(ele);
+    if (ele_new != ele) freeObject(ele_new);
     return zl;
 }
 
@@ -1075,7 +1077,6 @@ void zsetConvert(robj *zobj, int encoding) {
             /* Has incremented refcount since it was just created. */
             node = zslInsert(zs->zsl,score,ele);
             serverAssertWithInfo(NULL,zobj,dictAdd(zs->dict,ele,&node->score) == DICT_OK);
-            incrRefCount(ele); /* Added to dictionary. */
             zzlNext(zl,&eptr,&sptr);
         }
 
@@ -1091,7 +1092,6 @@ void zsetConvert(robj *zobj, int encoding) {
         /* Approach similar to zslFree(), since we want to free the skiplist at
          * the same time as creating the ziplist. */
         zs = zobj->ptr;
-        dictRelease(zs->dict);
         node = zs->zsl->header->level[0].forward;
         vr_free(zs->zsl->header);
         vr_free(zs->zsl);
@@ -1099,13 +1099,13 @@ void zsetConvert(robj *zobj, int encoding) {
         while (node) {
             ele = getDecodedObject(node->obj);
             zl = zzlInsertAt(zl,NULL,ele,node->score);
-            decrRefCount(ele);
-
+            if (ele != node->obj) freeObject(ele);
             next = node->level[0].forward;
             zslFreeNode(node);
             node = next;
         }
 
+        dictRelease(zs->dict);
         vr_free(zs);
         zobj->ptr = zl;
         zobj->encoding = OBJ_ENCODING_ZIPLIST;
@@ -1156,197 +1156,6 @@ int zsetScore(robj *zobj, robj *member, double *score) {
 #define ZADD_NX (1<<1)      /* Don't touch elements not already existing. */
 #define ZADD_XX (1<<2)      /* Only touch elements already exisitng. */
 #define ZADD_CH (1<<3)      /* Return num of elements added or updated. */
-void zaddGenericCommand_original(client *c, int flags) {
-    static char *nanerr = "resulting score is not a number (NaN)";
-    robj *key = c->argv[1];
-    robj *ele;
-    robj *zobj;
-    robj *curobj;
-    double score = 0, *scores = NULL, curscore = 0.0;
-    int j, elements;
-    int scoreidx = 0;
-    /* The following vars are used in order to track what the command actually
-     * did during the execution, to reply to the client and to trigger the
-     * notification of keyspace change. */
-    int added = 0;      /* Number of new elements added. */
-    int updated = 0;    /* Number of elements with updated score. */
-    int processed = 0;  /* Number of elements processed, may remain zero with
-                           options like XX. */
-
-    /* Parse options. At the end 'scoreidx' is set to the argument position
-     * of the score of the first score-element pair. */
-    scoreidx = 2;
-    while(scoreidx < c->argc) {
-        char *opt = c->argv[scoreidx]->ptr;
-        if (!strcasecmp(opt,"nx")) flags |= ZADD_NX;
-        else if (!strcasecmp(opt,"xx")) flags |= ZADD_XX;
-        else if (!strcasecmp(opt,"ch")) flags |= ZADD_CH;
-        else if (!strcasecmp(opt,"incr")) flags |= ZADD_INCR;
-        else break;
-        scoreidx++;
-    }
-
-    /* Turn options into simple to check vars. */
-    int incr = (flags & ZADD_INCR) != 0;
-    int nx = (flags & ZADD_NX) != 0;
-    int xx = (flags & ZADD_XX) != 0;
-    int ch = (flags & ZADD_CH) != 0;
-
-    /* After the options, we expect to have an even number of args, since
-     * we expect any number of score-element pairs. */
-    elements = c->argc-scoreidx;
-    if (elements % 2) {
-        addReply(c,shared.syntaxerr);
-        return;
-    }
-    elements /= 2; /* Now this holds the number of score-element pairs. */
-
-    /* Check for incompatible options. */
-    if (nx && xx) {
-        addReplyError(c,
-            "XX and NX options at the same time are not compatible");
-        return;
-    }
-
-    if (incr && elements > 1) {
-        addReplyError(c,
-            "INCR option supports a single increment-element pair");
-        return;
-    }
-
-    /* Start parsing all the scores, we need to emit any syntax error
-     * before executing additions to the sorted set, as the command should
-     * either execute fully or nothing at all. */
-    scores = vr_alloc(sizeof(double)*elements);
-    for (j = 0; j < elements; j++) {
-        if (getDoubleFromObjectOrReply(c,c->argv[scoreidx+j*2],&scores[j],NULL)
-            != VR_OK) goto cleanup;
-    }
-
-    /* Lookup the key and create the sorted set if does not exist. */
-    zobj = lookupKeyWrite(c->db,key);
-    if (zobj == NULL) {
-        if (xx) goto reply_to_client; /* No key + XX option: nothing to do. */
-        if (server.zset_max_ziplist_entries == 0 ||
-            server.zset_max_ziplist_value < sdslen(c->argv[scoreidx+1]->ptr))
-        {
-            zobj = createZsetObject();
-        } else {
-            zobj = createZsetZiplistObject();
-        }
-        dbAdd(c->db,key,zobj);
-    } else {
-        if (zobj->type != OBJ_ZSET) {
-            addReply(c,shared.wrongtypeerr);
-            goto cleanup;
-        }
-    }
-
-    for (j = 0; j < elements; j++) {
-        score = scores[j];
-
-        if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
-            unsigned char *eptr;
-
-            /* Prefer non-encoded element when dealing with ziplists. */
-            ele = c->argv[scoreidx+1+j*2];
-            if ((eptr = zzlFind(zobj->ptr,ele,&curscore)) != NULL) {
-                if (nx) continue;
-                if (incr) {
-                    score += curscore;
-                    if (isnan(score)) {
-                        addReplyError(c,nanerr);
-                        goto cleanup;
-                    }
-                }
-
-                /* Remove and re-insert when score changed. */
-                if (score != curscore) {
-                    zobj->ptr = zzlDelete(zobj->ptr,eptr);
-                    zobj->ptr = zzlInsert(zobj->ptr,ele,score);
-                    server.dirty++;
-                    updated++;
-                }
-                processed++;
-            } else if (!xx) {
-                /* Optimize: check if the element is too large or the list
-                 * becomes too long *before* executing zzlInsert. */
-                zobj->ptr = zzlInsert(zobj->ptr,ele,score);
-                if (zzlLength(zobj->ptr) > server.zset_max_ziplist_entries)
-                    zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
-                if (sdslen(ele->ptr) > server.zset_max_ziplist_value)
-                    zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
-                server.dirty++;
-                added++;
-                processed++;
-            }
-        } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
-            zset *zs = zobj->ptr;
-            zskiplistNode *znode;
-            dictEntry *de;
-
-            ele = c->argv[scoreidx+1+j*2] =
-                tryObjectEncoding(c->argv[scoreidx+1+j*2]);
-            de = dictFind(zs->dict,ele);
-            if (de != NULL) {
-                if (nx) continue;
-                curobj = dictGetKey(de);
-                curscore = *(double*)dictGetVal(de);
-
-                if (incr) {
-                    score += curscore;
-                    if (isnan(score)) {
-                        addReplyError(c,nanerr);
-                        /* Don't need to check if the sorted set is empty
-                         * because we know it has at least one element. */
-                        goto cleanup;
-                    }
-                }
-
-                /* Remove and re-insert when score changed. We can safely
-                 * delete the key object from the skiplist, since the
-                 * dictionary still has a reference to it. */
-                if (score != curscore) {
-                    serverAssertWithInfo(c,curobj,zslDelete(zs->zsl,curscore,curobj));
-                    znode = zslInsert(zs->zsl,score,curobj);
-                    incrRefCount(curobj); /* Re-inserted in skiplist. */
-                    dictGetVal(de) = &znode->score; /* Update score ptr. */
-                    server.dirty++;
-                    updated++;
-                }
-                processed++;
-            } else if (!xx) {
-                znode = zslInsert(zs->zsl,score,ele);
-                incrRefCount(ele); /* Inserted in skiplist. */
-                serverAssertWithInfo(c,NULL,dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
-                incrRefCount(ele); /* Added to dictionary. */
-                server.dirty++;
-                added++;
-                processed++;
-            }
-        } else {
-            serverPanic("Unknown sorted set encoding");
-        }
-    }
-
-reply_to_client:
-    if (incr) { /* ZINCRBY or INCR option. */
-        if (processed)
-            addReplyDouble(c,score);
-        else
-            addReply(c,shared.nullbulk);
-    } else { /* ZADD. */
-        addReplyLongLong(c,ch ? added+updated : added);
-    }
-
-cleanup:
-    vr_free(scores);
-    if (added || updated) {
-        signalModifiedKey(c->db,key);
-        notifyKeyspaceEvent(NOTIFY_ZSET,
-            incr ? "zincr" : "zadd", key, c->db->id);
-    }
-}
 
 void zaddGenericCommand(client *c, int flags) {
     static char *nanerr = "resulting score is not a number (NaN)";
@@ -1364,6 +1173,7 @@ void zaddGenericCommand(client *c, int flags) {
     int updated = 0;    /* Number of elements with updated score. */
     int processed = 0;  /* Number of elements processed, may remain zero with
                            options like XX. */
+    int expired = 0;
 
     /* Parse options. At the end 'scoreidx' is set to the argument position
      * of the score of the first score-element pair. */
@@ -1414,14 +1224,15 @@ void zaddGenericCommand(client *c, int flags) {
         if (getDoubleFromObjectOrReply(c,c->argv[scoreidx+j*2],&scores[j],NULL)
             != VR_OK) goto cleanup;
     }
-
+   
     fetchInternalDbByKey(c, key);
     lockDbWrite(c->db);
     /* Lookup the key and create the sorted set if does not exist. */
-    zobj = lookupKeyWrite(c->db,key);
+    zobj = lookupKeyWrite(c->db,key,&expired);
     if (zobj == NULL) {
         if (xx) {
             unlockDb(c->db);
+            if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
             goto reply_to_client; /* No key + XX option: nothing to do. */
         }
         if (server.zset_max_ziplist_entries == 0 ||
@@ -1435,6 +1246,7 @@ void zaddGenericCommand(client *c, int flags) {
     } else {
         if (zobj->type != OBJ_ZSET) {
             unlockDb(c->db);
+            if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
             addReply(c,shared.wrongtypeerr);
             goto cleanup;
         }
@@ -1454,6 +1266,7 @@ void zaddGenericCommand(client *c, int flags) {
                     score += curscore;
                     if (isnan(score)) {
                         unlockDb(c->db);
+                        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
                         addReplyError(c,nanerr);
                         goto cleanup;
                     }
@@ -1463,7 +1276,7 @@ void zaddGenericCommand(client *c, int flags) {
                 if (score != curscore) {
                     zobj->ptr = zzlDelete(zobj->ptr,eptr);
                     zobj->ptr = zzlInsert(zobj->ptr,ele,score);
-                    server.dirty++;
+                    c->vel->dirty++;
                     updated++;
                 }
                 processed++;
@@ -1475,7 +1288,7 @@ void zaddGenericCommand(client *c, int flags) {
                     zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
                 if (sdslen(ele->ptr) > server.zset_max_ziplist_value)
                     zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
-                server.dirty++;
+                c->vel->dirty++;
                 added++;
                 processed++;
             }
@@ -1496,6 +1309,7 @@ void zaddGenericCommand(client *c, int flags) {
                     score += curscore;
                     if (isnan(score)) {
                         unlockDb(c->db);
+                        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
                         addReplyError(c,nanerr);
                         /* Don't need to check if the sorted set is empty
                          * because we know it has at least one element. */
@@ -1509,19 +1323,16 @@ void zaddGenericCommand(client *c, int flags) {
                 if (score != curscore) {
                     serverAssertWithInfo(c,curobj,zslDelete(zs->zsl,curscore,curobj));
                     znode = zslInsert(zs->zsl,score,curobj);
-                    incrRefCount(curobj); /* Re-inserted in skiplist. */
                     dictGetVal(de) = &znode->score; /* Update score ptr. */
-                    server.dirty++;
+                    c->vel->dirty++;
                     updated++;
                 }
                 processed++;
             } else if (!xx) {
-                ele = dupStringObject(ele);
+                ele = dupStringObjectUnconstant(ele);
                 znode = zslInsert(zs->zsl,score,ele);
-                //incrRefCount(ele); /* Inserted in skiplist. */
                 serverAssertWithInfo(c,NULL,dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
-                incrRefCount(ele); /* Added to dictionary. */
-                server.dirty++;
+                c->vel->dirty++;
                 added++;
                 processed++;
             }
@@ -1531,6 +1342,7 @@ void zaddGenericCommand(client *c, int flags) {
     }
 
     unlockDb(c->db);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 
 reply_to_client:
     if (incr) { /* ZINCRBY or INCR option. */
@@ -1559,13 +1371,20 @@ void zincrbyCommand(client *c) {
     zaddGenericCommand(c,ZADD_INCR);
 }
 
-void zremCommand_original(client *c) {
+void zremCommand(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
     int deleted = 0, keyremoved = 0, j;
+    int expired = 0;
 
-    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) return;
+    fetchInternalDbByKey(c, key);
+    lockDbWrite(c->db);
+    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero,&expired)) == NULL ||
+        checkType(c,zobj,OBJ_ZSET)) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
+        return;
+    }
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *eptr;
@@ -1614,72 +1433,11 @@ void zremCommand_original(client *c) {
         if (keyremoved)
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
         signalModifiedKey(c->db,key);
-        server.dirty += deleted;
+        c->vel->dirty += deleted;
     }
     addReplyLongLong(c,deleted);
-}
-
-void zremCommand(client *c) {
-    robj *key = c->argv[1];
-    robj *zobj;
-    int deleted = 0, keyremoved = 0, j;
-
-    fetchInternalDbByKey(c, key);
-    lockDbWrite(c->db);
-    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) {
-        unlockDb(c->db);
-        return;
-    }
-
-    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
-        unsigned char *eptr;
-
-        for (j = 2; j < c->argc; j++) {
-            if ((eptr = zzlFind(zobj->ptr,c->argv[j],NULL)) != NULL) {
-                deleted++;
-                zobj->ptr = zzlDelete(zobj->ptr,eptr);
-                if (zzlLength(zobj->ptr) == 0) {
-                    dbDelete(c->db,key);
-                    keyremoved = 1;
-                    break;
-                }
-            }
-        }
-    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = zobj->ptr;
-        dictEntry *de;
-        double score;
-
-        for (j = 2; j < c->argc; j++) {
-            de = dictFind(zs->dict,c->argv[j]);
-            if (de != NULL) {
-                deleted++;
-
-                /* Delete from the skiplist */
-                score = *(double*)dictGetVal(de);
-                serverAssertWithInfo(c,c->argv[j],zslDelete(zs->zsl,score,c->argv[j]));
-
-                /* Delete from the hash table */
-                dictDelete(zs->dict,c->argv[j]);
-                if (htNeedsResize(zs->dict)) dictResize(zs->dict);
-                if (dictSize(zs->dict) == 0) {
-                    dbDelete(c->db,key);
-                    keyremoved = 1;
-                    break;
-                }
-            }
-        }
-    } else {
-        serverPanic("Unknown sorted set encoding");
-    }
-
     unlockDb(c->db);
-
-    if (deleted) {
-        server.dirty += deleted;
-    }
-    addReplyLongLong(c,deleted);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
 /* Implements ZREMRANGEBYRANK, ZREMRANGEBYSCORE, ZREMRANGEBYLEX commands. */
@@ -1713,7 +1471,7 @@ void zremrangeGenericCommand(client *c, int rangetype) {
     }
 
     /* Step 2: Lookup & range sanity checks if needed. */
-    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
+    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero,NULL)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) goto cleanup;
 
     if (rangetype == ZRANGE_RANK) {
@@ -2134,7 +1892,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     /* read keys to be used for input */
     src = vr_calloc(setnum, sizeof(zsetopsrc));
     for (i = 0, j = 3; i < setnum; i++, j++) {
-        robj *obj = lookupKeyWrite(c->db,c->argv[j]);
+        robj *obj = lookupKeyWrite(c->db,c->argv[j],NULL);
         if (obj != NULL) {
             if (obj->type != OBJ_ZSET && obj->type != OBJ_SET) {
                 vr_free(src);
@@ -2347,108 +2105,6 @@ void zinterstoreCommand(client *c) {
     zunionInterGenericCommand(c,c->argv[1], SET_OP_INTER);
 }
 
-void zrangeGenericCommand_original(client *c, int reverse) {
-    robj *key = c->argv[1];
-    robj *zobj;
-    int withscores = 0;
-    long start;
-    long end;
-    int llen;
-    int rangelen;
-
-    if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != VR_OK) ||
-        (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != VR_OK)) return;
-
-    if (c->argc == 5 && !strcasecmp(c->argv[4]->ptr,"withscores")) {
-        withscores = 1;
-    } else if (c->argc >= 5) {
-        addReply(c,shared.syntaxerr);
-        return;
-    }
-
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL
-         || checkType(c,zobj,OBJ_ZSET)) return;
-
-    /* Sanitize indexes. */
-    llen = zsetLength(zobj);
-    if (start < 0) start = llen+start;
-    if (end < 0) end = llen+end;
-    if (start < 0) start = 0;
-
-    /* Invariant: start >= 0, so this test will be true when end < 0.
-     * The range is empty when start > end or start >= length. */
-    if (start > end || start >= llen) {
-        addReply(c,shared.emptymultibulk);
-        return;
-    }
-    if (end >= llen) end = llen-1;
-    rangelen = (end-start)+1;
-
-    /* Return the result in form of a multi-bulk reply */
-    addReplyMultiBulkLen(c, withscores ? (rangelen*2) : rangelen);
-
-    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
-        unsigned char *zl = zobj->ptr;
-        unsigned char *eptr, *sptr;
-        unsigned char *vstr;
-        unsigned int vlen;
-        long long vlong;
-
-        if (reverse)
-            eptr = ziplistIndex(zl,-2-(2*start));
-        else
-            eptr = ziplistIndex(zl,2*start);
-
-        serverAssertWithInfo(c,zobj,eptr != NULL);
-        sptr = ziplistNext(zl,eptr);
-
-        while (rangelen--) {
-            serverAssertWithInfo(c,zobj,eptr != NULL && sptr != NULL);
-            serverAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
-            if (vstr == NULL)
-                addReplyBulkLongLong(c,vlong);
-            else
-                addReplyBulkCBuffer(c,vstr,vlen);
-
-            if (withscores)
-                addReplyDouble(c,zzlGetScore(sptr));
-
-            if (reverse)
-                zzlPrev(zl,&eptr,&sptr);
-            else
-                zzlNext(zl,&eptr,&sptr);
-        }
-
-    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = zobj->ptr;
-        zskiplist *zsl = zs->zsl;
-        zskiplistNode *ln;
-        robj *ele;
-
-        /* Check if starting point is trivial, before doing log(N) lookup. */
-        if (reverse) {
-            ln = zsl->tail;
-            if (start > 0)
-                ln = zslGetElementByRank(zsl,llen-start);
-        } else {
-            ln = zsl->header->level[0].forward;
-            if (start > 0)
-                ln = zslGetElementByRank(zsl,start+1);
-        }
-
-        while(rangelen--) {
-            serverAssertWithInfo(c,zobj,ln != NULL);
-            ele = ln->obj;
-            addReplyBulk(c,ele);
-            if (withscores)
-                addReplyDouble(c,ln->score);
-            ln = reverse ? ln->backward : ln->level[0].forward;
-        }
-    } else {
-        serverPanic("Unknown sorted set encoding");
-    }
-}
-
 void zrangeGenericCommand(client *c, int reverse) {
     robj *key = c->argv[1];
     robj *zobj;
@@ -2479,7 +2135,7 @@ void zrangeGenericCommand(client *c, int reverse) {
         update_stats_add(c->vel->stats, keyspace_hits, 1);
         return;
     }
-    
+
     /* Sanitize indexes. */
     llen = zsetLength(zobj);
     if (start < 0) start = llen+start;
@@ -2560,7 +2216,7 @@ void zrangeGenericCommand(client *c, int reverse) {
     } else {
         serverPanic("Unknown sorted set encoding");
     }
-    
+
     unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
@@ -2768,83 +2424,6 @@ void zrevrangebyscoreCommand(client *c) {
     genericZrangebyscoreCommand(c,1);
 }
 
-void zcountCommand_original(client *c) {
-    robj *key = c->argv[1];
-    robj *zobj;
-    zrangespec range;
-    int count = 0;
-
-    /* Parse the range arguments */
-    if (zslParseRange(c->argv[2],c->argv[3],&range) != VR_OK) {
-        addReplyError(c,"min or max is not a float");
-        return;
-    }
-
-    /* Lookup the sorted set */
-    if ((zobj = lookupKeyReadOrReply(c, key, shared.czero)) == NULL ||
-        checkType(c, zobj, OBJ_ZSET)) return;
-
-    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
-        unsigned char *zl = zobj->ptr;
-        unsigned char *eptr, *sptr;
-        double score;
-
-        /* Use the first element in range as the starting point */
-        eptr = zzlFirstInRange(zl,&range);
-
-        /* No "first" element */
-        if (eptr == NULL) {
-            addReply(c, shared.czero);
-            return;
-        }
-
-        /* First element is in range */
-        sptr = ziplistNext(zl,eptr);
-        score = zzlGetScore(sptr);
-        serverAssertWithInfo(c,zobj,zslValueLteMax(score,&range));
-
-        /* Iterate over elements in range */
-        while (eptr) {
-            score = zzlGetScore(sptr);
-
-            /* Abort when the node is no longer in range. */
-            if (!zslValueLteMax(score,&range)) {
-                break;
-            } else {
-                count++;
-                zzlNext(zl,&eptr,&sptr);
-            }
-        }
-    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = zobj->ptr;
-        zskiplist *zsl = zs->zsl;
-        zskiplistNode *zn;
-        unsigned long rank;
-
-        /* Find first element in range */
-        zn = zslFirstInRange(zsl, &range);
-
-        /* Use rank of first element, if any, to determine preliminary count */
-        if (zn != NULL) {
-            rank = zslGetRank(zsl, zn->score, zn->obj);
-            count = (zsl->length - (rank - 1));
-
-            /* Find last element in range */
-            zn = zslLastInRange(zsl, &range);
-
-            /* Use rank of last element, if any, to determine the actual count */
-            if (zn != NULL) {
-                rank = zslGetRank(zsl, zn->score, zn->obj);
-                count -= (zsl->length - rank);
-            }
-        }
-    } else {
-        serverPanic("Unknown sorted set encoding");
-    }
-
-    addReplyLongLong(c, count);
-}
-
 void zcountCommand(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
@@ -2930,10 +2509,9 @@ void zcountCommand(client *c) {
         serverPanic("Unknown sorted set encoding");
     }
 
+    addReplyLongLong(c, count);
     unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
-
-    addReplyLongLong(c, count);
 }
 
 void zlexcountCommand(client *c) {
@@ -3198,16 +2776,6 @@ void zrangebylexCommand(client *c) {
 
 void zrevrangebylexCommand(client *c) {
     genericZrangebylexCommand(c,1);
-}
-
-void zcardCommand_original(client *c) {
-    robj *key = c->argv[1];
-    robj *zobj;
-
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.czero)) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) return;
-
-    addReplyLongLong(c,zsetLength(zobj));
 }
 
 void zcardCommand(client *c) {

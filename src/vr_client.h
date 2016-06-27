@@ -156,6 +156,7 @@ void addReplyLongLong(client *c, long long ll);
 void addReplyMultiBulkLen(client *c, long length);
 void copyClientOutputBuffer(client *dst, client *src);
 void *dupClientReplyValue(void *o);
+void freeClientReplyValue(void *o);
 void getClientsMaxBuffers(vr_eventloop *vel, unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer);
 char *getClientPeerId(client *client);

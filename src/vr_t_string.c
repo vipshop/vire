@@ -34,8 +34,10 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given */
 #define OBJ_SET_PX (1<<3)     /* Set if time in ms in given */
 
-void setGenericCommand_original(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
+void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
+    int expired = 0;
+    int exist;
 
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != VR_OK)
@@ -47,76 +49,31 @@ void setGenericCommand_original(client *c, int flags, robj *key, robj *val, robj
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
     }
 
-    if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
-        (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
+    fetchInternalDbByKey(c,key);
+    lockDbWrite(c->db);
+    if (lookupKeyWrite(c->db,key,&expired) == NULL)
+        exist = 0;
+    else
+        exist = 1;
+
+    if ((flags & OBJ_SET_NX && exist) ||
+        (flags & OBJ_SET_XX && !exist))
     {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
     }
-    
-    setKey(c->db,key,val);
-    server.dirty++;
+
+    setKey(c->db,key,dupStringObjectUnconstant(val),NULL);
+    c->vel->dirty++;
     if (expire) setExpire(c->db,key,vr_msec_now()+milliseconds);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
     if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
         "expire",key,c->db->id);
     addReply(c, ok_reply ? ok_reply : shared.ok);
-}
-
-void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
-    long long milliseconds = 0; /* initialized to avoid any harmness warning */
-    long long when, now;
-    robj *o;
-    bool exist = false;
-    int expired = 0;
-
-    if (expire) {
-        if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != VR_OK)
-            return;
-        if (milliseconds <= 0) {
-            addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
-            return;
-        }
-        if (unit == UNIT_SECONDS) milliseconds *= 1000;
-    }
-
-    fetchInternalDbByKey(c, key);
-    now = vr_msec_now();
-
-    lockDbWrite(c->db);
-    o = lookupKey(c->db, c->argv[1]);
-    if (o != NULL) {
-        exist = true;
-        when = getExpire(c->db,c->argv[1]);
-        if (when >= 0 && now > when) {
-            dbDelete(c->db, c->argv[1]);
-            exist = false;
-            expired ++;
-        } else if (flags & OBJ_SET_NX) {
-            unlockDb(c->db);
-            addReply(c, abort_reply ? abort_reply : shared.nullbulk);
-            return;
-        }
-    } else if (o == NULL && flags & OBJ_SET_XX) {
-        unlockDb(c->db);
-        addReply(c, abort_reply ? abort_reply : shared.nullbulk);
-        return;
-    }
-    
-    if (exist) {
-        dbOverwrite(c->db,key,dupStringObject(val));
-    } else {
-        dbAdd(c->db,key,dupStringObject(val));
-    }
-    removeExpire(c->db,key);
-    signalModifiedKey(c->db,key);
-    if (expire) setExpire(c->db,key,now+milliseconds);
     unlockDb(c->db);
-    addReply(c, ok_reply ? ok_reply : shared.ok);
-
-    if (expired > 0) {
-        update_stats_add(c->vel->stats, expiredkeys, expired);
-    }
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
 /* SET key value [NX] [XX] [EX <seconds>] [PX <milliseconds>] */
@@ -197,86 +154,63 @@ int getGenericCommand(client *c) {
     }
 }
 
-void getCommand_original(client *c) {
-    getGenericCommand(c);
-}
-
 void getCommand(client *c) {
-    robj *val;
-    long long when;
-    
-    fetchInternalDbByKey(c, c->argv[1]);
+    robj *o;
+
+    fetchInternalDbByKey(c,c->argv[1]);
     lockDbRead(c->db);
-    val = lookupKey(c->db, c->argv[1]);
-    if (val != NULL) {
-        when = getExpire(c->db,c->argv[1]);
-        if (when >= 0 && vr_msec_now() > when) {
-            unlockDb(c->db);
-            addReply(c, shared.nullbulk);
-            update_stats_add(c->vel->stats, keyspace_misses, 1);
-            return;
-        }
-
-        if (checkType(c,val,OBJ_STRING)) {
-            unlockDb(c->db);
-            update_stats_add(c->vel->stats, keyspace_hits, 1);
-            return;
-        }
-        
-        addReplyBulk(c, val);
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL) {
         unlockDb(c->db);
-        update_stats_add(c->vel->stats, keyspace_hits, 1);
-    } else {
-        unlockDb(c->db);
-        addReply(c, shared.nullbulk);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
     }
-}
 
-void getsetCommand_original(client *c) {
-    if (getGenericCommand(c) == VR_ERROR) return;
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setKey(c->db,c->argv[1],c->argv[2]);
-    notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
-    server.dirty++;
+    if (o->type != OBJ_STRING) {
+        addReply(c,shared.wrongtypeerr);
+    } else {
+        addReplyBulk(c,o);
+    }
+    
+    unlockDb(c->db);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void getsetCommand(client *c) {
     robj *key, *val;
-    int exist = 0;
+    int expired = 0;
+    int exist;
 
     key = c->argv[1];
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     
     fetchInternalDbByKey(c,key);
     lockDbWrite(c->db);
-    val = lookupKeyWriteOrReply(c,key,shared.nullbulk);
+    val = lookupKeyWriteOrReply(c,key,shared.nullbulk,&expired);
     if (val == NULL) {
-        dbAdd(c->db,key,dupStringObject(c->argv[2]));
-    } else {
+        exist = 0;
+        dbAdd(c->db,key,dupStringObjectUnconstant(c->argv[2]));
+    } else {    
         exist = 1;
-        
         if (val->type != OBJ_STRING) {
-            unlockDb(c->db);
-            update_stats_add(c->vel->stats, keyspace_hits, 1);
             addReply(c,shared.wrongtypeerr);
-            return;
+            goto end;
         }
 
         addReplyBulk(c,val);
-        
-        dbOverwrite(c->db,key,dupStringObject(c->argv[2]));
+        dbOverwrite(c->db,key,dupStringObjectUnconstant(c->argv[2]));
         removeExpire(c->db,key);
     }
-    
-    unlockDb(c->db);
 
-    server.dirty++;
-    if (exist) {
+    notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
+    c->vel->dirty++;
+    
+end:
+    unlockDb(c->db);
+    if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
+    if (exist)
         update_stats_add(c->vel->stats, keyspace_hits, 1);
-    } else {
+    else
         update_stats_add(c->vel->stats, keyspace_misses, 1);
-    }
 }
 
 void setrangeCommand(client *c) {
@@ -292,7 +226,7 @@ void setrangeCommand(client *c) {
         return;
     }
 
-    o = lookupKeyWrite(c->db,c->argv[1]);
+    o = lookupKeyWrite(c->db,c->argv[1],NULL);
     if (o == NULL) {
         /* Return 0 when setting nothing on a non-existing string */
         if (sdslen(value) == 0) {
@@ -405,7 +339,7 @@ void msetGenericCommand(client *c, int nx) {
      * set nothing at all if at least one already key exists. */
     if (nx) {
         for (j = 1; j < c->argc; j += 2) {
-            if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
+            if (lookupKeyWrite(c->db,c->argv[j],NULL) != NULL) {
                 busykeys++;
             }
         }
@@ -417,7 +351,7 @@ void msetGenericCommand(client *c, int nx) {
 
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        setKey(c->db,c->argv[j],c->argv[j+1]);
+        setKey(c->db,c->argv[j],c->argv[j+1],NULL);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
     server.dirty += (c->argc-1)/2;
@@ -432,19 +366,22 @@ void msetnxCommand(client *c) {
     msetGenericCommand(c,1);
 }
 
-void incrDecrCommand_original(client *c, long long incr) {
+void incrDecrCommand(client *c, long long incr) {
     long long value, oldvalue;
     robj *o, *new;
+    int expired = 0;
 
-    o = lookupKeyWrite(c->db,c->argv[1]);
-    if (o != NULL && checkType(c,o,OBJ_STRING)) return;
-    if (getLongLongFromObjectOrReply(c,o,&value,NULL) != VR_OK) return;
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    o = lookupKeyWrite(c->db,c->argv[1],&expired);
+    if (o != NULL && checkType(c,o,OBJ_STRING)) goto end;
+    if (getLongLongFromObjectOrReply(c,o,&value,&expired) != VR_OK) goto end;
 
     oldvalue = value;
     if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
         (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue))) {
         addReplyError(c,"increment or decrement would overflow");
-        return;
+        goto end;
     }
     value += incr;
 
@@ -464,74 +401,14 @@ void incrDecrCommand_original(client *c, long long incr) {
     }
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
-    server.dirty++;
+    c->vel->dirty++;
     addReply(c,shared.colon);
     addReply(c,new);
     addReply(c,shared.crlf);
-}
-
-void incrDecrCommand(client *c, long long incr) {
-    long long value, oldvalue;
-    robj *o, *new;
-    long long when;
-    int expired = 0;
-
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    o = lookupKey(c->db, c->argv[1]);
-    if (o != NULL) {
-        when = getExpire(c->db,c->argv[1]);
-        if (when >= 0 && vr_msec_now() > when) {
-            dbDelete(c->db, c->argv[1]);
-            value = 0;
-            expired ++;
-        } else if (checkType(c,o,OBJ_STRING)) {
-            unlockDb(c->db);
-            return;
-        } else if (getLongLongFromObjectOrReply(c,o,&value,NULL) != VR_OK) {
-            unlockDb(c->db);
-            return;
-        }
-    } else {
-        value = 0;
-    }
-
-    oldvalue = value;
-    if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
-        (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue))) {
-        unlockDb(c->db);
-        addReplyError(c,"increment or decrement would overflow");
-
-        if (expired > 0) {
-            update_stats_add(c->vel->stats, expiredkeys, expired);
-        }
-        return;
-    }
-    value += incr;
-
-    if (o && o->refcount == 1 && o->encoding == OBJ_ENCODING_INT &&
-        (value < 0 || value >= OBJ_SHARED_INTEGERS) &&
-        value >= LONG_MIN && value <= LONG_MAX)
-    {
-        new = o;
-        o->ptr = (void*)((long)value);
-    } else {
-        new = createStringObjectFromLongLong(value);
-        if (o) {
-            dbOverwrite(c->db,c->argv[1],new);
-        } else {
-            dbAdd(c->db,c->argv[1],new);
-        }
-    }
+    
+end:
     unlockDb(c->db);
-    server.dirty++;
-    addReply(c,shared.colon);
-    addReply(c,new);
-    addReply(c,shared.crlf);
-
-    if (expired > 0) {
-        update_stats_add(c->vel->stats, expiredkeys, expired);
-    }
+    if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
 }
 
 void incrCommand(client *c) {
@@ -556,47 +433,14 @@ void decrbyCommand(client *c) {
     incrDecrCommand(c,-incr);
 }
 
-void incrbyfloatCommand_original(client *c) {
-    long double incr, value;
-    robj *o, *new, *aux;
-
-    o = lookupKeyWrite(c->db,c->argv[1]);
-    if (o != NULL && checkType(c,o,OBJ_STRING)) return;
-    if (getLongDoubleFromObjectOrReply(c,o,&value,NULL) != VR_OK ||
-        getLongDoubleFromObjectOrReply(c,c->argv[2],&incr,NULL) != VR_OK)
-        return;
-
-    value += incr;
-    if (isnan(value) || isinf(value)) {
-        addReplyError(c,"increment would produce NaN or Infinity");
-        return;
-    }
-    new = createStringObjectFromLongDouble(value,1);
-    if (o)
-        dbOverwrite(c->db,c->argv[1],new);
-    else
-        dbAdd(c->db,c->argv[1],new);
-    signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id);
-    server.dirty++;
-    addReplyBulk(c,new);
-
-    /* Always replicate INCRBYFLOAT as a SET command with the final value
-     * in order to make sure that differences in float precision or formatting
-     * will not create differences in replicas or after an AOF restart. */
-    aux = createStringObject("SET",3);
-    rewriteClientCommandArgument(c,0,aux);
-    decrRefCount(aux);
-    rewriteClientCommandArgument(c,2,new);
-}
-
 void incrbyfloatCommand(client *c) {
     long double incr, value;
     robj *o, *new, *aux;
+    int expired = 0;
 
     fetchInternalDbByKey(c, c->argv[1]);
     lockDbWrite(c->db);
-    o = lookupKeyWrite(c->db,c->argv[1]);
+    o = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (o != NULL && checkType(c,o,OBJ_STRING)) goto end;
     if (getLongDoubleFromObjectOrReply(c,o,&value,NULL) != VR_OK ||
         getLongDoubleFromObjectOrReply(c,c->argv[2],&incr,NULL) != VR_OK)
@@ -605,14 +449,16 @@ void incrbyfloatCommand(client *c) {
     value += incr;
     if (isnan(value) || isinf(value)) {
         addReplyError(c,"increment would produce NaN or Infinity");
-        goto end;;
+        goto end;
     }
     new = createStringObjectFromLongDouble(value,1);
     if (o)
         dbOverwrite(c->db,c->argv[1],new);
     else
         dbAdd(c->db,c->argv[1],new);
-    server.dirty++;
+    signalModifiedKey(c->db,c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id);
+    c->vel->dirty++;
     addReplyBulk(c,new);
 
     /* Always replicate INCRBYFLOAT as a SET command with the final value
@@ -620,36 +466,37 @@ void incrbyfloatCommand(client *c) {
      * will not create differences in replicas or after an AOF restart. */
     aux = createStringObject("SET",3);
     rewriteClientCommandArgument(c,0,aux);
-    decrRefCount(aux);
-    aux = dupStringObject(new);
+    aux = dupStringObjectUnconstant(new);
     rewriteClientCommandArgument(c,2,aux);
-    decrRefCount(aux);
 
 end:
     unlockDb(c->db);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
-void appendCommand_original(client *c) {
+void appendCommand(client *c) {
     size_t totlen;
     robj *o, *append;
+    int expired = 0;
 
-    o = lookupKeyWrite(c->db,c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    o = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (o == NULL) {
         /* Create the key */
         c->argv[2] = tryObjectEncoding(c->argv[2]);
-        dbAdd(c->db,c->argv[1],c->argv[2]);
-        incrRefCount(c->argv[2]);
+        dbAdd(c->db,c->argv[1],dupStringObjectUnconstant(c->argv[2]));
         totlen = stringObjectLen(c->argv[2]);
-    } else {
+    } else {    
         /* Key exists, check type */
         if (checkType(c,o,OBJ_STRING))
-            return;
+            goto end;
 
         /* "append" is an argument, so always an sds */
         append = c->argv[2];
         totlen = stringObjectLen(o)+sdslen(append->ptr);
         if (checkStringLength(c,totlen) != VR_OK)
-            return;
+            goto end;
 
         /* Append the value */
         o = dbUnshareStringValue(c->db,c->argv[1],o);
@@ -658,101 +505,30 @@ void appendCommand_original(client *c) {
     }
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"append",c->argv[1],c->db->id);
-    server.dirty++;
+    c->vel->dirty++;
     addReplyLongLong(c,totlen);
-}
 
-void appendCommand(client *c) {
-    size_t totlen;
-    robj *o, *append;
-    long long when;
-    int expired = 0;
-
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    o = lookupKey(c->db, c->argv[1]);
-    if (o != NULL) {
-        when = getExpire(c->db,c->argv[1]);
-        if (when >= 0 && vr_msec_now() > when) {
-            dbDelete(c->db, c->argv[1]);
-            o = NULL;
-            expired ++;
-        } else if (checkType(c,o,OBJ_STRING)) {
-            unlockDb(c->db);
-            return;
-        }
-    } 
-
-    if (o == NULL) {
-         /* Create the key */
-        c->argv[2] = tryObjectEncoding(c->argv[2]);
-        dbAdd(c->db,c->argv[1],c->argv[2]);
-        incrRefCount(c->argv[2]);
-        totlen = stringObjectLen(c->argv[2]);
-    } else {
-        /* "append" is an argument, so always an sds */
-        append = c->argv[2];
-        totlen = stringObjectLen(o)+sdslen(append->ptr);
-        if (checkStringLength(c,totlen) != VR_OK) {
-            unlockDb(c->db);
-
-            if (expired > 0) {
-                update_stats_add(c->vel->stats, expiredkeys, expired);
-            }
-            return;
-        }
-        
-        /* Append the value */
-        o = dbUnshareStringValue(c->db,c->argv[1],o);
-        o->ptr = sdscatlen(o->ptr,append->ptr,sdslen(append->ptr));
-        totlen = sdslen(o->ptr);
-    }
-    
+end:
     unlockDb(c->db);
-    server.dirty++;
-    addReplyLongLong(c,totlen);
-
-    if (expired > 0) {
-        update_stats_add(c->vel->stats, expiredkeys, expired);
-    }
-}
-
-void strlenCommand_original(client *c) {
-    robj *o;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_STRING)) return;
-    addReplyLongLong(c,stringObjectLen(o));
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
 void strlenCommand(client *c) {
-    robj *val;
-    long long when;
+    robj *o;
     
     fetchInternalDbByKey(c, c->argv[1]);
     lockDbRead(c->db);
-    val = lookupKey(c->db, c->argv[1]);
-    if (val == NULL) {
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
         unlockDb(c->db);
-        addReply(c, shared.czero);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
-    } else {
-        when = getExpire(c->db,c->argv[1]);    
-        if (when >= 0 && vr_msec_now() > when) {
-            unlockDb(c->db);
-            addReply(c, shared.czero);
-            update_stats_add(c->vel->stats, keyspace_misses, 1);
-            return;
-        }
-        
-        if (checkType(c,val,OBJ_STRING)) {
-            unlockDb(c->db);
-            update_stats_add(c->vel->stats, keyspace_hits, 1);
-            return;
-        }
+    } else if(checkType(c,o,OBJ_STRING)) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
     }
-
-    addReplyLongLong(c,stringObjectLen(val));
+    
+    addReplyLongLong(c,stringObjectLen(o));
     unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }

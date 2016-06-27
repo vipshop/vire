@@ -11,11 +11,12 @@
  * the function takes care of it if needed. */
 void listTypePush(robj *subject, robj *value, int where) {
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
+        robj *value_new;
         int pos = (where == LIST_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL;
-        value = getDecodedObject(value);
-        size_t len = sdslen(value->ptr);
-        quicklistPush(subject->ptr, value->ptr, len, pos);
-        decrRefCount(value);
+        value_new = getDecodedObject(value);
+        size_t len = sdslen(value_new->ptr);
+        quicklistPush(subject->ptr, value_new->ptr, len, pos);
+        if (value_new != value) freeObject(value_new);
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -165,11 +166,17 @@ void listTypeConvert(robj *subject, int enc) {
  * List Commands
  *----------------------------------------------------------------------------*/
 
-void pushGenericCommand_original(client *c, int where) {
+void pushGenericCommand(client *c, int where) {
     int j, waiting = 0, pushed = 0;
-    robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
+    robj *lobj;
+    int expired = 0;
 
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    lobj = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (lobj && lobj->type != OBJ_LIST) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
         addReply(c,shared.wrongtypeerr);
         return;
     }
@@ -192,37 +199,10 @@ void pushGenericCommand_original(client *c, int where) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     }
-    server.dirty += pushed;
-}
+    c->vel->dirty += pushed;
 
-void pushGenericCommand(client *c, int where) {
-    int j, waiting = 0, pushed = 0;
-    robj *lobj;
-
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    lobj = lookupKeyWrite(c->db,c->argv[1]);
-    if (lobj && lobj->type != OBJ_LIST) {
-        unlockDb(c->db);
-        addReply(c,shared.wrongtypeerr);
-        return;
-    }
-
-    for (j = 2; j < c->argc; j++) {
-        c->argv[j] = tryObjectEncoding(c->argv[j]);
-        if (!lobj) {
-            lobj = createQuicklistObject();
-            quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
-                                server.list_compress_depth);
-            dbAdd(c->db,c->argv[1],lobj);
-        }
-        listTypePush(lobj,c->argv[j],where);
-        pushed++;
-    }
-    
-    addReplyLongLong(c, waiting + (lobj ? listTypeLength(lobj) : 0));    
     unlockDb(c->db);
-    server.dirty += pushed;
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
 void lpushCommand(client *c) {
@@ -239,7 +219,7 @@ void pushxGenericCommand(client *c, robj *refval, robj *val, int where) {
     listTypeEntry entry;
     int inserted = 0;
 
-    if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
+    if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero,NULL)) == NULL ||
         checkType(c,subject,OBJ_LIST)) return;
 
     if (refval != NULL) {
@@ -297,12 +277,6 @@ void linsertCommand(client *c) {
     }
 }
 
-void llenCommand_original(client *c) {
-    robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
-    if (o == NULL || checkType(c,o,OBJ_LIST)) return;
-    addReplyLongLong(c,listTypeLength(o));
-}
-
 void llenCommand(client *c) {
     robj *o;
     
@@ -324,33 +298,6 @@ void llenCommand(client *c) {
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
-void lindexCommand_original(client *c) {
-    robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk);
-    if (o == NULL || checkType(c,o,OBJ_LIST)) return;
-    long index;
-    robj *value = NULL;
-
-    if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != VR_OK))
-        return;
-
-    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistEntry entry;
-        if (quicklistIndex(o->ptr, index, &entry)) {
-            if (entry.value) {
-                value = createStringObject((char*)entry.value,entry.sz);
-            } else {
-                value = createStringObjectFromLongLong(entry.longval);
-            }
-            addReplyBulk(c,value);
-            decrRefCount(value);
-        } else {
-            addReply(c,shared.nullbulk);
-        }
-    } else {
-        serverPanic("Unknown list encoding");
-    }
-}
-
 void lindexCommand(client *c) {
     robj *o;
     long index;
@@ -366,12 +313,11 @@ void lindexCommand(client *c) {
         unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_misses, 1);
         return;
-    } else if (checkType(c,o,OBJ_LIST)) {
+    } else if(checkType(c,o,OBJ_LIST)) {
         unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
         return;
     }
-
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistEntry entry;
         if (quicklistIndex(o->ptr, index, &entry)) {
@@ -381,27 +327,34 @@ void lindexCommand(client *c) {
                 value = createStringObjectFromLongLong(entry.longval);
             }
             addReplyBulk(c,value);
-            decrRefCount(value);
+            freeObject(value);
         } else {
             addReply(c,shared.nullbulk);
         }
     } else {
         serverPanic("Unknown list encoding");
     }
-
     unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
-void lsetCommand_original(client *c) {
-    robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
-    if (o == NULL || checkType(c,o,OBJ_LIST)) return;
+void lsetCommand(client *c) {
+    robj *o;
     long index;
     robj *value = c->argv[3];
+    int expired = 0;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != VR_OK))
         return;
 
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr,&expired);
+    if (o == NULL || checkType(c,o,OBJ_LIST)) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
+        return;
+    }
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklist *ql = o->ptr;
         int replaced = quicklistReplaceAtIndex(ql, index,
@@ -412,58 +365,37 @@ void lsetCommand_original(client *c) {
             addReply(c,shared.ok);
             signalModifiedKey(c->db,c->argv[1]);
             notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
-            server.dirty++;
-        }
-    } else {
-        serverPanic("Unknown list encoding");
-    }
-}
-
-void lsetCommand(client *c) {
-    robj *o;
-    long index;
-    robj *value = c->argv[3];
-
-    if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != VR_OK))
-        return;
-
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
-    if (o == NULL || checkType(c,o,OBJ_LIST)) {
-        unlockDb(c->db);
-        return;
-    }
-    
-    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklist *ql = o->ptr;
-        int replaced = quicklistReplaceAtIndex(ql, index,
-                                               value->ptr, sdslen(value->ptr));
-        if (!replaced) {
-            addReply(c,shared.outofrangeerr);
-        } else {
-            addReply(c,shared.ok);
-            server.dirty++;
+            c->vel->dirty++;
         }
     } else {
         serverPanic("Unknown list encoding");
     }
 
     unlockDb(c->db);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
-void popGenericCommand_original(client *c, int where) {
-    robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
-    if (o == NULL || checkType(c,o,OBJ_LIST)) return;
+void popGenericCommand(client *c, int where) {
+    robj *o, *value;
+    int expired = 0;
 
-    robj *value = listTypePop(o,where);
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk,&expired);
+    if (o == NULL || checkType(c,o,OBJ_LIST)) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
+        return;
+    }
+
+    value = listTypePop(o,where);
     if (value == NULL) {
         addReply(c,shared.nullbulk);
     } else {
         char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
 
         addReplyBulk(c,value);
-        decrRefCount(value);
+        freeObject(value);
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
         if (listTypeLength(o) == 0) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
@@ -471,35 +403,10 @@ void popGenericCommand_original(client *c, int where) {
             dbDelete(c->db,c->argv[1]);
         }
         signalModifiedKey(c->db,c->argv[1]);
-        server.dirty++;
+        c->vel->dirty++;
     }
-}
-
-void popGenericCommand(client *c, int where) {
-    robj *o;
-    robj *value;
-    
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
-    if (o == NULL || checkType(c,o,OBJ_LIST)) {
-        unlockDb(c->db);
-        return;
-    }
-    
-    value = listTypePop(o,where);
-    if (value == NULL) {
-        addReply(c,shared.nullbulk);
-    } else {
-        addReplyBulk(c,value);
-        decrRefCount(value);
-        if (listTypeLength(o) == 0) {
-            dbDelete(c->db,c->argv[1]);
-        }
-        server.dirty++;
-    }
-
     unlockDb(c->db);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
 void lpopCommand(client *c) {
@@ -508,52 +415,6 @@ void lpopCommand(client *c) {
 
 void rpopCommand(client *c) {
     popGenericCommand(c,LIST_TAIL);
-}
-
-void lrangeCommand_original(client *c) {
-    robj *o;
-    long start, end, llen, rangelen;
-
-    if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != VR_OK) ||
-        (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != VR_OK)) return;
-
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
-         || checkType(c,o,OBJ_LIST)) return;
-    llen = listTypeLength(o);
-
-    /* convert negative indexes */
-    if (start < 0) start = llen+start;
-    if (end < 0) end = llen+end;
-    if (start < 0) start = 0;
-
-    /* Invariant: start >= 0, so this test will be true when end < 0.
-     * The range is empty when start > end or start >= length. */
-    if (start > end || start >= llen) {
-        addReply(c,shared.emptymultibulk);
-        return;
-    }
-    if (end >= llen) end = llen-1;
-    rangelen = (end-start)+1;
-
-    /* Return the result in form of a multi-bulk reply */
-    addReplyMultiBulkLen(c,rangelen);
-    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        listTypeIterator *iter = listTypeInitIterator(o, start, LIST_TAIL);
-
-        while(rangelen--) {
-            listTypeEntry entry;
-            listTypeNext(iter, &entry);
-            quicklistEntry *qe = &entry.entry;
-            if (qe->value) {
-                addReplyBulkCBuffer(c,qe->value,qe->sz);
-            } else {
-                addReplyBulkLongLong(c,qe->longval);
-            }
-        }
-        listTypeReleaseIterator(iter);
-    } else {
-        serverPanic("List encoding is not QUICKLIST!");
-    }
 }
 
 void lrangeCommand(client *c) {
@@ -574,7 +435,7 @@ void lrangeCommand(client *c) {
         update_stats_add(c->vel->stats, keyspace_hits, 1);
         return;
     }
-    
+
     llen = listTypeLength(o);
 
     /* convert negative indexes */
@@ -585,9 +446,9 @@ void lrangeCommand(client *c) {
     /* Invariant: start >= 0, so this test will be true when end < 0.
      * The range is empty when start > end or start >= length. */
     if (start > end || start >= llen) {
-        addReply(c,shared.emptymultibulk);
         unlockDb(c->db);
         update_stats_add(c->vel->stats, keyspace_hits, 1);
+        addReply(c,shared.emptymultibulk);
         return;
     }
     if (end >= llen) end = llen-1;
@@ -617,15 +478,22 @@ void lrangeCommand(client *c) {
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
-void ltrimCommand_original(client *c) {
+void ltrimCommand(client *c) {
     robj *o;
     long start, end, llen, ltrim, rtrim;
+    int expired = 0;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != VR_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != VR_OK)) return;
 
-    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.ok)) == NULL ||
-        checkType(c,o,OBJ_LIST)) return;
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.ok,&expired)) == NULL ||
+        checkType(c,o,OBJ_LIST)) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
+        return;
+    }
     llen = listTypeLength(o);
 
     /* convert negative indexes */
@@ -659,74 +527,30 @@ void ltrimCommand_original(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
     signalModifiedKey(c->db,c->argv[1]);
-    server.dirty++;
+    c->vel->dirty++;
     addReply(c,shared.ok);
-}
-
-void ltrimCommand(client *c) {
-    robj *o;
-    long start, end, llen, ltrim, rtrim;
-
-    if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != VR_OK) ||
-        (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != VR_OK)) return;
-
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.ok)) == NULL ||
-        checkType(c,o,OBJ_LIST)) {
-        unlockDb(c->db);
-        return;
-    }
-    
-    llen = listTypeLength(o);
-
-    /* convert negative indexes */
-    if (start < 0) start = llen+start;
-    if (end < 0) end = llen+end;
-    if (start < 0) start = 0;
-
-    /* Invariant: start >= 0, so this test will be true when end < 0.
-     * The range is empty when start > end or start >= length. */
-    if (start > end || start >= llen) {
-        /* Out of range start or start > end result in empty list */
-        ltrim = llen;
-        rtrim = 0;
-    } else {
-        if (end >= llen) end = llen-1;
-        ltrim = start;
-        rtrim = llen-end-1;
-    }
-
-    /* Remove list elements to perform the trim */
-    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistDelRange(o->ptr,0,ltrim);
-        quicklistDelRange(o->ptr,-rtrim,rtrim);
-    } else {
-        serverPanic("Unknown list encoding");
-    }
-
-    if (listTypeLength(o) == 0) {
-        dbDelete(c->db,c->argv[1]);
-    }
-
     unlockDb(c->db);
-    
-    server.dirty++;
-    addReply(c,shared.ok);
+    if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
 }
 
-void lremCommand_original(client *c) {
+void lremCommand(client *c) {
     robj *subject, *obj;
     obj = c->argv[3];
     long toremove;
     long removed = 0;
+    int expired = 0;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != VR_OK))
         return;
 
-    subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero);
-    if (subject == NULL || checkType(c,subject,OBJ_LIST)) return;
-
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero,&expired);
+    if (subject == NULL || checkType(c,subject,OBJ_LIST)) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
+        return;
+    }
     listTypeIterator *li;
     if (toremove < 0) {
         toremove = -toremove;
@@ -739,7 +563,7 @@ void lremCommand_original(client *c) {
     while (listTypeNext(li,&entry)) {
         if (listTypeEqual(&entry,obj)) {
             listTypeDelete(li, &entry);
-            server.dirty++;
+            c->vel->dirty++;
             removed++;
             if (toremove && removed == toremove) break;
         }
@@ -757,50 +581,8 @@ void lremCommand_original(client *c) {
     }
 
     addReplyLongLong(c,removed);
-}
-
-void lremCommand(client *c) {
-    robj *subject, *obj;
-    obj = c->argv[3];
-    long toremove;
-    long removed = 0;
-
-    if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != VR_OK))
-        return;
-
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero);
-    if (subject == NULL || checkType(c,subject,OBJ_LIST)) {
-        unlockDb(c->db);
-        return;
-    }
-    
-    listTypeIterator *li;
-    if (toremove < 0) {
-        toremove = -toremove;
-        li = listTypeInitIterator(subject,-1,LIST_HEAD);
-    } else {
-        li = listTypeInitIterator(subject,0,LIST_TAIL);
-    }
-
-    listTypeEntry entry;
-    while (listTypeNext(li,&entry)) {
-        if (listTypeEqual(&entry,obj)) {
-            listTypeDelete(li, &entry);
-            server.dirty++;
-            removed++;
-            if (toremove && removed == toremove) break;
-        }
-    }
-    listTypeReleaseIterator(li);
-
-    if (listTypeLength(subject) == 0) {
-        dbDelete(c->db,c->argv[1]);
-    }
-    
     unlockDb(c->db);
-    addReplyLongLong(c,removed);
+    if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
 }
 
 /* This is the semantic of this command:
@@ -836,7 +618,7 @@ void rpoplpushHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value) {
 
 void rpoplpushCommand(client *c) {
     robj *sobj, *value;
-    if ((sobj = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
+    if ((sobj = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk,NULL)) == NULL ||
         checkType(c,sobj,OBJ_LIST)) return;
 
     if (listTypeLength(sobj) == 0) {
@@ -844,7 +626,7 @@ void rpoplpushCommand(client *c) {
          * versions of Redis delete keys of empty lists. */
         addReply(c,shared.nullbulk);
     } else {
-        robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
+        robj *dobj = lookupKeyWrite(c->db,c->argv[2],NULL);
         robj *touchedkey = c->argv[1];
 
         if (dobj && checkType(c,dobj,OBJ_LIST)) return;
@@ -1027,7 +809,7 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
     } else {
         /* BRPOPLPUSH */
         robj *dstobj =
-            lookupKeyWrite(receiver->db,dstkey);
+            lookupKeyWrite(receiver->db,dstkey,NULL);
         if (!(dstobj &&
              checkType(receiver,dstobj,OBJ_LIST)))
         {
@@ -1088,7 +870,7 @@ void handleClientsBlockedOnLists(void) {
 
             /* If the key exists and it's a list, serve blocked clients
              * with data. */
-            robj *o = lookupKeyWrite(rl->db,rl->key);
+            robj *o = lookupKeyWrite(rl->db,rl->key,NULL);
             if (o != NULL && o->type == OBJ_LIST) {
                 dictEntry *de;
 
@@ -1158,7 +940,7 @@ void blockingPopGenericCommand(client *c, int where) {
         != VR_OK) return;
 
     for (j = 1; j < c->argc-1; j++) {
-        o = lookupKeyWrite(c->db,c->argv[j]);
+        o = lookupKeyWrite(c->db,c->argv[j],NULL);
         if (o != NULL) {
             if (o->type != OBJ_LIST) {
                 addReply(c,shared.wrongtypeerr);
@@ -1219,7 +1001,7 @@ void brpoplpushCommand(client *c) {
     if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_SECONDS)
         != VR_OK) return;
 
-    robj *key = lookupKeyWrite(c->db, c->argv[1]);
+    robj *key = lookupKeyWrite(c->db, c->argv[1],NULL);
 
     if (key == NULL) {
         if (c->flags & CLIENT_MULTI) {

@@ -24,9 +24,11 @@ robj *setTypeCreate(robj *value) {
 int setTypeAdd(robj *subject, robj *value) {
     long long llval;
     if (subject->encoding == OBJ_ENCODING_HT) {
+        value = dupStringObjectUnconstant(value);
         if (dictAdd(subject->ptr,value,NULL) == DICT_OK) {
-            incrRefCount(value);
             return 1;
+        } else {
+            freeObject(value);
         }
     } else if (subject->encoding == OBJ_ENCODING_INTSET) {
         if (isObjectRepresentableAsLongLong(value,&llval) == VR_OK) {
@@ -42,12 +44,11 @@ int setTypeAdd(robj *subject, robj *value) {
         } else {
             /* Failed to get integer from object, convert to regular set. */
             setTypeConvert(subject,OBJ_ENCODING_HT);
-
+            value = dupStringObjectUnconstant(value);
             /* The set *was* an intset and this value is not integer
              * encodable, so dictAdd should always work. */
             serverAssertWithInfo(NULL,value,
-                                dictAdd(subject->ptr,value,NULL) == DICT_OK);
-            incrRefCount(value);
+                dictAdd(subject->ptr,value,NULL) == DICT_OK);
             return 1;
         }
     } else {
@@ -228,7 +229,7 @@ void setTypeConvert(robj *setobj, int enc) {
         while (setTypeNext(si,&element,&intele) != -1) {
             element = createStringObjectFromLongLong(intele);
             serverAssertWithInfo(NULL,element,
-                                dictAdd(d,element,NULL) == DICT_OK);
+                dictAdd(d,element,NULL) == DICT_OK);
         }
         setTypeReleaseIterator(si);
 
@@ -240,16 +241,21 @@ void setTypeConvert(robj *setobj, int enc) {
     }
 }
 
-void saddCommand_original(client *c) {
+void saddCommand(client *c) {
     robj *set;
     int j, added = 0;
+    int expired = 0;
 
-    set = lookupKeyWrite(c->db,c->argv[1]);
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    set = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (set == NULL) {
         set = setTypeCreate(c->argv[2]);
         dbAdd(c->db,c->argv[1],set);
     } else {
         if (set->type != OBJ_SET) {
+            unlockDb(c->db);
+            if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
             addReply(c,shared.wrongtypeerr);
             return;
         }
@@ -263,46 +269,25 @@ void saddCommand_original(client *c) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[1],c->db->id);
     }
-    server.dirty += added;
+    c->vel->dirty += added;
     addReplyLongLong(c,added);
-}
-
-void saddCommand(client *c) {
-    robj *set, *value;
-    int j, added = 0;
-
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    set = lookupKeyWrite(c->db,c->argv[1]);
-    if (set == NULL) {
-        set = setTypeCreate(c->argv[2]);
-        dbAdd(c->db,c->argv[1],set);
-    } else {
-        if (set->type != OBJ_SET) {
-            unlockDb(c->db);
-            addReply(c,shared.wrongtypeerr);
-            return;
-        }
-    }
-
-    for (j = 2; j < c->argc; j++) {
-        c->argv[j] = tryObjectEncoding(c->argv[j]);
-        value = dupStringObject(c->argv[j]);
-        if (setTypeAdd(set,value)) added++;
-        decrRefCount(value);
-    }
-
     unlockDb(c->db);
-    server.dirty += added;
-    addReplyLongLong(c,added);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
-void sremCommand_original(client *c) {
+void sremCommand(client *c) {
     robj *set;
     int j, deleted = 0, keyremoved = 0;
-
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,set,OBJ_SET)) return;
+    int expired = 0;
+    
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.czero,&expired)) == NULL ||
+        checkType(c,set,OBJ_SET)) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
+        return;
+    }
 
     for (j = 2; j < c->argc; j++) {
         if (setTypeRemove(set,c->argv[j])) {
@@ -320,46 +305,17 @@ void sremCommand_original(client *c) {
         if (keyremoved)
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
                                 c->db->id);
-        server.dirty += deleted;
+        c->vel->dirty += deleted;
     }
     addReplyLongLong(c,deleted);
-}
-
-void sremCommand(client *c) {
-    robj *set;
-    int j, deleted = 0, keyremoved = 0;
-
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,set,OBJ_SET)) {
-        unlockDb(c->db);
-        return;
-    }
-    
-    for (j = 2; j < c->argc; j++) {
-        if (setTypeRemove(set,c->argv[j])) {
-            deleted++;
-            if (setTypeSize(set) == 0) {
-                dbDelete(c->db,c->argv[1]);
-                keyremoved = 1;
-                break;
-            }
-        }
-    }
-
     unlockDb(c->db);
-    
-    if (deleted) {
-        server.dirty += deleted;
-    }
-    addReplyLongLong(c,deleted);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
 void smoveCommand(client *c) {
     robj *srcset, *dstset, *ele;
-    srcset = lookupKeyWrite(c->db,c->argv[1]);
-    dstset = lookupKeyWrite(c->db,c->argv[2]);
+    srcset = lookupKeyWrite(c->db,c->argv[1],NULL);
+    dstset = lookupKeyWrite(c->db,c->argv[2],NULL);
     ele = c->argv[3] = tryObjectEncoding(c->argv[3]);
 
     /* If the source key does not exist return 0 */
@@ -409,19 +365,6 @@ void smoveCommand(client *c) {
     addReply(c,shared.cone);
 }
 
-void sismemberCommand_original(client *c) {
-    robj *set;
-
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,set,OBJ_SET)) return;
-
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
-    if (setTypeIsMember(set,c->argv[2]))
-        addReply(c,shared.cone);
-    else
-        addReply(c,shared.czero);
-}
-
 void sismemberCommand(client *c) {
     robj *set;
 
@@ -445,15 +388,6 @@ void sismemberCommand(client *c) {
 
     unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
-}
-
-void scardCommand_original(client *c) {
-    robj *o;
-
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_SET)) return;
-
-    addReplyLongLong(c,setTypeSize(o));
 }
 
 void scardCommand(client *c) {
@@ -495,7 +429,6 @@ void smembersGenericCommand(client *c, robj *set)
     setTypeReleaseIterator(si);
 }
 
-
 /* Handle the "SPOP key <count>" variant. The normal version of the
  * command is handled by the spopCommand() function itself. */
 
@@ -504,10 +437,11 @@ void smembersGenericCommand(client *c, robj *set)
  * implementation for more info. */
 #define SPOP_MOVE_STRATEGY_MUL 5
 
-void spopWithCountCommand_original(client *c) {
+void spopWithCountCommand(client *c) {
     long l;
     unsigned long count, size;
     robj *set;
+    int expired = 0;
 
     /* Get the count argument */
     if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != VR_OK) return;
@@ -518,14 +452,22 @@ void spopWithCountCommand_original(client *c) {
         return;
     }
 
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a set. Otherwise, return nil */
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk))
-        == NULL || checkType(c,set,OBJ_SET)) return;
+    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.emptymultibulk,&expired))
+        == NULL || checkType(c,set,OBJ_SET)) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
+        return;
+    }
 
     /* If count is zero, serve an empty multibulk ASAP to avoid special
      * cases later. */
     if (count == 0) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
         addReply(c,shared.emptymultibulk);
         return;
     }
@@ -534,23 +476,28 @@ void spopWithCountCommand_original(client *c) {
 
     /* Generate an SPOP keyspace notification */
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
-    server.dirty += count;
+    c->vel->dirty += count;
 
     /* CASE 1:
      * The number of requested elements is greater than or equal to
      * the number of elements inside the set: simply return the whole set. */
     if (count >= size) {
+        robj *aux;
+        
         /* We just return the entire set */
-        sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION);
+        smembersGenericCommand(c, set);
 
         /* Delete the set as it is now empty */
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
 
         /* Propagate this command as an DEL operation */
-        rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
+        aux = dupStringObjectUnconstant(c->argv[1]);
+        rewriteClientCommandVector(c,2,shared.del,aux);
         signalModifiedKey(c->db,c->argv[1]);
-        server.dirty++;
+        c->vel->dirty++;
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
         return;
     }
 
@@ -582,6 +529,7 @@ void spopWithCountCommand_original(client *c) {
                 objele = createStringObjectFromLongLong(llele);
             } else {
                 incrRefCount(objele);
+                objele = dupStringObjectUnconstant(objele);
             }
 
             /* Return the element to the client and remove from the set. */
@@ -592,7 +540,7 @@ void spopWithCountCommand_original(client *c) {
             propargv[2] = objele;
             alsoPropagate(server.sremCommand,c->db->id,propargv,3,
                 PROPAGATE_AOF|PROPAGATE_REPL);
-            decrRefCount(objele);
+            freeObject(objele);
         }
     } else {
     /* CASE 3: The number of elements to return is very big, approaching
@@ -608,211 +556,52 @@ void spopWithCountCommand_original(client *c) {
         /* Create a new set with just the remaining elements. */
         while(remaining--) {
             encoding = setTypeRandomElement(set,&objele,&llele);
-            if (encoding == OBJ_ENCODING_INTSET) {
+            if (encoding == OBJ_ENCODING_INTSET)
                 objele = createStringObjectFromLongLong(llele);
-            } else {
-                incrRefCount(objele);
-            }
+            
             if (!newset) newset = setTypeCreate(objele);
             setTypeAdd(newset,objele);
             setTypeRemove(set,objele);
-            decrRefCount(objele);
+            if (encoding == OBJ_ENCODING_INTSET)
+                freeObject(objele);
         }
 
-        /* Assign the new set as the key value. */
-        incrRefCount(set); /* Protect the old set value. */
-        dbOverwrite(c->db,c->argv[1],newset);
-
-        /* Tranfer the old set to the client and release it. */
+        /* Tranfer the old set to the client. */
         setTypeIterator *si;
         si = setTypeInitIterator(set);
         while((encoding = setTypeNext(si,&objele,&llele)) != -1) {
-            if (encoding == OBJ_ENCODING_INTSET) {
+            if (encoding == OBJ_ENCODING_INTSET)
                 objele = createStringObjectFromLongLong(llele);
-            } else {
-                incrRefCount(objele);
-            }
             addReplyBulk(c,objele);
 
             /* Replicate/AOF this command as an SREM operation */
             propargv[2] = objele;
             alsoPropagate(server.sremCommand,c->db->id,propargv,3,
                 PROPAGATE_AOF|PROPAGATE_REPL);
-
-            decrRefCount(objele);
+            if (encoding == OBJ_ENCODING_INTSET)
+                freeObject(objele);
         }
         setTypeReleaseIterator(si);
-        decrRefCount(set);
+
+        /* Assign the new set as the key value. */
+        dbOverwrite(c->db,c->argv[1],newset);
     }
 
     /* Don't propagate the command itself even if we incremented the
      * dirty counter. We don't want to propagate an SPOP command since
      * we propagated the command as a set of SREMs operations using
      * the alsoPropagate() API. */
-    decrRefCount(propargv[0]);
+    freeObject(propargv[0]);
     preventCommandPropagation(c);
-}
-
-void spopWithCountCommand(client *c) {
-    long l;
-    unsigned long count, size;
-    robj *set, *aux;
-
-    /* Get the count argument */
-    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != VR_OK) return;
-    if (l >= 0) {
-        count = (unsigned) l;
-    } else {
-        addReply(c,shared.outofrangeerr);
-        return;
-    }
-
-    /* If count is zero, serve an empty multibulk ASAP to avoid special
-     * cases later. */
-    if (count == 0) {
-        addReply(c,shared.emptymultibulk);
-        return;
-    }
-
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    /* Make sure a key with the name inputted exists, and that it's type is
-     * indeed a set. Otherwise, return nil */
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk))
-        == NULL || checkType(c,set,OBJ_SET)) {
-        unlockDb(c->db);
-        return;
-    }
-
-    size = setTypeSize(set);
-
-    server.dirty += count;
-
-    /* CASE 1:
-     * The number of requested elements is greater than or equal to
-     * the number of elements inside the set: simply return the whole set. */
-    if (count >= size) {
-        /* We just return the entire set */
-        smembersGenericCommand(c, set);
-
-        /* Delete the set as it is now empty */
-        dbDelete(c->db,c->argv[1]);
-
-        unlockDb(c->db);
-
-        /* Propagate this command as an DEL operation */
-        aux = dupStringObject(shared.del);
-        rewriteClientCommandVector(c,2,aux,c->argv[1]);
-        decrRefCount(aux);
-        server.dirty++;
-        return;
-    }
-
-    /* Case 2 and 3 require to replicate SPOP as a set of SERM commands.
-     * Prepare our replication argument vector. Also send the array length
-     * which is common to both the code paths. */
-    robj *propargv[3];
-    propargv[0] = createStringObject("SREM",4);
-    propargv[1] = c->argv[1];
-    addReplyMultiBulkLen(c,count);
-
-    /* Common iteration vars. */
-    robj *objele;
-    int encoding;
-    int64_t llele;
-    unsigned long remaining = size-count; /* Elements left after SPOP. */
-
-    /* If we are here, the number of requested elements is less than the
-     * number of elements inside the set. Also we are sure that count < size.
-     * Use two different strategies.
-     *
-     * CASE 2: The number of elements to return is small compared to the
-     * set size. We can just extract random elements and return them to
-     * the set. */
-    if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
-        while(count--) {
-            encoding = setTypeRandomElement(set,&objele,&llele);
-            if (encoding == OBJ_ENCODING_INTSET) {
-                objele = createStringObjectFromLongLong(llele);
-            } else {
-                incrRefCount(objele);
-            }
-
-            /* Return the element to the client and remove from the set. */
-            addReplyBulk(c,objele);
-            setTypeRemove(set,objele);
-
-            /* Replicate/AOF this command as an SREM operation */
-            propargv[2] = objele;
-            //alsoPropagate(server.sremCommand,c->db->id,propargv,3,
-            //    PROPAGATE_AOF|PROPAGATE_REPL);
-            decrRefCount(objele);
-        }
-    } else {
-    /* CASE 3: The number of elements to return is very big, approaching
-     * the size of the set itself. After some time extracting random elements
-     * from such a set becomes computationally expensive, so we use
-     * a different strategy, we extract random elements that we don't
-     * want to return (the elements that will remain part of the set),
-     * creating a new set as we do this (that will be stored as the original
-     * set). Then we return the elements left in the original set and
-     * release it. */
-        robj *newset = NULL;
-
-        /* Create a new set with just the remaining elements. */
-        while(remaining--) {
-            encoding = setTypeRandomElement(set,&objele,&llele);
-            if (encoding == OBJ_ENCODING_INTSET) {
-                objele = createStringObjectFromLongLong(llele);
-            } else {
-                incrRefCount(objele);
-            }
-            if (!newset) newset = setTypeCreate(objele);
-            setTypeAdd(newset,objele);
-            setTypeRemove(set,objele);
-            decrRefCount(objele);
-        }
-
-        /* Assign the new set as the key value. */
-        incrRefCount(set); /* Protect the old set value. */
-        dbOverwrite(c->db,c->argv[1],newset);
-
-        /* Tranfer the old set to the client and release it. */
-        setTypeIterator *si;
-        si = setTypeInitIterator(set);
-        while((encoding = setTypeNext(si,&objele,&llele)) != -1) {
-            if (encoding == OBJ_ENCODING_INTSET) {
-                objele = createStringObjectFromLongLong(llele);
-            } else {
-                incrRefCount(objele);
-            }
-            addReplyBulk(c,objele);
-
-            /* Replicate/AOF this command as an SREM operation */
-            propargv[2] = objele;
-            //alsoPropagate(server.sremCommand,c->db->id,propargv,3,
-            //    PROPAGATE_AOF|PROPAGATE_REPL);
-
-            decrRefCount(objele);
-        }
-        setTypeReleaseIterator(si);
-        decrRefCount(set);
-    }
-
     unlockDb(c->db);
-
-    /* Don't propagate the command itself even if we incremented the
-     * dirty counter. We don't want to propagate an SPOP command since
-     * we propagated the command as a set of SREMs operations using
-     * the alsoPropagate() API. */
-    decrRefCount(propargv[0]);
-    preventCommandPropagation(c);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
-void spopCommand_original(client *c) {
-    robj *set, *ele, *aux;
+void spopCommand(client *c) {
+    robj *set, *ele, *aux1, *aux2;
     int64_t llele;
     int encoding;
+    int expired = 0;
 
     if (c->argc == 3) {
         spopWithCountCommand(c);
@@ -822,11 +611,17 @@ void spopCommand_original(client *c) {
         return;
     }
 
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a set */
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,set,OBJ_SET)) return;
-
+    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk,&expired)) == NULL ||
+        checkType(c,set,OBJ_SET)) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
+        return;
+    }
+    
     /* Get a random element from the set */
     encoding = setTypeRandomElement(set,&ele,&llele);
 
@@ -835,17 +630,16 @@ void spopCommand_original(client *c) {
         ele = createStringObjectFromLongLong(llele);
         set->ptr = intsetRemove(set->ptr,llele,NULL);
     } else {
-        incrRefCount(ele);
+        ele = dupStringObjectUnconstant(ele);
         setTypeRemove(set,ele);
     }
 
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
 
     /* Replicate/AOF this command as an SREM operation */
-    aux = createStringObject("SREM",4);
-    rewriteClientCommandVector(c,3,aux,c->argv[1],ele);
-    decrRefCount(ele);
-    decrRefCount(aux);
+    aux1 = createStringObject("SREM",4);
+    aux2 = dupStringObjectUnconstant(c->argv[1]);
+    rewriteClientCommandVector(c,3,aux1,aux2,ele);
 
     /* Add the element to the reply */
     addReplyBulk(c,ele);
@@ -858,63 +652,9 @@ void spopCommand_original(client *c) {
 
     /* Set has been modified */
     signalModifiedKey(c->db,c->argv[1]);
-    server.dirty++;
-}
-
-void spopCommand(client *c) {
-    robj *set, *ele, *aux1, *aux2;
-    int64_t llele;
-    int encoding;
-
-    if (c->argc == 3) {
-        spopWithCountCommand(c);
-        return;
-    } else if (c->argc > 3) {
-        addReply(c,shared.syntaxerr);
-        return;
-    }
-
-    fetchInternalDbByKey(c, c->argv[1]);
-    lockDbWrite(c->db);
-    /* Make sure a key with the name inputted exists, and that it's type is
-     * indeed a set */
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,set,OBJ_SET)) {
-        unlockDb(c->db);
-        return;
-    }
-    
-    /* Get a random element from the set */
-    encoding = setTypeRandomElement(set,&ele,&llele);
-
-    /* Remove the element from the set */
-    if (encoding == OBJ_ENCODING_INTSET) {
-        aux2 = createStringObjectFromLongLong(llele);
-        set->ptr = intsetRemove(set->ptr,llele,NULL);
-    } else {
-        //incrRefCount(ele);
-        aux2 = dupStringObject(ele);
-        setTypeRemove(set,ele);
-    }
-
-    /* Replicate/AOF this command as an SREM operation */
-    aux1 = createStringObject("SREM",4);
-    rewriteClientCommandVector(c,3,aux1,c->argv[1],aux2);
-    decrRefCount(aux2);
-    decrRefCount(aux1);
-
-    /* Add the element to the reply */
-    addReplyBulk(c,aux2);
-
-    /* Delete the set if it's empty */
-    if (setTypeSize(set) == 0) {
-        dbDelete(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
-    }
-
+    c->vel->dirty++;
     unlockDb(c->db);
-    
-    server.dirty++;
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
 /* handle the "SRANDMEMBER key <count>" variant. The normal version of the
@@ -1099,7 +839,6 @@ void smembersCommand(client *c) {
     }
 
     smembersGenericCommand(c, set);
-
     unlockDb(c->db);
     update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
@@ -1128,7 +867,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
 
     for (j = 0; j < setnum; j++) {
         robj *setobj = dstkey ?
-            lookupKeyWrite(c->db,setkeys[j]) :
+            lookupKeyWrite(c->db,setkeys[j],NULL) :
             lookupKeyRead(c->db,setkeys[j]);
         if (!setobj) {
             vr_free(sets);
@@ -1270,7 +1009,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
     for (j = 0; j < setnum; j++) {
         robj *setobj = dstkey ?
-            lookupKeyWrite(c->db,setkeys[j]) :
+            lookupKeyWrite(c->db,setkeys[j],NULL) :
             lookupKeyRead(c->db,setkeys[j]);
         if (!setobj) {
             sets[j] = NULL;

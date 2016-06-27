@@ -17,6 +17,15 @@ int vr_replication_init(void)
     repl.repl_state = REPL_STATE_NONE;
     repl.repl_down_since = 0;
 
+    /* Replication partial resync backlog */
+    repl.repl_backlog = NULL;
+    repl.repl_backlog_size = CONFIG_DEFAULT_REPL_BACKLOG_SIZE;
+    repl.repl_backlog_histlen = 0;
+    repl.repl_backlog_idx = 0;
+    repl.repl_backlog_off = 0;
+    repl.repl_backlog_time_limit = CONFIG_DEFAULT_REPL_BACKLOG_TIME_LIMIT;
+    repl.repl_no_slaves_since = time(NULL);
+
     repl.slaves = listCreate();
 
     return VR_OK;
@@ -34,6 +43,11 @@ void vr_replication_deinit(void)
     if (repl.cached_master != NULL) {
         freeClient(repl.cached_master);
         repl.cached_master = NULL;
+    }
+
+    if (repl.repl_backlog != NULL) {
+        vr_free(repl.repl_backlog);
+        repl.repl_backlog = NULL;
     }
 
     if (repl.slaves != NULL) {
