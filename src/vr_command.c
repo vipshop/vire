@@ -143,7 +143,10 @@ struct redisCommand redisCommandTable[] = {
     {"zrevrangebyscore",zrevrangebyscoreCommand,-4,"r",0,NULL,1,1,1,0,0},
     {"zrank",zrankCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"zrevrank",zrevrankCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"zscore",zscoreCommand,3,"rF",0,NULL,1,1,1,0,0}
+    {"zscore",zscoreCommand,3,"rF",0,NULL,1,1,1,0,0},
+    {"zremrangebyscore",zremrangebyscoreCommand,4,"w",0,NULL,1,1,1,0,0},
+    {"zremrangebyrank",zremrangebyrankCommand,4,"w",0,NULL,1,1,1,0,0},
+    {"zremrangebylex",zremrangebylexCommand,4,"w",0,NULL,1,1,1,0,0}
 };
 
 /* Populates the Redis Command Table starting from the hard coded list

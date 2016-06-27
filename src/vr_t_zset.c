@@ -1452,6 +1452,7 @@ void zremrangeGenericCommand(client *c, int rangetype) {
     zrangespec range;
     zlexrangespec lexrange;
     long start, end, llen;
+    int expired = 0;
 
     /* Step 1: Parse the range. */
     if (rangetype == ZRANGE_RANK) {
@@ -1470,8 +1471,10 @@ void zremrangeGenericCommand(client *c, int rangetype) {
         }
     }
 
+    fetchInternalDbByKey(c, key);
+    lockDbWrite(c->db);
     /* Step 2: Lookup & range sanity checks if needed. */
-    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero,NULL)) == NULL ||
+    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero,&expired)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) goto cleanup;
 
     if (rangetype == ZRANGE_RANK) {
@@ -1537,11 +1540,13 @@ void zremrangeGenericCommand(client *c, int rangetype) {
         if (keyremoved)
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
     }
-    server.dirty += deleted;
+    c->vel->dirty += deleted;
     addReplyLongLong(c,deleted);
 
 cleanup:
     if (rangetype == ZRANGE_LEX) zslFreeLexRange(&lexrange);
+    unlockDb(c->db);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
 void zremrangebyrankCommand(client *c) {
