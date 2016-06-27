@@ -2275,9 +2275,18 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
         }
     }
 
+    fetchInternalDbByKey(c, key);
+    lockDbRead(c->db);
     /* Ok, lookup the key and get the range */
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) return;
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,zobj,OBJ_ZSET)) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
@@ -2296,6 +2305,8 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
 
         /* No "first" element in the specified interval. */
         if (eptr == NULL) {
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
             addReply(c, shared.emptymultibulk);
             return;
         }
@@ -2364,6 +2375,8 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
 
         /* No "first" element in the specified interval. */
         if (ln == NULL) {
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
             addReply(c, shared.emptymultibulk);
             return;
         }
@@ -2414,6 +2427,8 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
     }
 
     setDeferredMultiBulkLength(c, replylen, rangelen);
+    unlockDb(c->db);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void zrangebyscoreCommand(client *c) {

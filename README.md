@@ -141,6 +141,8 @@ A quick checklist:
 + zrem
 + zcard
 + zcount
++ zrangebyscore
++ zrevrangebyscore
 
 ## License
 
