@@ -12,6 +12,8 @@
 #define CONFIG_DEFAULT_MAXMEMORY_SAMPLES 5
 #define CONFIG_DEFAULT_MAX_CLIENTS 10000
 
+#define CONFIG_DEFAULT_MAX_REPLY_SIZE 0 /* Not limited */
+
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
 #define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* CPU max % for keys collection */
@@ -245,6 +247,8 @@ struct vr_server {
 
     /* System hardware info */
     size_t system_memory_size;  /* Total memory in system as reported by OS */
+
+    long long max_time_complexity_limit;
 };
 
 /* ZSETs use a specialized version of Skiplists */
@@ -318,6 +322,7 @@ struct sharedObjectsStruct {
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
     *bulkhdr[OBJ_SHARED_BULKHDR_LEN],  /* "$<value>\r\n" */
+    *outofcomplexitylimit,
     *sentinel;  /* NULL pointer */
 };
 

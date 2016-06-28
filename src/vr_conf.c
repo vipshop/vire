@@ -75,6 +75,9 @@ static conf_option conf_server_options[] = {
     { (char*)"maxmemory-samples",
       conf_set_number_non_zero,
       offsetof(conf_server, maxmemory_samples) },
+    { (char*)"max-time-complexity-limit",
+      conf_set_longlong,
+      offsetof(conf_server, max_time_complexity_limit) },
     { NULL, NULL, 0 }
 };
 
@@ -328,6 +331,31 @@ conf_set_num(void *obj, conf_option *opt, void *data)
 }
 
 int
+conf_set_longlong(void *obj, conf_option *opt, void *data)
+{
+    uint8_t *p;
+    conf_value *cv = data;
+    long long *gt;
+
+    if(cv->type != CONF_VALUE_STRING){
+        log_error("conf pool %s in the conf file error", 
+            opt->name);
+        return VR_ERROR;
+    }
+
+    p = obj;
+    gt = (long long*)(p + opt->offset);
+
+    if (!string2ll(cv->value, sdslen(cv->value), gt)) {
+        log_error("value of the key %s in conf file is invalid", 
+            opt->name);
+        return VR_ERROR;
+    }
+
+    return VR_OK;
+}
+
+int
 conf_set_bool(void *obj, conf_option *opt, void *data)
 {
     uint8_t *p;
@@ -453,6 +481,7 @@ static int conf_server_init(conf_server *cs)
     cs->maxmemory = CONF_UNSET_NUM;
     cs->maxmemory_policy = CONF_UNSET_NUM;
     cs->maxmemory_samples = CONF_UNSET_NUM;
+    cs->max_time_complexity_limit = CONF_UNSET_NUM;
 
     return VR_OK;
 }
@@ -468,6 +497,7 @@ static void conf_server_deinit(conf_server *cs)
     cs->maxmemory = CONF_UNSET_NUM;
     cs->maxmemory_policy = CONF_UNSET_NUM;
     cs->maxmemory_samples = CONF_UNSET_NUM;
+    cs->max_time_complexity_limit = CONF_UNSET_NUM;
 }
 
 static int conf_init(vr_conf *cf)
@@ -543,9 +573,12 @@ conf_server_dump(conf_server *cs, int log_level)
         return;
     }
 
+    log_debug(log_level, "  databases : %d", cs->databases);
+    log_debug(log_level, "  internal_dbs_per_databases : %d", cs->internal_dbs_per_databases);
     log_debug(log_level, "  maxmemory : %lld", cs->maxmemory);
     log_debug(log_level, "  maxmemory_policy : %d", cs->maxmemory_policy);    
     log_debug(log_level, "  maxmemory_samples : %d", cs->maxmemory_samples);
+    log_debug(log_level, "  max_time_complexity_limit : %lld", cs->max_time_complexity_limit);
 }
 
 static void

@@ -44,6 +44,7 @@ typedef struct conf_server {
     long long     maxmemory;
     int           maxmemory_policy;
     int           maxmemory_samples;
+    long long     max_time_complexity_limit;
 } conf_server;
 
 typedef struct vr_conf {
@@ -79,6 +80,7 @@ int conf_set_number_non_zero(void *obj, conf_option *opt, void *data);
 
 int conf_set_string(void *obj, conf_option *opt, void *data);
 int conf_set_num(void *obj, conf_option *opt, void *data);
+int conf_set_longlong(void *obj, conf_option *opt, void *data);
 int conf_set_bool(void *obj, conf_option *opt, void *data);
 
 #endif

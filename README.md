@@ -76,6 +76,7 @@ A quick checklist:
 + persist
 + randomkey
 + type
++ keys
 
 #### String
 

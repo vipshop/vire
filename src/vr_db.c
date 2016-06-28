@@ -282,7 +282,6 @@ void signalFlushedDb(int dbid) {
 
 void flushdbCommand(client *c) {
     int idx;
-    redisDb *db;
 
     for (idx = 0; idx < server.dbinum; idx ++) {
         fetchInternalDbById(c, idx);
@@ -402,24 +401,48 @@ void keysCommand(client *c) {
     sds pattern = c->argv[1]->ptr;
     int plen = sdslen(pattern), allkeys;
     unsigned long numkeys = 0;
-    void *replylen = addDeferredMultiBulkLength(c);
+    void *replylen;
+    int idx;
+    long long keys_count = 0;
+    unsigned long expired = 0;
 
-    di = dictGetSafeIterator(c->db->dict);
-    allkeys = (pattern[0] == '*' && pattern[1] == '\0');
-    while((de = dictNext(di)) != NULL) {
-        sds key = dictGetKey(de);
-        robj *keyobj;
-
-        if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
-            keyobj = createStringObject(key,sdslen(key));
-            if (expireIfNeeded(c->db,keyobj) == 0) {
-                addReplyBulk(c,keyobj);
-                numkeys++;
-            }
-            decrRefCount(keyobj);
-        }
+    for (idx = 0; idx < server.dbinum; idx ++) {
+        fetchInternalDbById(c, idx);
+        lockDbWrite(c->db);
+        keys_count += dictSize(c->db->dict);
+        unlockDb(c->db);
     }
-    dictReleaseIterator(di);
+
+    if (server.max_time_complexity_limit && 
+        keys_count > server.max_time_complexity_limit) {
+        addReply(c,shared.outofcomplexitylimit);
+        return;
+    }
+
+    replylen = addDeferredMultiBulkLength(c);
+    for (idx = 0; idx < server.dbinum; idx ++) {
+        fetchInternalDbById(c,idx);
+        lockDbWrite(c->db);
+        di = dictGetSafeIterator(c->db->dict);
+        allkeys = (pattern[0] == '*' && pattern[1] == '\0');
+        while((de = dictNext(di)) != NULL) {
+            sds key = dictGetKey(de);
+            robj *keyobj;
+
+            if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
+                keyobj = createStringObject(key,sdslen(key));
+                if (expireIfNeeded(c->db,keyobj) == 0) {
+                    addReplyBulk(c,keyobj);
+                    numkeys++;
+                } else {
+                    expired ++;
+                }
+                freeObject(keyobj);
+            }
+        }
+        dictReleaseIterator(di);
+        unlockDb(c->db);
+    }
     setDeferredMultiBulkLength(c,replylen,numkeys);
 }
 

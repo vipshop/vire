@@ -247,6 +247,9 @@ static void createSharedObjects(void) {
     shared.minstring = createStringObject("minstring",9);
     shared.maxstring = createStringObject("maxstring",9);
 
+    shared.outofcomplexitylimit = createObject(OBJ_STRING,sdsnew(
+        "-ERR Out of max time complexity limit.\r\n"));
+
     /* Set this objects to constant */
     for (obj = &shared; *obj != NULL; obj ++) {
         (*obj)->constant = 1;
@@ -343,6 +346,10 @@ init_server(struct instance *nci)
     server.hll_sparse_max_bytes = CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES;
 
     server.notify_keyspace_events = 0;
+
+    server.max_time_complexity_limit = 
+        conf->cserver.max_time_complexity_limit == CONF_UNSET_NUM ? 
+        CONFIG_DEFAULT_MAX_REPLY_SIZE : conf->cserver.max_time_complexity_limit;
 
     vr_replication_init();
     
