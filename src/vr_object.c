@@ -703,3 +703,48 @@ size_t getStringObjectSdsUsedMemory(robj *o) {
     }
 }
 
+/* This is a helper function for the OBJECT command. We need to lookup keys
+ * without any modification of LRU or other parameters. */
+robj *objectCommandLookup(client *c, robj *key) {
+    dictEntry *de;
+
+    if ((de = dictFind(c->db->dict,key->ptr)) == NULL) return NULL;
+    return (robj*) dictGetVal(de);
+}
+
+robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
+    robj *o = objectCommandLookup(c,key);
+
+    if (!o) addReply(c, reply);
+    return o;
+}
+
+/* Object command allows to inspect the internals of an Redis Object.
+ * Usage: OBJECT <refcount|encoding|idletime> <key> */
+void objectCommand(client *c) {
+    robj *o;
+
+    if (!strcasecmp(c->argv[1]->ptr,"encoding") && c->argc == 3) {
+        fetchInternalDbByKey(c,c->argv[2]);
+        lockDbRead(c->db);
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
+                == NULL) {
+            unlockDb(c->db);
+            return;
+        }
+        addReplyBulkCString(c,strEncoding(o->encoding));
+        unlockDb(c->db);
+    } else if (!strcasecmp(c->argv[1]->ptr,"idletime") && c->argc == 3) {
+        fetchInternalDbByKey(c,c->argv[2]);
+        lockDbRead(c->db);
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
+                == NULL) {
+            unlockDb(c->db);
+            return;
+        }
+        addReplyLongLong(c,estimateObjectIdleTime(o)/1000);
+        unlockDb(c->db);
+    } else {
+        addReplyError(c,"Syntax error. Try OBJECT (encoding|idletime)");
+    }
+}

@@ -86,6 +86,7 @@ struct redisCommand redisCommandTable[] = {
     {"type",typeCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"keys",keysCommand,2,"rS",0,NULL,0,0,0,0,0},
     {"scan",scanCommand,-2,"rR",0,NULL,0,0,0,0,0},
+    {"object",objectCommand,3,"r",0,NULL,2,2,2,0,0},
     /* String */
     {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0},

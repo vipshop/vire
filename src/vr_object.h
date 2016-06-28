@@ -88,4 +88,8 @@ unsigned long long estimateObjectIdleTime(robj *o);
 
 size_t getStringObjectSdsUsedMemory(robj *o);
 
+robj *objectCommandLookup(struct client *c, robj *key);
+robj *objectCommandLookupOrReply(struct client *c, robj *key, robj *reply);
+void objectCommand(struct client *c);
+
 #endif

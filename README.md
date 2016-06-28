@@ -78,6 +78,7 @@ A quick checklist:
 + type
 + keys
 + scan
++ object
 
 #### String
 
