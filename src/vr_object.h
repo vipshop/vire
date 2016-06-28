@@ -48,6 +48,7 @@ void decrRefCountVoid(void *o);
 void incrRefCount(robj *o);
 robj *resetRefCount(robj *obj);
 void freeObject(robj *o);
+void freeObjectVoid(void *o);
 void freeStringObject(robj *o);
 void freeListObject(robj *o);
 void freeSetObject(robj *o);

@@ -46,6 +46,7 @@ client *createClient(vr_eventloop *vel, struct conn *conn) {
     c->id = 0;
     c->conn = conn;
     c->vel = vel;
+    c->scanid = -1;
     c->name = NULL;
     c->bufpos = 0;
     c->querybuf = sdsempty();

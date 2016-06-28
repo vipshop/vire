@@ -20,6 +20,11 @@
 #define ACTIVE_EXPIRE_CYCLE_SLOW 0
 #define ACTIVE_EXPIRE_CYCLE_FAST 1
 
+#define SCAN_TYPE_KEY   0
+#define SCAN_TYPE_HASH  1
+#define SCAN_TYPE_SET   2
+#define SCAN_TYPE_ZSET  3
+
 /* Redis maxmemory strategies */
 #define CONFIG_DEFAULT_MAXMEMORY_POLICY MAXMEMORY_NO_EVICTION
 

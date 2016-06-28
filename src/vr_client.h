@@ -74,6 +74,7 @@ typedef struct client {
     
     redisDb *db;            /* Pointer to currently dispatch DB. */
     int dictid;             /* ID of the currently SELECTed DB. */
+    int scanid;             /* Internal ID of the currently DB for scan */
     robj *name;             /* As set by CLIENT SETNAME. */
     sds querybuf;           /* Buffer we use to accumulate client queries. */
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. */

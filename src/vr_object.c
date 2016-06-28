@@ -315,6 +315,10 @@ void freeObject(robj *o) {
     vr_free(o);
 }
 
+void freeObjectVoid(void *o) {
+    freeObject(o);
+}
+
 /* This function set the ref count to zero without freeing the object.
  * It is useful in order to pass a new object to functions incrementing
  * the ref count of the received object. Example:

@@ -77,6 +77,7 @@ A quick checklist:
 + randomkey
 + type
 + keys
++ scan
 
 #### String
 
@@ -110,6 +111,7 @@ A quick checklist:
 + hmset
 + hsetnx
 + hstrlen
++ hscan
 
 #### List
 
@@ -132,6 +134,7 @@ A quick checklist:
 + srem
 + spop
 + sismember
++ sscan
 
 #### SortedSet
 
@@ -150,6 +153,7 @@ A quick checklist:
 + zremrangebyscore
 + zremrangebyrank
 + zremrangebylex
++ zscan
 
 ## License
 

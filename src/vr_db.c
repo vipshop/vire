@@ -459,15 +459,15 @@ void scanCallback(void *privdata, const dictEntry *de) {
         key = createStringObject(sdskey, sdslen(sdskey));
     } else if (o->type == OBJ_SET) {
         key = dictGetKey(de);
-        incrRefCount(key);
+        key = dupStringObjectUnconstant(key);
     } else if (o->type == OBJ_HASH) {
         key = dictGetKey(de);
-        incrRefCount(key);
+        key = dupStringObjectUnconstant(key);
         val = dictGetVal(de);
-        incrRefCount(val);
+        val = dupStringObjectUnconstant(val);
     } else if (o->type == OBJ_ZSET) {
         key = dictGetKey(de);
-        incrRefCount(key);
+        key = dupStringObjectUnconstant(key);
         val = createStringObjectFromLongDouble(*(double*)dictGetVal(de),0);
     } else {
         serverPanic("Type not handled in SCAN callback.");
@@ -507,22 +507,20 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
  *
  * In the case of a Hash object the function returns both the field and value
  * of every element on the Hash. */
-void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
+void scanGenericCommand(client *c, int scantype) {
     int i, j;
     list *keys = listCreate();
     listNode *node, *nextnode;
     long count = 10;
     sds pat = NULL;
     int patlen = 0, use_pattern = 0;
+    unsigned long cursor;
+    robj *o;
     dict *ht;
 
-    /* Object must be NULL (to iterate keys names), or the type of the object
-     * must be Set, Sorted Set, or Hash. */
-    ASSERT(o == NULL || o->type == OBJ_SET || o->type == OBJ_HASH ||
-                o->type == OBJ_ZSET);
-
     /* Set i to the first option argument. The previous one is the cursor. */
-    i = (o == NULL) ? 2 : 3; /* Skip the key argument if needed. */
+    i = (scantype == SCAN_TYPE_KEY) ? 2 : 3; /* Skip the key argument if needed. */
+    if (parseScanCursorOrReply(c,c->argv[i-1],&cursor) == VR_ERROR) return;
 
     /* Step 1: Parse options. */
     while (i < c->argc) {
@@ -555,6 +553,56 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         }
     }
 
+    if (scantype == SCAN_TYPE_KEY) {
+        o = NULL;
+        if (c->scanid == -1 || cursor == 0) c->scanid = 0;
+        fetchInternalDbById(c, c->scanid);
+        lockDbRead(c->db);
+    } else if (scantype == SCAN_TYPE_HASH || 
+        scantype == SCAN_TYPE_SET ||
+        scantype == SCAN_TYPE_ZSET) {
+        fetchInternalDbByKey(c, c->argv[1]);
+        lockDbRead(c->db);
+        if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL) {
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats, keyspace_misses, 1);
+            return;
+        }
+    }
+
+    switch (scantype) {
+    case SCAN_TYPE_KEY:
+        ASSERT(o == NULL);
+        break;
+    case SCAN_TYPE_HASH:
+        if (checkType(c,o,OBJ_HASH)) {
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
+            return;
+        }
+        break;
+    case SCAN_TYPE_SET:
+        if (checkType(c,o,OBJ_SET)) {
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
+            return;
+        }
+        break;
+    case SCAN_TYPE_ZSET:
+        if (checkType(c,o,OBJ_ZSET)) {
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
+            return;
+        }
+        break;
+    }
+
+    /* Object must be NULL (to iterate keys names), or the type of the object
+     * must be Set, Sorted Set, or Hash. */
+    ASSERT(o == NULL || o->type == OBJ_SET || o->type == OBJ_HASH ||
+                o->type == OBJ_ZSET);
+
+scan_retry:
     /* Step 2: Iterate the collection.
      *
      * Note that if the object is encoded with a ziplist, intset, or any other
@@ -565,7 +613,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
     /* Handle the case of a hash table. */
     ht = NULL;
-    if (o == NULL) {
+    if (scantype == SCAN_TYPE_KEY) {
         ht = c->db->dict;
     } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
@@ -621,6 +669,24 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         serverPanic("Not handled encoding in SCAN.");
     }
 
+    unlockDb(c->db);
+    if (scantype == SCAN_TYPE_KEY) {
+        if (cursor == 0) {
+            if (c->scanid < (server.dbinum - 1)) {
+                c->scanid ++;
+                fetchInternalDbById(c, c->scanid);
+                lockDbRead(c->db);
+                goto scan_retry;
+            } else {
+                c->scanid = -1;
+            }
+        }
+    } else if (scantype == SCAN_TYPE_HASH || 
+        scantype == SCAN_TYPE_SET ||
+        scantype == SCAN_TYPE_ZSET) {
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+    }
+
     /* Step 3: Filter elements. */
     node = listFirst(keys);
     while (node) {
@@ -644,11 +710,11 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         }
 
         /* Filter element if it is an expired key. */
-        if (!filter && o == NULL && expireIfNeeded(c->db, kobj)) filter = 1;
+        if (!filter && o == NULL && checkIfExpired(c->db,kobj)) filter = 1;
 
         /* Remove the element and its associted value if needed. */
         if (filter) {
-            decrRefCount(kobj);
+            freeObject(kobj);
             listDelNode(keys, node);
         }
 
@@ -660,7 +726,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             nextnode = listNextNode(node);
             if (filter) {
                 kobj = listNodeValue(node);
-                decrRefCount(kobj);
+                freeObject(kobj);
                 listDelNode(keys, node);
             }
         }
@@ -675,20 +741,18 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     while ((node = listFirst(keys)) != NULL) {
         robj *kobj = listNodeValue(node);
         addReplyBulk(c, kobj);
-        decrRefCount(kobj);
+        freeObject(kobj);
         listDelNode(keys, node);
     }
 
 cleanup:
-    listSetFreeMethod(keys,decrRefCountVoid);
+    listSetFreeMethod(keys,freeObjectVoid);
     listRelease(keys);
 }
 
 /* The SCAN command completely relies on scanGenericCommand. */
 void scanCommand(client *c) {
-    unsigned long cursor;
-    if (parseScanCursorOrReply(c,c->argv[1],&cursor) == VR_ERROR) return;
-    scanGenericCommand(c,NULL,cursor);
+    scanGenericCommand(c,SCAN_TYPE_KEY);
 }
 
 void dbsizeCommand(client *c) {

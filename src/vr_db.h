@@ -66,7 +66,7 @@ void randomkeyCommand(struct client *c);
 void keysCommand(struct client *c);
 void scanCallback(void *privdata, const dictEntry *de);
 int parseScanCursorOrReply(struct client *c, robj *o, unsigned long *cursor);
-void scanGenericCommand(struct client *c, robj *o, unsigned long cursor);
+void scanGenericCommand(struct client *c, int scantype);
 void scanCommand(struct client *c);
 void dbsizeCommand(struct client *c);
 void lastsaveCommand(struct client *c);

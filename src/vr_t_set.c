@@ -1175,11 +1175,5 @@ void sdiffstoreCommand(client *c) {
 }
 
 void sscanCommand(client *c) {
-    robj *set;
-    unsigned long cursor;
-
-    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == VR_ERROR) return;
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
-        checkType(c,set,OBJ_SET)) return;
-    scanGenericCommand(c,set,cursor);
+    scanGenericCommand(c,SCAN_TYPE_SET);
 }
