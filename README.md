@@ -96,6 +96,7 @@ A quick checklist:
 + getset
 + incrbyfloat
 + setbit
++ getbit
 
 #### Hash
 
