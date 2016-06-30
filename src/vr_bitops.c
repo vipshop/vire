@@ -795,14 +795,22 @@ void bitposCommand(client *c) {
         return;
     }
 
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbRead(c->db);
     /* If the key does not exist, from our point of view it is an infinite
      * array of 0 bits. If the user is looking for the fist clear bit return 0,
      * If the user is looking for the first set bit, return -1. */
     if ((o = lookupKeyRead(c->db,c->argv[1])) == NULL) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
         addReplyLongLong(c, bit ? -1 : 0);
         return;
     }
-    if (checkType(c,o,OBJ_STRING)) return;
+    if (checkType(c,o,OBJ_STRING)) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
 
     /* Set the 'p' pointer to the string, that can be just a stack allocated
      * array if our string was integer encoded. */
@@ -816,11 +824,17 @@ void bitposCommand(client *c) {
 
     /* Parse start/end range if any. */
     if (c->argc == 4 || c->argc == 5) {
-        if (getLongFromObjectOrReply(c,c->argv[3],&start,NULL) != VR_OK)
+        if (getLongFromObjectOrReply(c,c->argv[3],&start,NULL) != VR_OK) {
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
             return;
+        }
         if (c->argc == 5) {
-            if (getLongFromObjectOrReply(c,c->argv[4],&end,NULL) != VR_OK)
+            if (getLongFromObjectOrReply(c,c->argv[4],&end,NULL) != VR_OK) {
+                unlockDb(c->db);
+                update_stats_add(c->vel->stats, keyspace_hits, 1);
                 return;
+            }
             end_given = 1;
         } else {
             end = strlen-1;
@@ -836,6 +850,8 @@ void bitposCommand(client *c) {
         start = 0;
         end = strlen-1;
     } else {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
         /* Syntax error. */
         addReply(c,shared.syntaxerr);
         return;
@@ -857,12 +873,16 @@ void bitposCommand(client *c) {
          * we return -1 to the caller, to mean, in the specified range there
          * is not a single "0" bit. */
         if (end_given && bit == 0 && pos == bytes*8) {
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
             addReplyLongLong(c,-1);
             return;
         }
         if (pos != -1) pos += start*8; /* Adjust for the bytes we skipped. */
         addReplyLongLong(c,pos);
     }
+    unlockDb(c->db);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 /* BITFIELD key subcommmand-1 arg ... subcommand-2 arg ... subcommand-N ...

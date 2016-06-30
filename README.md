@@ -100,6 +100,7 @@ A quick checklist:
 + setrange
 + getrange
 + bitcount
++ bitpos
 
 #### Hash
 
