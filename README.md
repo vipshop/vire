@@ -62,6 +62,7 @@ A quick checklist:
 + flushall
 + flushdb
 + time
++ dbsize
 
 #### Key
 

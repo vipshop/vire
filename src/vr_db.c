@@ -756,7 +756,17 @@ void scanCommand(client *c) {
 }
 
 void dbsizeCommand(client *c) {
-    addReplyLongLong(c,dictSize(c->db->dict));
+    int idx;
+    unsigned long count = 0;
+
+    for (idx = 0; idx < server.dbinum; idx ++) {
+        fetchInternalDbById(c, idx);
+        lockDbRead(c->db);
+        count += dictSize(c->db->dict);
+        unlockDb(c->db);
+    }
+    
+    addReplyLongLong(c,count);
 }
 
 void lastsaveCommand(client *c) {
