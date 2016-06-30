@@ -63,6 +63,7 @@ A quick checklist:
 + flushdb
 + time
 + dbsize
++ command
 
 #### Key
 

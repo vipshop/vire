@@ -101,4 +101,6 @@ void preventCommandPropagation(struct client *c);
 void preventCommandAOF(struct client *c);
 void preventCommandReplication(struct client *c);
 
+void commandCommand(struct client *c);
+
 #endif
