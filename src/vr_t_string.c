@@ -345,8 +345,12 @@ void mgetCommand(client *c) {
 
     addReplyMultiBulkLen(c,c->argc-1);
     for (j = 1; j < c->argc; j++) {
+        fetchInternalDbByKey(c,c->argv[j]);
+        lockDbRead(c->db);
         robj *o = lookupKeyRead(c->db,c->argv[j]);
         if (o == NULL) {
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats, keyspace_misses, 1);
             addReply(c,shared.nullbulk);
         } else {
             if (o->type != OBJ_STRING) {
@@ -354,6 +358,8 @@ void mgetCommand(client *c) {
             } else {
                 addReplyBulk(c,o);
             }
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
         }
     }
 }

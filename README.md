@@ -103,6 +103,7 @@ A quick checklist:
 + getrange
 + bitcount
 + bitpos
++ mget
 
 #### Hash
 
