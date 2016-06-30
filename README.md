@@ -104,6 +104,7 @@ A quick checklist:
 + bitcount
 + bitpos
 + mget
++ mset
 
 #### Hash
 
