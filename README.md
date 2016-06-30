@@ -164,6 +164,10 @@ A quick checklist:
 + zremrangebylex
 + zscan
 
+#### HyperLogLog
+
++ pfadd
+
 ## License
 
 Copyright 2016 DEEP, Inc.

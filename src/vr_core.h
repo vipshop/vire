@@ -148,6 +148,8 @@ struct redisCommand;
 
 #include <vr_bitops.h>
 
+#include <vr_hyperloglog.h>
+
 #include <vr_slowlog.h>
 
 struct instance {
