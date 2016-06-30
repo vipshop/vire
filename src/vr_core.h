@@ -90,8 +90,6 @@ struct redisCommand;
 #include <sys/resource.h>
 #include <netinet/in.h>
 
-
-
 #include <vr_util.h>
 #include <vr_signal.h>
 
@@ -147,6 +145,8 @@ struct redisCommand;
 #include <vr_t_set.h>
 #include <vr_t_string.h>
 #include <vr_t_zset.h>
+
+#include <vr_bitops.h>
 
 #include <vr_slowlog.h>
 

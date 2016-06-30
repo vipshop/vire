@@ -78,6 +78,7 @@ vire_SOURCES =							\
 	vr_worker.c vr_worker.h				\
 	vr_ziplist.c vr_ziplist.h			\
 	vr_zipmap.c vr_zipmap.h				\
+	vr_bitops.c vr_bitops.h				\
 	vr.c
 
 vire_LDADD = $(top_builddir)/src/ae/libae.a

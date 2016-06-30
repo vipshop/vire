@@ -95,6 +95,7 @@ A quick checklist:
 + strlen
 + getset
 + incrbyfloat
++ setbit
 
 #### Hash
 
