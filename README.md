@@ -97,6 +97,7 @@ A quick checklist:
 + incrbyfloat
 + setbit
 + getbit
++ setrange
 
 #### Hash
 

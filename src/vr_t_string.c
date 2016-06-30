@@ -217,6 +217,7 @@ void setrangeCommand(client *c) {
     robj *o;
     long offset;
     sds value = c->argv[3]->ptr;
+    int expired = 0;
 
     if (getLongFromObjectOrReply(c,c->argv[2],&offset,NULL) != VR_OK)
         return;
@@ -226,17 +227,24 @@ void setrangeCommand(client *c) {
         return;
     }
 
-    o = lookupKeyWrite(c->db,c->argv[1],NULL);
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbWrite(c->db);
+    o = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (o == NULL) {
         /* Return 0 when setting nothing on a non-existing string */
         if (sdslen(value) == 0) {
+            unlockDb(c->db);
+            if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
             addReply(c,shared.czero);
             return;
         }
 
         /* Return when the resulting string exceeds allowed size */
-        if (checkStringLength(c,offset+sdslen(value)) != VR_OK)
+        if (checkStringLength(c,offset+sdslen(value)) != VR_OK) {
+            unlockDb(c->db);
+            if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
             return;
+        }
 
         o = createObject(OBJ_STRING,sdsnewlen(NULL, offset+sdslen(value)));
         dbAdd(c->db,c->argv[1],o);
@@ -244,19 +252,27 @@ void setrangeCommand(client *c) {
         size_t olen;
 
         /* Key exists, check type */
-        if (checkType(c,o,OBJ_STRING))
+        if (checkType(c,o,OBJ_STRING)) {
+            unlockDb(c->db);
+            if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
             return;
+        }
 
         /* Return existing string length when setting nothing */
         olen = stringObjectLen(o);
         if (sdslen(value) == 0) {
+            unlockDb(c->db);
+            if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
             addReplyLongLong(c,olen);
             return;
         }
 
         /* Return when the resulting string exceeds allowed size */
-        if (checkStringLength(c,offset+sdslen(value)) != VR_OK)
+        if (checkStringLength(c,offset+sdslen(value)) != VR_OK) {
+            unlockDb(c->db);
+            if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
             return;
+        }
 
         /* Create a copy when the object is shared or encoded. */
         o = dbUnshareStringValue(c->db,c->argv[1],o);
@@ -268,9 +284,11 @@ void setrangeCommand(client *c) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,
             "setrange",c->argv[1],c->db->id);
-        server.dirty++;
+        c->vel->dirty++;
     }
     addReplyLongLong(c,sdslen(o->ptr));
+    unlockDb(c->db);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
 void getrangeCommand(client *c) {
