@@ -712,9 +712,18 @@ void bitcountCommand(client *c) {
     unsigned char *p;
     char llbuf[32];
 
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbRead(c->db);
     /* Lookup, check for type, and return 0 for non existing keys. */
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_STRING)) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,o,OBJ_STRING)) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
 
     /* Set the 'p' pointer to the string, that can be just a stack allocated
      * array if our string was integer encoded. */
@@ -728,10 +737,16 @@ void bitcountCommand(client *c) {
 
     /* Parse start/end range if any. */
     if (c->argc == 4) {
-        if (getLongFromObjectOrReply(c,c->argv[2],&start,NULL) != VR_OK)
+        if (getLongFromObjectOrReply(c,c->argv[2],&start,NULL) != VR_OK) {
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
             return;
-        if (getLongFromObjectOrReply(c,c->argv[3],&end,NULL) != VR_OK)
+        }
+        if (getLongFromObjectOrReply(c,c->argv[3],&end,NULL) != VR_OK) {
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
             return;
+        }
         /* Convert negative indexes */
         if (start < 0) start = strlen+start;
         if (end < 0) end = strlen+end;
@@ -743,6 +758,8 @@ void bitcountCommand(client *c) {
         start = 0;
         end = strlen-1;
     } else {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
         /* Syntax error. */
         addReply(c,shared.syntaxerr);
         return;
@@ -757,6 +774,8 @@ void bitcountCommand(client *c) {
 
         addReplyLongLong(c,redisPopcount(p+start,bytes));
     }
+    unlockDb(c->db);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 /* BITPOS key bit [start [end]] */

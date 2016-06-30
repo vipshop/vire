@@ -99,6 +99,7 @@ A quick checklist:
 + getbit
 + setrange
 + getrange
++ bitcount
 
 #### Hash
 
