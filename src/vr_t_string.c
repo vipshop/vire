@@ -301,8 +301,18 @@ void getrangeCommand(client *c) {
         return;
     if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != VR_OK)
         return;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptybulk)) == NULL ||
-        checkType(c,o,OBJ_STRING)) return;
+
+    fetchInternalDbByKey(c, c->argv[1]);
+    lockDbRead(c->db);
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptybulk)) == NULL) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_misses, 1);
+        return;
+    } else if (checkType(c,o,OBJ_STRING)) {
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats, keyspace_hits, 1);
+        return;
+    }
 
     if (o->encoding == OBJ_ENCODING_INT) {
         str = llbuf;
@@ -326,6 +336,8 @@ void getrangeCommand(client *c) {
     } else {
         addReplyBulkCBuffer(c,(char*)str+start,end-start+1);
     }
+    unlockDb(c->db);
+    update_stats_add(c->vel->stats, keyspace_hits, 1);
 }
 
 void mgetCommand(client *c) {
