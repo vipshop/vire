@@ -150,6 +150,8 @@ A quick checklist:
 + sunionstore
 + sdiff
 + sdiffstore
++ sinter
++ sinterstore
 
 #### SortedSet
 

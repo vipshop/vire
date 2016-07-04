@@ -858,25 +858,30 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
 
 void sinterGenericCommand(client *c, robj **setkeys,
                           unsigned long setnum, robj *dstkey) {
-    robj **sets = vr_alloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *eleobj, *dstset = NULL;
     int64_t intobj;
-    void *replylen = NULL;
     unsigned long j, cardinality = 0;
     int encoding;
+    robj *setobj, *min_len_set;
+    unsigned long min_len = -1;
+    unsigned long min_len_idx = 0;
 
     for (j = 0; j < setnum; j++) {
-        robj *setobj = dstkey ?
-            lookupKeyWrite(c->db,setkeys[j],NULL) :
-            lookupKeyRead(c->db,setkeys[j]);
+        fetchInternalDbByKey(c,setkeys[j]);
+        lockDbRead(c->db);
+        setobj = lookupKeyRead(c->db,setkeys[j]);
         if (!setobj) {
-            vr_free(sets);
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats,keyspace_misses,1);
             if (dstkey) {
+                fetchInternalDbByKey(c,dstkey);
+                lockDbWrite(c->db);
                 if (dbDelete(c->db,dstkey)) {
                     signalModifiedKey(c->db,dstkey);
-                    server.dirty++;
+                    c->vel->dirty++;
                 }
+                unlockDb(c->db);
                 addReply(c,shared.czero);
             } else {
                 addReply(c,shared.emptymultibulk);
@@ -884,112 +889,160 @@ void sinterGenericCommand(client *c, robj **setkeys,
             return;
         }
         if (checkType(c,setobj,OBJ_SET)) {
-            vr_free(sets);
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats,keyspace_hits,1);
             return;
         }
-        sets[j] = setobj;
-    }
-    /* Sort sets from the smallest to largest, this will improve our
-     * algorithm's performance */
-    qsort(sets,setnum,sizeof(robj*),qsortCompareSetsByCardinality);
 
-    /* The first thing we should output is the total number of elements...
-     * since this is a multi-bulk write, but at this stage we don't know
-     * the intersection set size, so we use a trick, append an empty object
-     * to the output list and save the pointer to later modify it with the
-     * right length */
-    if (!dstkey) {
-        replylen = addDeferredMultiBulkLength(c);
-    } else {
-        /* If we have a target key where to store the resulting set
-         * create this key with an empty set inside */
-        dstset = createIntsetObject();
+        if (min_len == -1 || setTypeSize(setobj) < min_len) {
+            min_len = setTypeSize(setobj);
+            min_len_idx = j;
+        }
+
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats,keyspace_hits,1);
     }
+
+    min_len_set = createIntsetObject();
+    fetchInternalDbByKey(c,setkeys[min_len_idx]);
+    lockDbRead(c->db);
+    setobj = lookupKeyRead(c->db,setkeys[min_len_idx]);
+    if (!setobj) {
+        unlockDb(c->db);
+        freeObject(min_len_set);
+        goto done;
+    }
+    if (checkType(c,setobj,OBJ_SET)) {
+        unlockDb(c->db);
+        freeObject(min_len_set);
+        return;
+    }
+    si = setTypeInitIterator(setobj);
+    while((eleobj = setTypeNextObject(si)) != NULL) {
+        setTypeAdd(min_len_set,eleobj);
+        if (si->encoding == OBJ_ENCODING_INTSET) 
+            freeObject(eleobj); /* free this object for intset type */
+    }
+    setTypeReleaseIterator(si);
+    unlockDb(c->db);
+
+    dstset = createIntsetObject();
 
     /* Iterate all the elements of the first (smallest) set, and test
      * the element against all the other sets, if at least one set does
      * not include the element it is discarded */
-    si = setTypeInitIterator(sets[0]);
+    si = setTypeInitIterator(min_len_set);
     while((encoding = setTypeNext(si,&eleobj,&intobj)) != -1) {
-        for (j = 1; j < setnum; j++) {
-            if (sets[j] == sets[0]) continue;
+        for (j = 0; j < setnum; j++) {
+            if (j == min_len_idx) continue;
+            fetchInternalDbByKey(c,setkeys[j]);
+            lockDbRead(c->db);
+            setobj = lookupKeyRead(c->db,setkeys[j]);
+            if (!setobj) {
+                unlockDb(c->db);
+                freeObject(min_len_set);
+                if (dstset) freeObject(dstset);
+                setTypeReleaseIterator(si);
+                goto done;
+            }
+            if (checkType(c,setobj,OBJ_SET)) {
+                unlockDb(c->db);
+                freeObject(min_len_set);
+                if (dstset) freeObject(dstset);
+                setTypeReleaseIterator(si);
+                return;
+            }
+            
             if (encoding == OBJ_ENCODING_INTSET) {
                 /* intset with intset is simple... and fast */
-                if (sets[j]->encoding == OBJ_ENCODING_INTSET &&
-                    !intsetFind((intset*)sets[j]->ptr,intobj))
+                if (setobj->encoding == OBJ_ENCODING_INTSET &&
+                    !intsetFind((intset*)setobj->ptr,intobj))
                 {
+                    unlockDb(c->db);
                     break;
                 /* in order to compare an integer with an object we
                  * have to use the generic function, creating an object
                  * for this */
-                } else if (sets[j]->encoding == OBJ_ENCODING_HT) {
+                } else if (setobj->encoding == OBJ_ENCODING_HT) {
                     eleobj = createStringObjectFromLongLong(intobj);
-                    if (!setTypeIsMember(sets[j],eleobj)) {
-                        decrRefCount(eleobj);
+                    if (!setTypeIsMember(setobj,eleobj)) {
+                        unlockDb(c->db);
+                        freeObject(eleobj);
                         break;
                     }
-                    decrRefCount(eleobj);
+                    freeObject(eleobj);
                 }
             } else if (encoding == OBJ_ENCODING_HT) {
                 /* Optimization... if the source object is integer
                  * encoded AND the target set is an intset, we can get
                  * a much faster path. */
                 if (eleobj->encoding == OBJ_ENCODING_INT &&
-                    sets[j]->encoding == OBJ_ENCODING_INTSET &&
-                    !intsetFind((intset*)sets[j]->ptr,(long)eleobj->ptr))
+                    setobj->encoding == OBJ_ENCODING_INTSET &&
+                    !intsetFind((intset*)setobj->ptr,(long)eleobj->ptr))
                 {
+                    unlockDb(c->db);
                     break;
                 /* else... object to object check is easy as we use the
                  * type agnostic API here. */
-                } else if (!setTypeIsMember(sets[j],eleobj)) {
+                } else if (!setTypeIsMember(setobj,eleobj)) {
+                    unlockDb(c->db);
                     break;
                 }
             }
+            unlockDb(c->db);
         }
 
         /* Only take action when all sets contain the member */
         if (j == setnum) {
-            if (!dstkey) {
-                if (encoding == OBJ_ENCODING_HT)
-                    addReplyBulk(c,eleobj);
-                else
-                    addReplyBulkLongLong(c,intobj);
-                cardinality++;
+            if (encoding == OBJ_ENCODING_INTSET) {
+                eleobj = createStringObjectFromLongLong(intobj);
+                setTypeAdd(dstset,eleobj);
+                freeObject(eleobj);
             } else {
-                if (encoding == OBJ_ENCODING_INTSET) {
-                    eleobj = createStringObjectFromLongLong(intobj);
-                    setTypeAdd(dstset,eleobj);
-                    decrRefCount(eleobj);
-                } else {
-                    setTypeAdd(dstset,eleobj);
-                }
+                setTypeAdd(dstset,eleobj);
             }
+            cardinality ++;
         }
     }
     setTypeReleaseIterator(si);
+    freeObject(min_len_set);
 
+done:
     if (dstkey) {
+        fetchInternalDbByKey(c,dstkey);
+        lockDbWrite(c->db);
         /* Store the resulting set into the target, if the intersection
-         * is not an empty set. */
+            * is not an empty set. */
         int deleted = dbDelete(c->db,dstkey);
-        if (setTypeSize(dstset) > 0) {
+        if (dstset && setTypeSize(dstset) > 0) {
             dbAdd(c->db,dstkey,dstset);
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(NOTIFY_SET,"sinterstore",
                 dstkey,c->db->id);
         } else {
-            decrRefCount(dstset);
+            if (dstset) freeObject(dstset);
             addReply(c,shared.czero);
             if (deleted)
                 notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
                     dstkey,c->db->id);
         }
         signalModifiedKey(c->db,dstkey);
-        server.dirty++;
+        unlockDb(c->db);
+        c->vel->dirty++;
     } else {
-        setDeferredMultiBulkLength(c,replylen,cardinality);
+        addReplyMultiBulkLen(c,cardinality);
+        if (dstset && setTypeSize(dstset) > 0) {
+            si = setTypeInitIterator(dstset);
+            while((eleobj = setTypeNextObject(si)) != NULL) {
+                addReplyBulk(c,eleobj);
+                if (si->encoding == OBJ_ENCODING_INTSET) 
+                    freeObject(eleobj); /* free this object for intset type */
+            }
+            setTypeReleaseIterator(si);
+            freeObject(dstset);
+        }
+        if (dstset) freeObject(dstset);
     }
-    vr_free(sets);
 }
 
 void sinterCommand(client *c) {
