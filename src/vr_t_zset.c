@@ -1865,6 +1865,10 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
+#define SET_OP_UNION 0
+#define SET_OP_DIFF 1
+#define SET_OP_INTER 2
+
 void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     int i, j;
     long setnum;

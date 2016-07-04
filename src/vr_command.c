@@ -146,6 +146,10 @@ struct redisCommand redisCommandTable[] = {
     {"spop",spopCommand,-2,"wRsF",0,NULL,1,1,1,0,0},
     {"sismember",sismemberCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"sscan",sscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
+    {"sunion",sunionCommand,-2,"rS",0,NULL,1,-1,1,0,0},
+    {"sunionstore",sunionstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
+    {"sdiff",sdiffCommand,-2,"rS",0,NULL,1,-1,1,0,0},
+    {"sdiffstore",sdiffstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
     /* SortedSet */
     {"zadd",zaddCommand,-4,"wmF",0,NULL,1,1,1,0,0},
     {"zincrby",zincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0},

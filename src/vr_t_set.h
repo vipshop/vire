@@ -1,10 +1,6 @@
 #ifndef _VR_T_SET_H_
 #define _VR_T_SET_H_
 
-#define SET_OP_UNION 0
-#define SET_OP_DIFF 1
-#define SET_OP_INTER 2
-
 robj *setTypeCreate(robj *value);
 int setTypeAdd(robj *subject, robj *value);
 int setTypeRemove(robj *setobj, robj *value);

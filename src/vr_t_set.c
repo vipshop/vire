@@ -143,8 +143,9 @@ int setTypeNext(setTypeIterator *si, robj **objele, int64_t *llele) {
 
 /* The not copy on write friendly version but easy to use version
  * of setTypeNext() is setTypeNextObject(), returning new objects
- * or incrementing the ref count of returned objects. So if you don't
- * retain a pointer to this object you should call decrRefCount() against it.
+ * or the returned objects. So if you don't
+ * retain a pointer to this object you should call freeObject() against 
+ * it if  si->encoding == OBJ_ENCODING_INTSET.
  *
  * This function is the way to go for write operations where COW is not
  * an issue as the result will be anyway of incrementing the ref count. */
@@ -159,7 +160,6 @@ robj *setTypeNextObject(setTypeIterator *si) {
         case OBJ_ENCODING_INTSET:
             return createStringObjectFromLongLong(intele);
         case OBJ_ENCODING_HT:
-            incrRefCount(objele);
             return objele;
         default:
             serverPanic("Unsupported encoding");
@@ -716,7 +716,8 @@ void srandmemberWithCountCommand(client *c) {
      * The number of requested elements is greater than the number of
      * elements inside the set: simply return the whole set. */
     if (count >= size) {
-        sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION);
+        //sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION);
+        smembersGenericCommand(c, set);
         return;
     }
 
@@ -999,27 +1000,43 @@ void sinterstoreCommand(client *c) {
     sinterGenericCommand(c,c->argv+2,c->argc-2,c->argv[1]);
 }
 
+#define SET_OP_UNION 0
+#define SET_OP_DIFF 1
+#define SET_OP_INTER 2
+
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op) {
-    robj **sets = vr_alloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *ele, *dstset = NULL;
     int j, cardinality = 0;
     int diff_algo = 1;
+    robj *setobj;
+    long long algo_one_work = 0, algo_two_work = 0;
+    long long first_length = 0;
 
     for (j = 0; j < setnum; j++) {
-        robj *setobj = dstkey ?
-            lookupKeyWrite(c->db,setkeys[j],NULL) :
-            lookupKeyRead(c->db,setkeys[j]);
+        fetchInternalDbByKey(c,setkeys[j]);
+        lockDbRead(c->db);
+        setobj = lookupKeyRead(c->db,setkeys[j]);
         if (!setobj) {
-            sets[j] = NULL;
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats,keyspace_misses,1);
             continue;
         }
         if (checkType(c,setobj,OBJ_SET)) {
-            vr_free(sets);
+            unlockDb(c->db);
+            update_stats_add(c->vel->stats,keyspace_hits,1);
             return;
         }
-        sets[j] = setobj;
+        
+        if (op == SET_OP_DIFF) {
+            if (j == 0) first_length = setTypeSize(setobj);
+            algo_one_work += first_length;
+            algo_two_work += setTypeSize(setobj);
+        }
+
+        unlockDb(c->db);
+        update_stats_add(c->vel->stats,keyspace_hits,1);
     }
 
     /* Select what DIFF algorithm to use.
@@ -1031,28 +1048,11 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
      * the sets.
      *
      * We compute what is the best bet with the current input here. */
-    if (op == SET_OP_DIFF && sets[0]) {
-        long long algo_one_work = 0, algo_two_work = 0;
-
-        for (j = 0; j < setnum; j++) {
-            if (sets[j] == NULL) continue;
-
-            algo_one_work += setTypeSize(sets[0]);
-            algo_two_work += setTypeSize(sets[j]);
-        }
-
+    if (op == SET_OP_DIFF) {
         /* Algorithm 1 has better constant times and performs less operations
          * if there are elements in common. Give it some advantage. */
         algo_one_work /= 2;
         diff_algo = (algo_one_work <= algo_two_work) ? 1 : 2;
-
-        if (diff_algo == 1 && setnum > 1) {
-            /* With algorithm 1 it is better to order the sets to subtract
-             * by decreasing size, so that we are more likely to find
-             * duplicated elements ASAP. */
-            qsort(sets+1,setnum-1,sizeof(robj*),
-                qsortCompareSetsByRevCardinality);
-        }
     }
 
     /* We need a temp set object to store our union. If the dstkey
@@ -1064,16 +1064,30 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         /* Union is trivial, just add every element of every set to the
          * temporary set. */
         for (j = 0; j < setnum; j++) {
-            if (!sets[j]) continue; /* non existing keys are like empty sets */
+            fetchInternalDbByKey(c,setkeys[j]);
+            lockDbRead(c->db);
+            setobj = lookupKeyRead(c->db,setkeys[j]);
 
-            si = setTypeInitIterator(sets[j]);
+            if (!setobj) {
+                unlockDb(c->db);
+                continue;
+            }
+            if (checkType(c,setobj,OBJ_SET)) {
+                unlockDb(c->db);
+                freeObject(dstset);
+                return;
+            }
+
+            si = setTypeInitIterator(setobj);
             while((ele = setTypeNextObject(si)) != NULL) {
                 if (setTypeAdd(dstset,ele)) cardinality++;
-                decrRefCount(ele);
+                if (si->encoding == OBJ_ENCODING_INTSET)
+                    freeObject(ele); /* free this object for intset type */
             }
             setTypeReleaseIterator(si);
+            unlockDb(c->db);
         }
-    } else if (op == SET_OP_DIFF && sets[0] && diff_algo == 1) {
+    } else if (op == SET_OP_DIFF && diff_algo == 1) {
         /* DIFF Algorithm 1:
          *
          * We perform the diff by iterating all the elements of the first set,
@@ -1082,60 +1096,133 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
          *
          * This way we perform at max N*M operations, where N is the size of
          * the first set, and M the number of sets. */
-        si = setTypeInitIterator(sets[0]);
+        robj *first_set;
+        
+        first_set = createIntsetObject();
+        fetchInternalDbByKey(c,setkeys[0]);
+        lockDbRead(c->db);
+        setobj = lookupKeyRead(c->db,setkeys[0]);
+        if (!setobj) {
+            unlockDb(c->db);
+            freeObject(first_set);
+            goto done;
+        }
+        if (checkType(c,setobj,OBJ_SET)) {
+            unlockDb(c->db);
+            freeObject(dstset);
+            freeObject(first_set);
+            return;
+        }
+        si = setTypeInitIterator(setobj);
+        while((ele = setTypeNextObject(si)) != NULL) {
+            setTypeAdd(first_set,ele);
+            if (si->encoding == OBJ_ENCODING_INTSET) 
+                freeObject(ele); /* free this object for intset type */
+        }
+        setTypeReleaseIterator(si);
+        unlockDb(c->db);
+
+        si = setTypeInitIterator(first_set);
         while((ele = setTypeNextObject(si)) != NULL) {
             for (j = 1; j < setnum; j++) {
-                if (!sets[j]) continue; /* no key is an empty set. */
-                if (sets[j] == sets[0]) break; /* same set! */
-                if (setTypeIsMember(sets[j],ele)) break;
+                fetchInternalDbByKey(c,setkeys[j]);
+                lockDbRead(c->db);
+                setobj = lookupKeyRead(c->db,setkeys[j]);
+                if (!setobj) {
+                    unlockDb(c->db);
+                    continue;
+                }
+                if (checkType(c,setobj,OBJ_SET)) {
+                    unlockDb(c->db);
+                    freeObject(dstset);
+                    freeObject(first_set);
+                    if (si->encoding == OBJ_ENCODING_INTSET) 
+                        freeObject(ele); /* free this object for intset type */
+                    setTypeReleaseIterator(si);
+                    return;
+                }
+                if (setTypeIsMember(setobj,ele)) {
+                    unlockDb(c->db);
+                    break;
+                }
+                unlockDb(c->db);
             }
+
             if (j == setnum) {
                 /* There is no other set with this element. Add it. */
                 setTypeAdd(dstset,ele);
                 cardinality++;
             }
-            decrRefCount(ele);
+
+            if (si->encoding == OBJ_ENCODING_INTSET) 
+                freeObject(ele); /* free this object for intset type */
         }
         setTypeReleaseIterator(si);
-    } else if (op == SET_OP_DIFF && sets[0] && diff_algo == 2) {
+        freeObject(first_set);
+    } else if (op == SET_OP_DIFF && diff_algo == 2) {
         /* DIFF Algorithm 2:
-         *
-         * Add all the elements of the first set to the auxiliary set.
-         * Then remove all the elements of all the next sets from it.
-         *
-         * This is O(N) where N is the sum of all the elements in every
-         * set. */
+            *
+            * Add all the elements of the first set to the auxiliary set.
+            * Then remove all the elements of all the next sets from it.
+            *
+            * This is O(N) where N is the sum of all the elements in every
+            * set. */
         for (j = 0; j < setnum; j++) {
-            if (!sets[j]) continue; /* non existing keys are like empty sets */
+            fetchInternalDbByKey(c,setkeys[0]);
+            lockDbRead(c->db);
+            setobj = lookupKeyRead(c->db,setkeys[0]);
+            if (!setobj) {
+                if (j == 0) {
+                    unlockDb(c->db);
+                    goto done;
+                }
+                
+                unlockDb(c->db);
+                continue; /* non existing keys are like empty sets */
+            }
+            if (checkType(c,setobj,OBJ_SET)) {
+                unlockDb(c->db);
+                freeObject(dstset);
+                return;
+            }
 
-            si = setTypeInitIterator(sets[j]);
+            si = setTypeInitIterator(setobj);
             while((ele = setTypeNextObject(si)) != NULL) {
                 if (j == 0) {
                     if (setTypeAdd(dstset,ele)) cardinality++;
                 } else {
                     if (setTypeRemove(dstset,ele)) cardinality--;
                 }
-                decrRefCount(ele);
+                if (si->encoding == OBJ_ENCODING_INTSET) 
+                    freeObject(ele); /* free this object for intset type */
             }
             setTypeReleaseIterator(si);
 
             /* Exit if result set is empty as any additional removal
-             * of elements will have no effect. */
-            if (cardinality == 0) break;
+                    * of elements will have no effect. */
+            if (cardinality == 0) {
+                unlockDb(c->db);
+                break;
+            }
+            unlockDb(c->db);
         }
     }
 
+done:
     /* Output the content of the resulting set, if not in STORE mode */
     if (!dstkey) {
         addReplyMultiBulkLen(c,cardinality);
         si = setTypeInitIterator(dstset);
         while((ele = setTypeNextObject(si)) != NULL) {
             addReplyBulk(c,ele);
-            decrRefCount(ele);
+            if (si->encoding == OBJ_ENCODING_INTSET) 
+                freeObject(ele); /* free this object for intset type */
         }
         setTypeReleaseIterator(si);
-        decrRefCount(dstset);
+        freeObject(dstset);
     } else {
+        fetchInternalDbByKey(c,dstkey);
+        lockDbWrite(c->db);
         /* If we have a target key where to store the resulting set
          * create this key with the result set inside */
         int deleted = dbDelete(c->db,dstkey);
@@ -1146,16 +1233,16 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                 op == SET_OP_UNION ? "sunionstore" : "sdiffstore",
                 dstkey,c->db->id);
         } else {
-            decrRefCount(dstset);
+            freeObject(dstset);
             addReply(c,shared.czero);
             if (deleted)
                 notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
                     dstkey,c->db->id);
         }
+        unlockDb(c->db);
         signalModifiedKey(c->db,dstkey);
-        server.dirty++;
+        c->vel->dirty++;
     }
-    vr_free(sets);
 }
 
 void sunionCommand(client *c) {

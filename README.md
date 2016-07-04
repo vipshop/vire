@@ -146,6 +146,10 @@ A quick checklist:
 + spop
 + sismember
 + sscan
++ sunion
++ sunionstore
++ sdiff
++ sdiffstore
 
 #### SortedSet
 
