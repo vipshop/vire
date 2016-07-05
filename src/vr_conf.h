@@ -4,6 +4,27 @@
 #define CONFIG_RUN_ID_SIZE 40
 #define CONFIG_DEFAULT_ACTIVE_REHASHING 1
 
+#define CONFIG_DEFAULT_LOGICAL_DBNUM    6
+#define CONFIG_DEFAULT_INTERNAL_DBNUM   6
+
+#define CONFIG_DEFAULT_MAXMEMORY 0
+#define CONFIG_DEFAULT_MAXMEMORY_SAMPLES 5
+#define CONFIG_DEFAULT_MAX_CLIENTS 10000
+
+#define CONFIG_DEFAULT_MAX_CLIENTS 10000
+
+#define CONFIG_DEFAULT_THREADS_NUM (sysconf(_SC_NPROCESSORS_ONLN)>6?6:sysconf(_SC_NPROCESSORS_ONLN))
+
+#define CONFIG_DEFAULT_HOST "127.0.0.1"
+
+#define CONFIG_DEFAULT_SERVER_PORT 55555
+
+#define CONFIG_DEFAULT_DATA_DIR "viredata"
+
+#define CONFIG_DEFAULT_MAX_TIME_COMPLEXITY_LIMIT 0 /* Not limited */
+
+#define CONFIG_BINDADDR_MAX 16
+
 #define CONF_UNSET_NUM      -1
 #define CONF_UNSET_PTR      NULL
 #define CONF_UNSET_GROUP    (group_type_t) -1
@@ -11,8 +32,9 @@
 #define CONF_UNSET_DIST     (dist_type_t) -1
 
 typedef struct conf_option {
-    char* name;
+    char  *name;
     int   (*set)(void *cf, struct conf_option *opt, void *data);
+    int   (*get)(void *cf, struct conf_option *opt, void *data);
     int   offset;
 }conf_option;
 
@@ -31,36 +53,37 @@ typedef enum evictpolicy_type {
 } evictpolicy_type_t;
 #undef DEFINE_ACTION
 
-#define DEFINE_ACTION(_policy, _name) (char*)(#_name),
-static char* evictpolicy_strings[] = {
-    EVICTPOLICY_CODEC( DEFINE_ACTION )
-    NULL
-};
-#undef DEFINE_ACTION
-
 typedef struct conf_server {
+    dict          *ctable;
+
     int           databases;
     int           internal_dbs_per_databases;
+    
+    long long     max_time_complexity_limit;
+
     long long     maxmemory;
     int           maxmemory_policy;
     int           maxmemory_samples;
-    long long     max_time_complexity_limit;
+    
+    int           maxclients;
+    int           threads;
+
+    struct array  binds;    /* type: sds */
+    int           port;
+
+    sds           dir;
 } conf_server;
 
 typedef struct vr_conf {
     sds           fname;             /* file name , absolute path */
-    FILE          *fh;               /* file handle */
 
     dict          *organizations;    /* organizations */
 
-    sds           listen;
-    long long     maxmemory;
-    int           threads;
-    sds           dir;
-
-    int           maxclients;
-
     conf_server   cserver;
+
+    unsigned long long version;      /* config version */
+    pthread_rwlock_t rwl;            /* config read write lock */
+    pthread_mutex_t flock;           /* config file lock */
 }vr_conf;
 
 typedef struct conf_value{
@@ -68,19 +91,36 @@ typedef struct conf_value{
     void    *value;
 }conf_value;
 
+extern vr_conf *conf;
+extern conf_server *cserver;
+
 conf_value *conf_value_create(int type);
 void conf_value_destroy(conf_value *cv);
 
 vr_conf *conf_create(char *filename);
 void conf_destroy(vr_conf *cf);
 
+int conf_server_get(const char *option, void *value);
+
 int conf_set_maxmemory(void *obj, conf_option *opt, void *data);
 int conf_set_maxmemory_policy(void *obj, conf_option *opt, void *data);
-int conf_set_number_non_zero(void *obj, conf_option *opt, void *data);
+int conf_set_int_non_zero(void *obj, conf_option *opt, void *data);
+
+int conf_get_string(void *obj, conf_option *opt, void *data);
+int conf_get_int(void *obj, conf_option *opt, void *data);
+int conf_get_longlong(void *obj, conf_option *opt, void *data);
+int conf_get_array_string(void *obj, conf_option *opt, void *data);
 
 int conf_set_string(void *obj, conf_option *opt, void *data);
-int conf_set_num(void *obj, conf_option *opt, void *data);
+int conf_set_int(void *obj, conf_option *opt, void *data);
 int conf_set_longlong(void *obj, conf_option *opt, void *data);
 int conf_set_bool(void *obj, conf_option *opt, void *data);
+int conf_set_array_string(void *obj, conf_option *opt, void *data);
+
+int CONF_RLOCK(void);
+int CONF_WLOCK(void);
+int CONF_ULOCK(void);
+
+const char *get_evictpolicy_strings(int evictpolicy_type);
 
 #endif

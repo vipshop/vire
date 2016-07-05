@@ -5,15 +5,6 @@
 #define PROTO_SHARED_SELECT_CMDS 10
 #define CRON_DBS_PER_CALL 16
 
-#define CONFIG_DEFAULT_LOGICAL_DBNUM    6
-#define CONFIG_DEFAULT_INTERNAL_DBNUM   6
-
-#define CONFIG_DEFAULT_MAXMEMORY 0
-#define CONFIG_DEFAULT_MAXMEMORY_SAMPLES 5
-#define CONFIG_DEFAULT_MAX_CLIENTS 10000
-
-#define CONFIG_DEFAULT_MAX_REPLY_SIZE 0 /* Not limited */
-
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
 #define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* CPU max % for keys collection */
@@ -341,10 +332,13 @@ extern dictType zsetDictType;
 #define serverPanic(_e) _log(__FILE__, __LINE__, 1, "assert faild: %s", #_e)
 #define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_log(__FILE__, __LINE__, 1, "assert faild: %s", #_e)))
 
+unsigned int dictStrHash(const void *key);
 unsigned int dictSdsHash(const void *key);
 unsigned int dictSdsCaseHash(const void *key);
+int dictStrKeyCompare(void *privdata, const void *key1, const void *key2);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 int dictSdsKeyCaseCompare(void *privdata, const void *key1, const void *key2);
+void *dictSdsKeyDupFromStr(void *privdata, const void *key);
 void dictSdsDestructor(void *privdata, void *val);
 void dictObjectDestructor(void *privdata, void *val);
 int dictEncObjKeyCompare(void *privdata, const void *key1, const void *key2);

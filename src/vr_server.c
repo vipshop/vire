@@ -9,6 +9,11 @@ struct vr_server server; /* server global state */
 struct sharedObjectsStruct shared;
 
 unsigned int
+dictStrHash(const void *key) {
+    return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
+}
+
+unsigned int
 dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
@@ -16,6 +21,19 @@ dictSdsHash(const void *key) {
 unsigned int
 dictSdsCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, sdslen((char*)key));
+}
+
+int
+dictStrKeyCompare(void *privdata, const void *key1,
+        const void *key2)
+{
+    int l1,l2;
+    DICT_NOTUSED(privdata);
+
+    l1 = strlen((char*)key1);
+    l2 = strlen((char*)key2);
+    if (l1 != l2) return 0;
+    return memcmp(key1, key2, l1) == 0;
 }
 
 int
@@ -40,6 +58,14 @@ dictSdsKeyCaseCompare(void *privdata, const void *key1,
     DICT_NOTUSED(privdata);
 
     return strcasecmp(key1, key2) == 0;
+}
+
+void *
+dictSdsKeyDupFromStr(void *privdata, const void *key)
+{
+    DICT_NOTUSED(privdata);
+
+    return sdsnew(key); /* key is c string */
 }
 
 void
@@ -263,17 +289,13 @@ init_server(struct instance *nci)
     uint32_t i;
     redisDb *db;
 
-    vr_conf *conf;
-
     conf = conf_create(nci->conf_filename);
 
     server.pid = getpid();
     server.configfile = getAbsolutePath(nci->conf_filename);
     server.hz = 10;
-    server.dblnum = conf->cserver.databases == CONF_UNSET_NUM ?
-        CONFIG_DEFAULT_LOGICAL_DBNUM : conf->cserver.databases;
-    server.dbinum = conf->cserver.internal_dbs_per_databases == CONF_UNSET_NUM ?
-        CONFIG_DEFAULT_INTERNAL_DBNUM : conf->cserver.internal_dbs_per_databases;
+    server.dblnum = cserver->databases;
+    server.dbinum = cserver->internal_dbs_per_databases;
     server.dbnum = server.dblnum*server.dbinum;
     array_init(&server.dbs, server.dbnum, sizeof(redisDb));
     server.pidfile = nci->pid_filename;
@@ -285,14 +307,11 @@ init_server(struct instance *nci)
 
     server.starttime = time(NULL);
 
-    server.maxclients = conf->maxclients == CONF_UNSET_NUM ? 
-        CONFIG_DEFAULT_MAX_CLIENTS : conf->maxclients;
-    server.maxmemory = conf->cserver.maxmemory == CONF_UNSET_NUM ? 
-        CONFIG_DEFAULT_MAXMEMORY : conf->cserver.maxmemory;
-    server.maxmemory_policy = conf->cserver.maxmemory_policy == CONF_UNSET_NUM ? 
-        CONFIG_DEFAULT_MAXMEMORY_POLICY : conf->cserver.maxmemory_policy;
-    server.maxmemory_samples = conf->cserver.maxmemory_samples == CONF_UNSET_NUM ?
-        CONFIG_DEFAULT_MAXMEMORY_SAMPLES : conf->cserver.maxmemory_samples;
+    server.maxclients = cserver->maxclients;
+    server.maxmemory = cserver->maxmemory;
+    server.maxmemory_policy = cserver->maxmemory_policy;
+    server.maxmemory_samples = cserver->maxmemory_samples;
+    
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
 
     server.commands = dictCreate(&commandTableDictType,NULL);
@@ -348,8 +367,7 @@ init_server(struct instance *nci)
     server.notify_keyspace_events = 0;
 
     server.max_time_complexity_limit = 
-        conf->cserver.max_time_complexity_limit == CONF_UNSET_NUM ? 
-        CONFIG_DEFAULT_MAX_REPLY_SIZE : conf->cserver.max_time_complexity_limit;
+        cserver->max_time_complexity_limit;
 
     vr_replication_init();
     
@@ -361,7 +379,7 @@ init_server(struct instance *nci)
         return VR_ERROR;
     }
 
-    server.port = master.listen->port;
+    server.port = cserver->port;
     
     status = workers_init(nci->thread_num);
     if (status != VR_OK) {
@@ -458,14 +476,19 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
     size_t mem_used, mem_tofree, mem_freed;
     mstime_t latency, eviction_latency;
     int keys_freed = 0;
+    long long maxmemory;
+    int maxmemory_policy, maxmemory_samples;
+    int ret;
 
-    if (vr_alloc_used_memory() <= server.maxmemory) {
+    conf_server_get("maxmemory", &maxmemory);
+    if (vr_alloc_used_memory() <= maxmemory)
         return VR_OK;
-    }
 
-    if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION)
+    conf_server_get("maxmemory-policy", &maxmemory_policy);
+    if (maxmemory_policy == MAXMEMORY_NO_EVICTION)
         return VR_ERROR; /* We need to free memory, but policy forbids. */
-    
+
+    conf_server_get("maxmemory-samples", &maxmemory_samples);
     while (1) {
         int j, k;
 
@@ -478,8 +501,8 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
             dict *dict;
 
             lockDbWrite(db);
-            if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LRU ||
-                server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM)
+            if (maxmemory_policy == MAXMEMORY_ALLKEYS_LRU ||
+                maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM)
             {
                 dict = db->dict;
             } else {
@@ -491,16 +514,16 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
             }
 
             /* volatile-random and allkeys-random policy */
-            if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM ||
-                server.maxmemory_policy == MAXMEMORY_VOLATILE_RANDOM)
+            if (maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM ||
+                maxmemory_policy == MAXMEMORY_VOLATILE_RANDOM)
             {
                 de = dictGetRandomKey(dict);
                 bestkey = dictGetKey(de);
             }
 
             /* volatile-lru and allkeys-lru policy */
-            else if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LRU ||
-                server.maxmemory_policy == MAXMEMORY_VOLATILE_LRU)
+            else if (maxmemory_policy == MAXMEMORY_ALLKEYS_LRU ||
+                maxmemory_policy == MAXMEMORY_VOLATILE_LRU)
             {
                 struct evictionPoolEntry *pool = db->eviction_pool;
 
@@ -535,8 +558,8 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
             }
 
             /* volatile-ttl */
-            else if (server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL) {
-                for (k = 0; k < server.maxmemory_samples; k++) {
+            else if (maxmemory_policy == MAXMEMORY_VOLATILE_TTL) {
+                for (k = 0; k < maxmemory_samples; k++) {
                     sds thiskey;
                     long thisval;
 
@@ -557,13 +580,13 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
             if (bestkey) {
                 robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
                 dbDelete(db,keyobj);
-                decrRefCount(keyobj);
+                freeObject(keyobj);
                 keys_freed++;
             }
             
             unlockDb(db);
 
-            if (vr_alloc_used_memory() <= server.maxmemory) {
+            if (vr_alloc_used_memory() <= maxmemory) {
                 goto stop;
             }
         }
@@ -760,7 +783,7 @@ sds genVireInfoString(char *section) {
         char maxmemory_hmem[64];
         size_t vr_used_memory = vr_alloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
-        const char *evict_policy = evictpolicy_strings[server.maxmemory_policy];
+        const char *evict_policy = get_evictpolicy_strings(server.maxmemory_policy);
 
         /* Peak memory is updated from time to time by serverCron() so it
          * may happen that the instantaneous value is slightly bigger than

@@ -5,7 +5,7 @@ typedef struct vr_master {
 
     vr_eventloop vel;
     
-    vr_listen *listen;
+    struct array listens;   /* type: vr_listen */
     
 }vr_master;
 

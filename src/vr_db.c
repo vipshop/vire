@@ -70,7 +70,7 @@ int redisDbInit(redisDb *db)
 int 
 redisDbDeinit(redisDb *db)
 {
-    pthread_rwlockattr_destroy(&db->rwl);
+    pthread_rwlock_destroy(&db->rwl);
     return VR_OK;
 }
 
@@ -137,7 +137,8 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply, int *expired) {
 /* Add the key to the DB. It's up to the caller to increment the reference
  * counter of the value if needed.
  *
- * The program is aborted if the key already exists. */
+ * The program is aborted if the key already exists. 
+ * Val object must be independent. */
 void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
     int retval = dictAdd(db->dict, copy, val);
@@ -149,7 +150,8 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
  * count of the new value is up to the caller.
  * This function does not modify the expire time of the existing key.
  *
- * The program is aborted if the key was not already present. */
+ * The program is aborted if the key was not already present. 
+ * Val object must be independent. */
 void dbOverwrite(redisDb *db, robj *key, robj *val) {
     dictEntry *de = dictFind(db->dict,key->ptr);
 
@@ -160,8 +162,8 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
 /* High level Set operation. This function can be used in order to set
  * a key, whatever it was existing or not, to a new object.
  *
- * 1) The ref count of the value object is incremented.
- * 2) clients WATCHing for the destination key notified.
+ * 1) Val object must be independent.
+ * 2) Clients WATCHing for the destination key notified.
  * 3) The expire time of the key is reset (the key is made persistent). */
 void setKey(redisDb *db, robj *key, robj *val, int *expired) {
     if (lookupKeyWrite(db,key,expired) == NULL) {
