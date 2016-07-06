@@ -963,7 +963,7 @@ conf_pre_load_from_string(vr_conf *cf, char *config)
                 conf_value_destroy(cv);
                 log_error("key value insert into organization failed");
                 goto loaderr;
-            } else if (ret == 0) {
+            } else if (j == 1 && ret == 0) {
                 sdsfree(key);
             }
         }
