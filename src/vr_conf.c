@@ -53,37 +53,37 @@ static char* evictpolicy_strings[] = {
 #undef DEFINE_ACTION
 
 static conf_option conf_server_options[] = {
-    { (char *)("databases"),
+    { (char *)CONFIG_SOPN_DATABASES,
       conf_set_int_non_zero, conf_get_int,
       offsetof(conf_server, databases) },
-    { (char *)("internal-dbs-per-databases"),
+    { (char *)CONFIG_SOPN_IDPDATABASE,
       conf_set_int_non_zero, conf_get_int,
       offsetof(conf_server, internal_dbs_per_databases) },
-    { (char *)("maxmemory"),
+    { (char *)CONFIG_SOPN_MAXMEMORY,
       conf_set_maxmemory, conf_get_longlong,
       offsetof(conf_server, maxmemory) },
-    { (char *)("maxmemory-policy"),
+    { (char *)CONFIG_SOPN_MAXMEMORYP,
       conf_set_maxmemory_policy, conf_get_int,
       offsetof(conf_server, maxmemory_policy) },
-    { (char *)("maxmemory-samples"),
+    { (char *)CONFIG_SOPN_MAXMEMORYS,
       conf_set_int_non_zero, conf_get_int,
       offsetof(conf_server, maxmemory_samples) },
-    { (char *)("max-time-complexity-limit"),
+    { (char *)CONFIG_SOPN_MTCLIMIT,
       conf_set_longlong, conf_get_longlong,
       offsetof(conf_server, max_time_complexity_limit) },
-    { (char *)("bind"),
+    { (char *)CONFIG_SOPN_BIND,
       conf_set_array_string, conf_get_array_string,
       offsetof(conf_server, binds) },
-    { (char *)("port"),
+    { (char *)CONFIG_SOPN_PORT,
       conf_set_int, conf_get_int,
       offsetof(conf_server, port) },
-    { (char *)("threads"),
+    { (char *)CONFIG_SOPN_THREADS,
       conf_set_int, conf_get_int,
       offsetof(conf_server, threads) },
-    { (char *)("dir"),
+    { (char *)CONFIG_SOPN_DIR,
       conf_set_string, conf_get_string,
       offsetof(conf_server, dir) },
-    { (char *)("maxclients"),
+    { (char *)CONFIG_SOPN_MAXCLIENTS,
       conf_set_int, conf_get_int,
       offsetof(conf_server, maxclients) },
     { NULL, NULL, 0 }
@@ -743,11 +743,11 @@ static void conf_server_deinit(conf_server *cs)
 }
 
 int
-conf_server_get(const char *option, void *value)
+conf_server_get(const char *option_name, void *value)
 {
     conf_option *opt;
 
-    opt = dictFetchValue(cserver->ctable, option);
+    opt = dictFetchValue(cserver->ctable, option_name);
     if (opt == NULL)
         return VR_ERROR;
 

@@ -480,15 +480,15 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
     int maxmemory_policy, maxmemory_samples;
     int ret;
 
-    conf_server_get("maxmemory", &maxmemory);
+    conf_server_get(CONFIG_SOPN_MAXMEMORY, &maxmemory);
     if (vr_alloc_used_memory() <= maxmemory)
         return VR_OK;
 
-    conf_server_get("maxmemory-policy", &maxmemory_policy);
+    conf_server_get(CONFIG_SOPN_MAXMEMORYP, &maxmemory_policy);
     if (maxmemory_policy == MAXMEMORY_NO_EVICTION)
         return VR_ERROR; /* We need to free memory, but policy forbids. */
 
-    conf_server_get("maxmemory-samples", &maxmemory_samples);
+    conf_server_get(CONFIG_SOPN_MAXMEMORYS, &maxmemory_samples);
     while (1) {
         int j, k;
 

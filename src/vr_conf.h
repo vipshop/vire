@@ -1,6 +1,19 @@
 #ifndef _VR_CONF_H_
 #define _VR_CONF_H_
 
+/* Config server option name */
+#define CONFIG_SOPN_DATABASES    "databases"
+#define CONFIG_SOPN_IDPDATABASE  "internal-dbs-per-databases"
+#define CONFIG_SOPN_MAXMEMORY    "maxmemory"
+#define CONFIG_SOPN_MAXMEMORYP   "maxmemory-policy"
+#define CONFIG_SOPN_MAXMEMORYS   "maxmemory-samples"
+#define CONFIG_SOPN_MTCLIMIT     "max-time-complexity-limit"
+#define CONFIG_SOPN_BIND         "bind"
+#define CONFIG_SOPN_PORT         "port"
+#define CONFIG_SOPN_THREADS      "threads"
+#define CONFIG_SOPN_DIR          "dir"
+#define CONFIG_SOPN_MAXCLIENTS   "maxclients"
+
 #define CONFIG_RUN_ID_SIZE 40
 #define CONFIG_DEFAULT_ACTIVE_REHASHING 1
 
@@ -100,7 +113,7 @@ void conf_value_destroy(conf_value *cv);
 vr_conf *conf_create(char *filename);
 void conf_destroy(vr_conf *cf);
 
-int conf_server_get(const char *option, void *value);
+int conf_server_get(const char *option_name, void *value);
 
 int conf_set_maxmemory(void *obj, conf_option *opt, void *data);
 int conf_set_maxmemory_policy(void *obj, conf_option *opt, void *data);
