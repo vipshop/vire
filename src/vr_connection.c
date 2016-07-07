@@ -4,7 +4,7 @@
 
 static uint64_t ntotal_conn;       /* total # connections counter from start */
 static uint32_t ncurr_conn;        /* current # connections */
-static uint32_t ncurr_cconn;       /* current # client connections */
+static uint32_t ncurr_cconn = 10;       /* current # client connections */
 
 static void conn_free(struct conn *conn);
 

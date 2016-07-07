@@ -594,6 +594,7 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
             
             unlockDb(db);
 
+            conf_server_get(CONFIG_SOPN_MAXMEMORY, &maxmemory);
             if (vr_alloc_used_memory() <= maxmemory) {
                 goto stop;
             }

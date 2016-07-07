@@ -251,18 +251,18 @@ conf_set_maxmemory_policy(void *obj, conf_option *opt, void *data)
         }
     }
 
+    if (*policy == NULL) {
+        CONF_ULOCK();
+        log_error("ERROR: Conf maxmemory policy '%s' is invalid", 
+            cv->value);
+        return VR_ERROR;
+    }
+
     if (*gt == MAXMEMORY_VOLATILE_LRU || *gt == MAXMEMORY_ALLKEYS_LRU) {
         CONF_ULOCK();
         log_error("ERROR: Conf maxmemory policy now is not support %s and %s", 
             evictpolicy_strings[MAXMEMORY_VOLATILE_LRU], 
             evictpolicy_strings[MAXMEMORY_ALLKEYS_LRU]);
-        return VR_ERROR;
-    }
-
-    if (*gt == CONF_UNSET_NUM) {
-        CONF_ULOCK();
-        log_error("ERROR: Conf maxmemory policy in the conf file can not be %s", 
-            cv->value);
         return VR_ERROR;
     }
 
@@ -1249,6 +1249,83 @@ get_evictpolicy_strings(int evictpolicy_type)
     return evictpolicy_strings[evictpolicy_type];
 }
 
+/*-----------------------------------------------------------------------------
+ * CONFIG SET implementation
+ *----------------------------------------------------------------------------*/
+
+static void configSetCommand(client *c) {
+    int ret;
+    sds value;
+    sds *fields;
+    int fields_count = 0;
+    conf_option *cop;
+    conf_value *cv;
+    
+    serverAssertWithInfo(c,c->argv[2],sdsEncodedObject(c->argv[2]));
+    serverAssertWithInfo(c,c->argv[3],sdsEncodedObject(c->argv[3]));
+    value = c->argv[3]->ptr;
+
+    cop = dictFetchValue(cserver->ctable, c->argv[2]->ptr);
+
+    if (cop == NULL) {
+        addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
+            (char*)c->argv[2]->ptr);
+        return;
+    } else if (cop->flags&CONF_FIELD_FLAGS_NO_MODIFY) {
+        addReplyErrorFormat(c,"Unsupported modify this CONFIG parameter: %s",
+            (char*)c->argv[2]->ptr);
+        return;
+    }
+
+    fields = sdssplitlen(value,sdslen(value)," ",1,&fields_count);
+    if (fields_count == 1) {
+        cv = conf_value_create(CONF_VALUE_STRING);
+        cv->value = fields[0];
+        fields[0] = NULL;
+    } else if (fields_count > 1) {
+        conf_value **cv_sub;
+        uint32_t i;
+    
+        cv = conf_value_create(CONF_VALUE_ARRAY);
+        for (i = 0; i < fields_count; i ++) {
+            cv_sub = array_push(cv->value);
+            *cv_sub = conf_value_create(CONF_VALUE_STRING);
+            (*cv_sub)->value = fields[i];
+            fields[i] = NULL;
+        }
+    } else {
+        serverPanic("Error config set value");
+    }
+    sdsfreesplitres(fields,fields_count);
+
+    ret = cop->set(cserver, cop, cv);
+    conf_value_destroy(cv);
+    if (ret != VR_OK) {
+        addReplyErrorFormat(c,"Invalid argument '%s' for CONFIG SET '%s'",
+            (char*)value, (char*)c->argv[2]->ptr);
+        return;
+    }
+
+    /* Handle some special action if needed */
+    if (!strcmp(cop->name,CONFIG_SOPN_MAXMEMORY)) {
+        long long maxmemory;
+        conf_server_get(CONFIG_SOPN_MAXMEMORY,&maxmemory);
+        if (maxmemory) {
+            if (maxmemory < vr_alloc_used_memory()) {
+                log_warn("WARNING: the new maxmemory value set via CONFIG SET is smaller than the current memory usage. This will result in keys eviction and/or inability to accept new write commands depending on the maxmemory-policy.");
+                freeMemoryIfNeeded(c->vel);
+            }
+        }
+    }
+
+    /* On success we just return a generic OK for all the options. */
+    addReply(c,shared.ok);
+}
+
+/*-----------------------------------------------------------------------------
+ * CONFIG GET implementation
+ *----------------------------------------------------------------------------*/
+
 static void addReplyConfOption(client *c,conf_option *cop)
 {
     addReplyBulkCString(c,cop->name);
@@ -1324,10 +1401,10 @@ void configCommand(client *c) {
         return;
     }
 
-    /*if (!strcasecmp(c->argv[1]->ptr,"set")) {
+    if (!strcasecmp(c->argv[1]->ptr,"set")) {
         if (c->argc != 4) goto badarity;
         configSetCommand(c);
-    } else */if (!strcasecmp(c->argv[1]->ptr,"get")) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"get")) {
         if (c->argc != 3) goto badarity;
         configGetCommand(c);
     } /*else if (!strcasecmp(c->argv[1]->ptr,"resetstat")) {
@@ -1351,7 +1428,7 @@ void configCommand(client *c) {
     }*/ else {
         addReplyError(c,
             //"CONFIG subcommand must be one of GET, SET, RESETSTAT, REWRITE");
-            "CONFIG subcommand must be GET");
+            "CONFIG subcommand must be GET, SET");
     }
     return;
 
