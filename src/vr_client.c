@@ -760,7 +760,9 @@ int writeToClient(int fd, client *c, int handler_installed) {
     size_t objlen;
     size_t objmem;
     robj *o;
+    long long maxmemory;
 
+    conf_server_get(CONFIG_SOPN_MAXMEMORY,&maxmemory);
     while(clientHasPendingReplies(c)) {
         if (c->bufpos > 0) {
             nwritten = vr_write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
@@ -807,8 +809,8 @@ int writeToClient(int fd, client *c, int handler_installed) {
          * just deliver as much data as it is possible to deliver. */
         update_stats_add(c->vel->stats, net_output_bytes, totwritten);
         if (totwritten > NET_MAX_WRITES_PER_EVENT &&
-            (server.maxmemory == 0 ||
-             vr_alloc_used_memory() < server.maxmemory)) break;
+            (maxmemory == 0 || vr_alloc_used_memory() < maxmemory)) 
+            break;
     }
     if (nwritten == -1) {
         if (errno == EAGAIN) {

@@ -371,11 +371,6 @@ robj *tryObjectEncoding(robj *o) {
      * in represented by an actually array of chars. */
     if (!sdsEncodedObject(o)) return o;
 
-    /* It's not safe to encode shared objects: shared objects can be shared
-     * everywhere in the "object space" of Redis and may end in places where
-     * they are not handled. We handle them only as values in the keyspace. */
-    if (o->refcount > 1) return o;
-
     /* It's constant object, not encode it.  */
     if (o->constant) return o;
 
@@ -387,10 +382,11 @@ robj *tryObjectEncoding(robj *o) {
         /* This object is encodable as a long. Try to use a shared object.
          * Note that we avoid using shared integers when maxmemory is used
          * because every object needs to have a private LRU field for the LRU
-         * algorithm to work well. */
-        if ((server.maxmemory == 0 ||
+         * algorithm to work well. 
+         * Now we do not support LRU, so just comment it. */
+        if (/*(server.maxmemory == 0 ||
              (server.maxmemory_policy != MAXMEMORY_VOLATILE_LRU &&
-              server.maxmemory_policy != MAXMEMORY_ALLKEYS_LRU)) &&
+              server.maxmemory_policy != MAXMEMORY_ALLKEYS_LRU)) && */
             value >= 0 &&
             value < OBJ_SHARED_INTEGERS)
         {

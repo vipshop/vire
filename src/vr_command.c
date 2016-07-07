@@ -397,6 +397,8 @@ void call(client *c, int flags) {
  * other operations can be performed by the caller. Otherwise
  * if VR_ERROR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
+    long long maxmemory;
+
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
@@ -436,7 +438,8 @@ int processCommand(client *c) {
      * First we try to free some memory if possible (if there are volatile
      * keys in the dataset). If there are not the only thing we can do
      * is returning an error. */
-    if (server.maxmemory) {
+    conf_server_get(CONFIG_SOPN_MAXMEMORY,&maxmemory);
+    if (maxmemory) {
         int retval = freeMemoryIfNeeded(c->vel);
         /* freeMemoryIfNeeded may flush slave output buffers. This may result
          * into a slave, that may be the active client, to be freed. */

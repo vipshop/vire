@@ -207,9 +207,13 @@ vr_listen_accept(vr_listen *vlisten)
 {
     rstatus_t status;
     int sd;
-
+    int maxclients;
+    
     ASSERT(vlisten->sd > 0);
+    
     log_debug(LOG_DEBUG,"client_accept");
+
+    conf_server_get(CONFIG_SOPN_MAXCLIENTS,&maxclients);
     for (;;) {
         sd = accept(vlisten->sd, NULL, NULL);
         if (sd < 0) {
@@ -228,7 +232,7 @@ vr_listen_accept(vr_listen *vlisten)
                           "used connections %"PRIu32" max client connections %u "
                           "curr client connections %"PRIu32" failed: %s",
                           vlisten->sd, conn_ncurr_conn(),
-                          server.maxclients, conn_ncurr_cconn(), strerror(errno));
+                          maxclients, conn_ncurr_cconn(), strerror(errno));
                 return -1;
             }
 
@@ -240,9 +244,9 @@ vr_listen_accept(vr_listen *vlisten)
         break;
     }
 
-    if (conn_ncurr_cconn() >= server.maxclients) {
+    if (conn_ncurr_cconn() >= maxclients) {
         log_debug(LOG_CRIT, "client connections %"PRIu32" exceed limit %"PRIu32,
-                  conn_ncurr_cconn(), server.maxclients);
+                  conn_ncurr_cconn(), maxclients);
         status = close(sd);
         if (status < 0) {
             log_error("close c %d failed, ignored: %s", sd, strerror(errno));

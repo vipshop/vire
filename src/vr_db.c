@@ -407,16 +407,18 @@ void keysCommand(client *c) {
     int idx;
     long long keys_count = 0;
     unsigned long expired = 0;
+    long long max_time_complexity_limit;
 
+    /* Check if it is reach the max-time-complexity-limit */
     for (idx = 0; idx < server.dbinum; idx ++) {
         fetchInternalDbById(c, idx);
         lockDbWrite(c->db);
         keys_count += dictSize(c->db->dict);
         unlockDb(c->db);
     }
-
-    if (server.max_time_complexity_limit && 
-        keys_count > server.max_time_complexity_limit) {
+    conf_server_get(CONFIG_SOPN_MTCLIMIT,&max_time_complexity_limit);
+    if (max_time_complexity_limit && 
+        keys_count > max_time_complexity_limit) {
         addReply(c,shared.outofcomplexitylimit);
         return;
     }

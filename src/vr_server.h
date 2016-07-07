@@ -108,11 +108,6 @@ struct vr_server {
     int tcpkeepalive;               /* Set SO_KEEPALIVE if non-zero. */
     size_t client_max_querybuf_len; /* Limit for client query buffer length */
 
-    /* Limits */
-    unsigned int maxclients;            /* Max number of simultaneous clients */
-    unsigned long long maxmemory;   /* Max number of memory bytes to use */
-    int maxmemory_policy;           /* Policy for key eviction */
-    int maxmemory_samples;          /* Pricision of random sampling */
     /* Zip structure config, see redis.conf for more information  */
     size_t hash_max_ziplist_entries;
     size_t hash_max_ziplist_value;
@@ -243,8 +238,6 @@ struct vr_server {
 
     /* System hardware info */
     size_t system_memory_size;  /* Total memory in system as reported by OS */
-
-    long long max_time_complexity_limit;
 };
 
 /* ZSETs use a specialized version of Skiplists */

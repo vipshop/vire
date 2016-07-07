@@ -306,11 +306,6 @@ init_server(struct instance *nci)
     server.requirepass = NULL;
 
     server.starttime = time(NULL);
-
-    server.maxclients = cserver->maxclients;
-    server.maxmemory = cserver->maxmemory;
-    server.maxmemory_policy = cserver->maxmemory_policy;
-    server.maxmemory_samples = cserver->maxmemory_samples;
     
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
 
@@ -366,9 +361,6 @@ init_server(struct instance *nci)
 
     server.notify_keyspace_events = 0;
 
-    server.max_time_complexity_limit = 
-        cserver->max_time_complexity_limit;
-
     vr_replication_init();
     
     createSharedObjects();
@@ -407,20 +399,21 @@ unsigned int getLRUClock(void) {
  * right. */
 
 #define EVICTION_SAMPLES_ARRAY_SIZE 16
-void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
+void evictionPoolPopulate(dict *sampledict, dict *keydict, 
+    struct evictionPoolEntry *pool, int maxmemory_samples) {
     int j, k, count;
     dictEntry *_samples[EVICTION_SAMPLES_ARRAY_SIZE];
     dictEntry **samples;
 
     /* Try to use a static buffer: this function is a big hit...
      * Note: it was actually measured that this helps. */
-    if (server.maxmemory_samples <= EVICTION_SAMPLES_ARRAY_SIZE) {
+    if (maxmemory_samples <= EVICTION_SAMPLES_ARRAY_SIZE) {
         samples = _samples;
     } else {
-        samples = vr_alloc(sizeof(samples[0])*server.maxmemory_samples);
+        samples = vr_alloc(sizeof(samples[0])*maxmemory_samples);
     }
 
-    count = dictGetSomeKeys(sampledict,samples,server.maxmemory_samples);
+    count = dictGetSomeKeys(sampledict,samples,maxmemory_samples);
     for (j = 0; j < count; j++) {
         unsigned long long idle;
         sds key;
@@ -492,7 +485,6 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
     while (1) {
         int j, k;
 
-        keys_freed = 0;
         for (j = 0; j < server.dbnum; j++) {
             long bestval = 0; /* just to prevent warning */
             sds bestkey = NULL;
@@ -528,7 +520,7 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
                 struct evictionPoolEntry *pool = db->eviction_pool;
 
                 while(bestkey == NULL) {
-                    evictionPoolPopulate(dict, db->dict, db->eviction_pool);
+                    evictionPoolPopulate(dict, db->dict, db->eviction_pool, maxmemory_samples);
                     /* Go backward from best to worst element to evict. */
                     for (k = MAXMEMORY_EVICTION_POOL_SIZE-1; k >= 0; k--) {
                         if (pool[k].key == NULL) continue;
@@ -596,6 +588,7 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
         }
 
         update_stats_add(vel->stats, evictedkeys, keys_freed);
+        keys_freed = 0;
     }
 
 stop:
@@ -783,7 +776,9 @@ sds genVireInfoString(char *section) {
         char maxmemory_hmem[64];
         size_t vr_used_memory = vr_alloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
-        const char *evict_policy = get_evictpolicy_strings(server.maxmemory_policy);
+        const char *evict_policy;
+        long long maxmemory;
+        int maxmemory_policy;
 
         /* Peak memory is updated from time to time by serverCron() so it
          * may happen that the instantaneous value is slightly bigger than
@@ -792,10 +787,14 @@ sds genVireInfoString(char *section) {
         if (vr_used_memory > server.stat_peak_memory)
             server.stat_peak_memory = vr_used_memory;
 
+        conf_server_get(CONFIG_SOPN_MAXMEMORY,&maxmemory);
+        conf_server_get(CONFIG_SOPN_MAXMEMORYP,&maxmemory_policy);
+        evict_policy = get_evictpolicy_strings(maxmemory_policy);
+    
         bytesToHuman(hmem,vr_used_memory);
         bytesToHuman(peak_hmem,server.stat_peak_memory);
         bytesToHuman(total_system_hmem,total_system_mem);
-        bytesToHuman(maxmemory_hmem,server.maxmemory);
+        bytesToHuman(maxmemory_hmem,maxmemory);
 
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
@@ -816,7 +815,7 @@ sds genVireInfoString(char *section) {
             peak_hmem,
             (unsigned long)total_system_mem,
             total_system_hmem,
-            server.maxmemory,
+            maxmemory,
             maxmemory_hmem,
             evict_policy,
             VR_MALLOC_LIB
