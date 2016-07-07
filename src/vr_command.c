@@ -74,6 +74,7 @@ struct redisCommand redisCommandTable[] = {
     {"time",timeCommand,1,"RF",0,NULL,0,0,0,0,0},
     {"dbsize",dbsizeCommand,1,"rF",0,NULL,0,0,0,0,0},
     {"command",commandCommand,0,"lt",0,NULL,0,0,0,0,0},
+    {"config",configCommand,-2,"lat",0,NULL,0,0,0,0,0},
     /* Key */
     {"del",delCommand,-2,"w",0,NULL,1,-1,1,0,0},
     {"exists",existsCommand,-2,"rF",0,NULL,1,-1,1,0,0},

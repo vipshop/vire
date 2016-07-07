@@ -54,38 +54,49 @@ static char* evictpolicy_strings[] = {
 
 static conf_option conf_server_options[] = {
     { (char *)CONFIG_SOPN_DATABASES,
+      CONF_FIELD_TYPE_INT, 1,
       conf_set_int_non_zero, conf_get_int,
       offsetof(conf_server, databases) },
     { (char *)CONFIG_SOPN_IDPDATABASE,
+      CONF_FIELD_TYPE_INT, 1,
       conf_set_int_non_zero, conf_get_int,
       offsetof(conf_server, internal_dbs_per_databases) },
     { (char *)CONFIG_SOPN_MAXMEMORY,
+      CONF_FIELD_TYPE_LONGLONG, 0,
       conf_set_maxmemory, conf_get_longlong,
       offsetof(conf_server, maxmemory) },
     { (char *)CONFIG_SOPN_MAXMEMORYP,
+      CONF_FIELD_TYPE_INT, 0,
       conf_set_maxmemory_policy, conf_get_int,
       offsetof(conf_server, maxmemory_policy) },
     { (char *)CONFIG_SOPN_MAXMEMORYS,
+      CONF_FIELD_TYPE_INT, 0,
       conf_set_int_non_zero, conf_get_int,
       offsetof(conf_server, maxmemory_samples) },
     { (char *)CONFIG_SOPN_MTCLIMIT,
+      CONF_FIELD_TYPE_LONGLONG, 0,
       conf_set_longlong, conf_get_longlong,
       offsetof(conf_server, max_time_complexity_limit) },
     { (char *)CONFIG_SOPN_BIND,
-      conf_set_array_string, conf_get_array_string,
+      CONF_FIELD_TYPE_ARRAYSDS, 1,
+      conf_set_array_sds, conf_get_array_sds,
       offsetof(conf_server, binds) },
     { (char *)CONFIG_SOPN_PORT,
+      CONF_FIELD_TYPE_INT, 1,
       conf_set_int, conf_get_int,
       offsetof(conf_server, port) },
     { (char *)CONFIG_SOPN_THREADS,
+      CONF_FIELD_TYPE_INT, 1,
       conf_set_int, conf_get_int,
       offsetof(conf_server, threads) },
-    { (char *)CONFIG_SOPN_DIR,
-      conf_set_string, conf_get_string,
+    /*{ (char *)CONFIG_SOPN_DIR,
+      CONF_FIELD_TYPE_SDS, 1,
+      conf_set_sds, conf_get_sds,
       offsetof(conf_server, dir) },
     { (char *)CONFIG_SOPN_MAXCLIENTS,
+      CONF_FIELD_TYPE_INT, 0,
       conf_set_int, conf_get_int,
-      offsetof(conf_server, maxclients) },
+      offsetof(conf_server, maxclients) },*/
     { NULL, NULL, 0 }
 };
 
@@ -303,7 +314,7 @@ conf_set_int_non_zero(void *obj, conf_option *opt, void *data)
 }
 
 int
-conf_get_string(void *obj, conf_option *opt, void *data)
+conf_get_sds(void *obj, conf_option *opt, void *data)
 {
     uint8_t *p;
     sds *str = data;
@@ -315,13 +326,14 @@ conf_get_string(void *obj, conf_option *opt, void *data)
     CONF_RLOCK();
     p = obj;
     gt = (sds*)(p + opt->offset);
-    *str = sdsdup(*gt);
+    if (*gt == NULL) *str = NULL;
+    else *str = sdsdup(*gt);
     CONF_ULOCK();
     return VR_OK;
 }
 
 int
-conf_set_string(void *obj, conf_option *opt, void *data)
+conf_set_sds(void *obj, conf_option *opt, void *data)
 {
     uint8_t *p;
     conf_value *cv = data;
@@ -479,7 +491,7 @@ conf_set_bool(void *obj, conf_option *opt, void *data)
 }
 
 int
-conf_set_array_string(void *obj, conf_option *opt, void *data)
+conf_set_array_sds(void *obj, conf_option *opt, void *data)
 {
     uint8_t *p;
     uint32_t j;
@@ -526,7 +538,7 @@ conf_set_array_string(void *obj, conf_option *opt, void *data)
 }
 
 int
-conf_get_array_string(void *obj, conf_option *opt, void *data)
+conf_get_array_sds(void *obj, conf_option *opt, void *data)
 {
     uint8_t *p;
     uint32_t j;
@@ -587,10 +599,10 @@ static dictType KeyValueDictType = {
 };
 
 static dictType ConfTableDictType = {
-    dictStrHash,                /* hash function */
+    dictStrCaseHash,            /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictStrKeyCompare,          /* key compare */
+    dictStrKeyCaseCompare,      /* key compare */
     NULL,                       /* key destructor */
     NULL                        /* val destructor */
 };
@@ -705,8 +717,8 @@ static int conf_server_set_default(conf_server *cs)
 
     if (cs->dir != CONF_UNSET_PTR) {
         sdsfree(cs->dir);
-        cs->dir = sdsnew(CONFIG_DEFAULT_DATA_DIR);    
     }
+    cs->dir = sdsnew(CONFIG_DEFAULT_DATA_DIR);
 
     return VR_OK;
 }
@@ -1235,4 +1247,115 @@ const char *
 get_evictpolicy_strings(int evictpolicy_type)
 {
     return evictpolicy_strings[evictpolicy_type];
+}
+
+static void addReplyConfOption(client *c,conf_option *cop)
+{
+    addReplyBulkCString(c,cop->name);
+    if (cop->type == CONF_FIELD_TYPE_INT) {
+        int value;
+        conf_server_get(cop->name,&value);
+        
+        if (!strcmp(cop->name,CONFIG_SOPN_MAXMEMORYP)) {
+            addReplyBulkCString(c,get_evictpolicy_strings(value));
+        } else {
+            addReplyBulkLongLong(c,value);
+        }
+    } else if (cop->type == CONF_FIELD_TYPE_LONGLONG) {
+        long long value;
+        conf_server_get(cop->name,&value);
+        addReplyBulkLongLong(c,value);
+    } else if (cop->type == CONF_FIELD_TYPE_SDS) {
+        sds value;
+        conf_server_get(cop->name,&value);
+        addReplyBulkSds(c,value);
+    } else if (cop->type == CONF_FIELD_TYPE_ARRAYSDS) {
+        struct array values;
+        sds value = sdsempty();
+        sds *elem;
+
+        array_init(&values,1,sizeof(sds));
+        conf_server_get(cop->name,&values);
+        while(array_n(&values) > 0) {
+            elem = array_pop(&values);
+            value = sdscatsds(value,*elem);
+            value = sdscat(value," ");
+            sdsfree(*elem);
+        }
+        array_deinit(&values);
+        if (sdslen(value) > 0) sdsrange(value,0,-2);
+        addReplyBulkSds(c,value);
+    } else {
+        serverPanic("Error conf field type");
+    }
+}
+
+static void configGetCommand(client *c) {
+    robj *o = c->argv[2];
+    void *replylen = addDeferredMultiBulkLength(c);
+    char *pattern = o->ptr;
+    int matches = 0;
+    conf_option *cop;
+    serverAssertWithInfo(c,o,sdsEncodedObject(o));
+
+    cop = dictFetchValue(cserver->ctable, pattern);
+    if (cop != NULL) {
+        addReplyConfOption(c,cop);
+        matches ++;
+    } else {
+        for (cop = conf_server_options; cop&&cop->name; cop++) {
+            if (stringmatch(pattern,cop->name,1)) {
+                addReplyConfOption(c,cop);
+                matches ++;
+            }
+        }
+    }
+    setDeferredMultiBulkLength(c,replylen,matches*2);
+}
+
+/*-----------------------------------------------------------------------------
+ * CONFIG command entry point
+ *----------------------------------------------------------------------------*/
+
+void configCommand(client *c) {
+    /* Only allow CONFIG GET while loading. */
+    if (server.loading && strcasecmp(c->argv[1]->ptr,"get")) {
+        addReplyError(c,"Only CONFIG GET is allowed during loading");
+        return;
+    }
+
+    /*if (!strcasecmp(c->argv[1]->ptr,"set")) {
+        if (c->argc != 4) goto badarity;
+        configSetCommand(c);
+    } else */if (!strcasecmp(c->argv[1]->ptr,"get")) {
+        if (c->argc != 3) goto badarity;
+        configGetCommand(c);
+    } /*else if (!strcasecmp(c->argv[1]->ptr,"resetstat")) {
+        if (c->argc != 2) goto badarity;
+        resetServerStats();
+        resetCommandTableStats();
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"rewrite")) {
+        if (c->argc != 2) goto badarity;
+        if (server.configfile == NULL) {
+            addReplyError(c,"The server is running without a config file");
+            return;
+        }
+        if (rewriteConfig(server.configfile) == -1) {
+            serverLog(LL_WARNING,"CONFIG REWRITE failed: %s", strerror(errno));
+            addReplyErrorFormat(c,"Rewriting config file: %s", strerror(errno));
+        } else {
+            serverLog(LL_WARNING,"CONFIG REWRITE executed with success.");
+            addReply(c,shared.ok);
+        }
+    }*/ else {
+        addReplyError(c,
+            //"CONFIG subcommand must be one of GET, SET, RESETSTAT, REWRITE");
+            "CONFIG subcommand must be GET");
+    }
+    return;
+
+badarity:
+    addReplyErrorFormat(c,"Wrong number of arguments for CONFIG %s",
+        (char*) c->argv[1]->ptr);
 }

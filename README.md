@@ -64,6 +64,7 @@ A quick checklist:
 + time
 + dbsize
 + command
++ config
 
 #### Key
 

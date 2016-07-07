@@ -14,6 +14,11 @@ dictStrHash(const void *key) {
 }
 
 unsigned int
+dictStrCaseHash(const void *key) {
+    return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
+}
+
+unsigned int
 dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
@@ -34,6 +39,17 @@ dictStrKeyCompare(void *privdata, const void *key1,
     l2 = strlen((char*)key2);
     if (l1 != l2) return 0;
     return memcmp(key1, key2, l1) == 0;
+}
+
+/* A case insensitive version used for the config option lookup table and other
+ * places where case insensitive non binary-safe comparison is needed. */
+int
+dictStrKeyCaseCompare(void *privdata, const void *key1,
+        const void *key2)
+{
+    DICT_NOTUSED(privdata);
+
+    return strcasecmp(key1, key2) == 0;
 }
 
 int

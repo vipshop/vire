@@ -44,11 +44,22 @@
 #define CONF_UNSET_HASH     (hash_type_t) -1
 #define CONF_UNSET_DIST     (dist_type_t) -1
 
+/* Config field data type for conf_option struct */
+#define CONF_FIELD_TYPE_INT         0
+#define CONF_FIELD_TYPE_LONGLONG    1
+#define CONF_FIELD_TYPE_SDS         2
+#define CONF_FIELD_TYPE_ARRAYSDS    3
+
+/* Config field flags for conf_option struct */
+#define CONF_FIELD_FLAGS_NO_MODIFY  (1<<0)
+
 typedef struct conf_option {
-    char  *name;
-    int   (*set)(void *cf, struct conf_option *opt, void *data);
-    int   (*get)(void *cf, struct conf_option *opt, void *data);
-    int   offset;
+    char    *name;
+    int     type;
+    int     flags;
+    int     (*set)(void *cf, struct conf_option *opt, void *data);
+    int     (*get)(void *cf, struct conf_option *opt, void *data);
+    int     offset;
 }conf_option;
 
 #define EVICTPOLICY_CODEC(ACTION)                           \
@@ -71,17 +82,17 @@ typedef struct conf_server {
 
     int           databases;
     int           internal_dbs_per_databases;
-    
-    long long     max_time_complexity_limit;
 
-    long long     maxmemory;
-    int           maxmemory_policy;
-    int           maxmemory_samples;
-    
-    int           maxclients;
+    /* Limits */
+    long long     max_time_complexity_limit;
+    long long     maxmemory;            /* Max number of memory bytes to use */
+    int           maxmemory_policy;     /* Policy for key eviction */
+    int           maxmemory_samples;    /* Pricision of random sampling */
+    int           maxclients;           /* Max number of simultaneous clients */
+
     int           threads;
 
-    struct array  binds;    /* type: sds */
+    struct array  binds;    /* Type: sds */
     int           port;
 
     sds           dir;
@@ -119,21 +130,23 @@ int conf_set_maxmemory(void *obj, conf_option *opt, void *data);
 int conf_set_maxmemory_policy(void *obj, conf_option *opt, void *data);
 int conf_set_int_non_zero(void *obj, conf_option *opt, void *data);
 
-int conf_get_string(void *obj, conf_option *opt, void *data);
+int conf_get_sds(void *obj, conf_option *opt, void *data);
 int conf_get_int(void *obj, conf_option *opt, void *data);
 int conf_get_longlong(void *obj, conf_option *opt, void *data);
-int conf_get_array_string(void *obj, conf_option *opt, void *data);
+int conf_get_array_sds(void *obj, conf_option *opt, void *data);
 
-int conf_set_string(void *obj, conf_option *opt, void *data);
+int conf_set_sds(void *obj, conf_option *opt, void *data);
 int conf_set_int(void *obj, conf_option *opt, void *data);
 int conf_set_longlong(void *obj, conf_option *opt, void *data);
 int conf_set_bool(void *obj, conf_option *opt, void *data);
-int conf_set_array_string(void *obj, conf_option *opt, void *data);
+int conf_set_array_sds(void *obj, conf_option *opt, void *data);
 
 int CONF_RLOCK(void);
 int CONF_WLOCK(void);
 int CONF_ULOCK(void);
 
 const char *get_evictpolicy_strings(int evictpolicy_type);
+
+void configCommand(struct client *c);
 
 #endif

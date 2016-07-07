@@ -326,9 +326,11 @@ extern dictType zsetDictType;
 #define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_log(__FILE__, __LINE__, 1, "assert faild: %s", #_e)))
 
 unsigned int dictStrHash(const void *key);
+unsigned int dictStrCaseHash(const void *key);
 unsigned int dictSdsHash(const void *key);
 unsigned int dictSdsCaseHash(const void *key);
 int dictStrKeyCompare(void *privdata, const void *key1, const void *key2);
+int dictStrKeyCaseCompare(void *privdata, const void *key1, const void *key2);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 int dictSdsKeyCaseCompare(void *privdata, const void *key1, const void *key2);
 void *dictSdsKeyDupFromStr(void *privdata, const void *key);
