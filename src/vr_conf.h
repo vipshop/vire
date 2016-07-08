@@ -54,12 +54,12 @@
 #define CONF_FIELD_FLAGS_NO_MODIFY  (1<<0)
 
 typedef struct conf_option {
-    char    *name;
-    int     type;
-    int     flags;
+    char    *name;      /* option name */
+    int     type;       /* value type */
+    int     flags;      /* option flags */
     int     (*set)(void *cf, struct conf_option *opt, void *data);
     int     (*get)(void *cf, struct conf_option *opt, void *data);
-    int     offset;
+    int     offset;     /* offset of this option field in the struct  */
 }conf_option;
 
 #define EVICTPOLICY_CODEC(ACTION)                           \
@@ -138,12 +138,15 @@ int conf_get_array_sds(void *obj, conf_option *opt, void *data);
 int conf_set_sds(void *obj, conf_option *opt, void *data);
 int conf_set_int(void *obj, conf_option *opt, void *data);
 int conf_set_longlong(void *obj, conf_option *opt, void *data);
-int conf_set_bool(void *obj, conf_option *opt, void *data);
+int conf_set_yesorno(void *obj, conf_option *opt, void *data);
 int conf_set_array_sds(void *obj, conf_option *opt, void *data);
 
 int CONF_RLOCK(void);
 int CONF_WLOCK(void);
-int CONF_ULOCK(void);
+int CONF_UNLOCK(void);
+
+int CONFF_LOCK(void);
+int CONFF_UNLOCK(void);
 
 const char *get_evictpolicy_strings(int evictpolicy_type);
 

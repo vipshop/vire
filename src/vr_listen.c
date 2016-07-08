@@ -207,7 +207,7 @@ vr_listen_accept(vr_listen *vlisten)
 {
     rstatus_t status;
     int sd;
-    int maxclients;
+    int maxclients = 10;
     
     ASSERT(vlisten->sd > 0);
     

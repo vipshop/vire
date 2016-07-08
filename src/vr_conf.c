@@ -1,4 +1,8 @@
+#include <fcntl.h>
+
 #include <vr_core.h>
+
+typedef const char *(*configEnumGetStrFun)(int type);
 
 #define CONF_TOKEN_ORGANIZATION_START   "["
 #define CONF_TOKEN_ORGANIZATION_END     "]"
@@ -8,8 +12,8 @@
 #define CONF_ORGANIZATION_NAME_COMMAN   "common"
 #define CONF_ORGANIZATION_NAME_SERVER   "server"
 
-#define CONF_VALUE_TRUE                 "true"
-#define CONF_VALUE_FALSE                "false"
+#define CONF_VALUE_YES                  "yes"
+#define CONF_VALUE_NO                   "no"
 
 #define CONF_MAX_LINE                   1024
 
@@ -27,9 +31,9 @@
 #define CONF_TAG_DEFAULT_NOREPLY        "false"
 #define CONF_TAG_DEFAULT_RDB_DISKLESS   "false"
 
-#define CONF_VALUE_UNKNOW   0
-#define CONF_VALUE_STRING   1
-#define CONF_VALUE_ARRAY    2
+#define CONF_VALUE_TYPE_UNKNOW   0
+#define CONF_VALUE_TYPE_STRING   1
+#define CONF_VALUE_TYPE_ARRAY    2
 
 #define DEFINE_ACTION(_hash, _name) (char*)(#_name),
 static char* hash_strings[] = {
@@ -113,9 +117,9 @@ conf_value_dump(conf_value *cv, int log_level)
         return;
     }
 
-    if(cv->type == CONF_VALUE_STRING){
+    if(cv->type == CONF_VALUE_TYPE_STRING){
         log_debug(log_level, "%.*s", sdslen(cv->value), cv->value);
-    }else if(cv->type == CONF_VALUE_ARRAY){
+    }else if(cv->type == CONF_VALUE_TYPE_ARRAY){
         for(i = 0; i < array_n(cv->value); i++){
             cv_sub = array_get(cv->value, i);
             conf_value_dump(*cv_sub, log_level);
@@ -145,11 +149,11 @@ conf_organization_dump(sds name, dict *org, int log_level)
         key = dictGetKey(de);
         cv = dictGetVal(de);
 
-        if(cv->type == CONF_VALUE_STRING){
+        if(cv->type == CONF_VALUE_TYPE_STRING){
             log_debug(log_level, "%.*s: %.*s", 
                 sdslen(key), key,
                 sdslen(cv->value), cv->value);
-        }else if(cv->type == CONF_VALUE_ARRAY){
+        }else if(cv->type == CONF_VALUE_TYPE_ARRAY){
             log_debug(log_level, "%.*s:",sdslen(key), key);
             conf_value_dump(cv, log_level);
         }else{
@@ -201,7 +205,7 @@ conf_set_maxmemory(void *obj, conf_option *opt, void *data)
     long long *gt;
     int err;
 
-    if(cv->type != CONF_VALUE_STRING){
+    if(cv->type != CONF_VALUE_TYPE_STRING){
         log_error("conf pool %s in the conf file error", 
             opt->name);
         return VR_ERROR;
@@ -214,7 +218,7 @@ conf_set_maxmemory(void *obj, conf_option *opt, void *data)
 
     value = memtoll(cv->value, &err);
     if(err != 0){
-        CONF_ULOCK();
+        CONF_UNLOCK();
         log_error("value for the key %s in conf file is invalid", 
              opt->name);
         return VR_ERROR;
@@ -222,7 +226,7 @@ conf_set_maxmemory(void *obj, conf_option *opt, void *data)
 
     *gt = (long long)value;
 
-    CONF_ULOCK();
+    CONF_UNLOCK();
     return VR_OK;
 }
 
@@ -234,7 +238,7 @@ conf_set_maxmemory_policy(void *obj, conf_option *opt, void *data)
     int *gt;
     char **policy;
 
-    if(cv->type != CONF_VALUE_STRING){
+    if(cv->type != CONF_VALUE_TYPE_STRING){
         log_error("conf server in the conf file is not a string");
         return VR_ERROR;
     }
@@ -252,21 +256,21 @@ conf_set_maxmemory_policy(void *obj, conf_option *opt, void *data)
     }
 
     if (*policy == NULL) {
-        CONF_ULOCK();
+        CONF_UNLOCK();
         log_error("ERROR: Conf maxmemory policy '%s' is invalid", 
             cv->value);
         return VR_ERROR;
     }
 
     if (*gt == MAXMEMORY_VOLATILE_LRU || *gt == MAXMEMORY_ALLKEYS_LRU) {
-        CONF_ULOCK();
+        CONF_UNLOCK();
         log_error("ERROR: Conf maxmemory policy now is not support %s and %s", 
             evictpolicy_strings[MAXMEMORY_VOLATILE_LRU], 
             evictpolicy_strings[MAXMEMORY_ALLKEYS_LRU]);
         return VR_ERROR;
     }
 
-    CONF_ULOCK();
+    CONF_UNLOCK();
     return VR_OK;
 }
 
@@ -277,7 +281,7 @@ conf_set_int_non_zero(void *obj, conf_option *opt, void *data)
     conf_value *cv = data;
     int *gt;
 
-    if(cv->type != CONF_VALUE_STRING){
+    if(cv->type != CONF_VALUE_TYPE_STRING){
         log_error("conf pool %s in the conf file error", 
             opt->name);
         return VR_ERROR;
@@ -289,7 +293,7 @@ conf_set_int_non_zero(void *obj, conf_option *opt, void *data)
     gt = (int*)(p + opt->offset);
 
     if(!sdsIsNum(cv->value)){
-        CONF_ULOCK();
+        CONF_UNLOCK();
         log_error("value of the key %s in conf file is not a number", 
             opt->name);
         return VR_ERROR;
@@ -298,18 +302,18 @@ conf_set_int_non_zero(void *obj, conf_option *opt, void *data)
     *gt = vr_atoi(cv->value, sdslen(cv->value));
 
     if (*gt < 0) {
-        CONF_ULOCK();
+        CONF_UNLOCK();
         log_error("value of the key %s in conf file is invalid", 
             opt->name);
         return VR_ERROR;
     } else if (*gt < 1) {
-        CONF_ULOCK();
+        CONF_UNLOCK();
         log_error("value of the key %s in conf file must be 1 or greater", 
             opt->name);
         return VR_ERROR;
     }
 
-    CONF_ULOCK();
+    CONF_UNLOCK();
     return VR_OK;
 }
 
@@ -328,7 +332,7 @@ conf_get_sds(void *obj, conf_option *opt, void *data)
     gt = (sds*)(p + opt->offset);
     if (*gt == NULL) *str = NULL;
     else *str = sdsdup(*gt);
-    CONF_ULOCK();
+    CONF_UNLOCK();
     return VR_OK;
 }
 
@@ -339,7 +343,7 @@ conf_set_sds(void *obj, conf_option *opt, void *data)
     conf_value *cv = data;
     sds *gt;
 
-    if(cv->type != CONF_VALUE_STRING){
+    if(cv->type != CONF_VALUE_TYPE_STRING){
         log_error("conf pool %s in the conf file is not a string", 
             opt->name);
         return VR_ERROR;
@@ -350,7 +354,7 @@ conf_set_sds(void *obj, conf_option *opt, void *data)
     gt = (sds*)(p + opt->offset);
 
     *gt = sdsnewlen(cv->value, sdslen(cv->value));
-    CONF_ULOCK();
+    CONF_UNLOCK();
     return VR_OK;
 }
 
@@ -368,7 +372,7 @@ conf_get_int(void *obj, conf_option *opt, void *data)
     p = obj;
     gt = (int*)(p + opt->offset);
     *integer = *gt;
-    CONF_ULOCK();
+    CONF_UNLOCK();
     return VR_OK;
 }
 
@@ -379,7 +383,7 @@ conf_set_int(void *obj, conf_option *opt, void *data)
     conf_value *cv = data;
     int *gt;
 
-    if(cv->type != CONF_VALUE_STRING){
+    if(cv->type != CONF_VALUE_TYPE_STRING){
         log_error("conf pool %s in the conf file error", 
             opt->name);
         return VR_ERROR;
@@ -391,7 +395,7 @@ conf_set_int(void *obj, conf_option *opt, void *data)
     gt = (int*)(p + opt->offset);
 
     if(!sdsIsNum(cv->value)){
-        CONF_ULOCK();
+        CONF_UNLOCK();
         log_error("value of the key %s in conf file is not a number", 
             opt->name);
         return VR_ERROR;
@@ -400,13 +404,13 @@ conf_set_int(void *obj, conf_option *opt, void *data)
     *gt = vr_atoi(cv->value, sdslen(cv->value));
 
     if (*gt < 0) {
-        CONF_ULOCK();
+        CONF_UNLOCK();
         log_error("value of the key %s in conf file is invalid", 
             opt->name);
         return VR_ERROR;
     }
 
-    CONF_ULOCK();
+    CONF_UNLOCK();
     return VR_OK;
 }
 
@@ -424,7 +428,7 @@ conf_get_longlong(void *obj, conf_option *opt, void *data)
     p = obj;
     gt = (long long*)(p + opt->offset);
     *integer = *gt;
-    CONF_ULOCK();
+    CONF_UNLOCK();
     return VR_OK;
 }
 
@@ -435,7 +439,7 @@ conf_set_longlong(void *obj, conf_option *opt, void *data)
     conf_value *cv = data;
     long long *gt;
 
-    if(cv->type != CONF_VALUE_STRING){
+    if(cv->type != CONF_VALUE_TYPE_STRING){
         log_error("conf pool %s in the conf file error", 
             opt->name);
         return VR_ERROR;
@@ -447,24 +451,24 @@ conf_set_longlong(void *obj, conf_option *opt, void *data)
     gt = (long long*)(p + opt->offset);
 
     if (!string2ll(cv->value, sdslen(cv->value), gt)) {
-        CONF_ULOCK();
+        CONF_UNLOCK();
         log_error("value of the key %s in conf file is invalid", 
             opt->name);
         return VR_ERROR;
     }
 
-    CONF_ULOCK();
+    CONF_UNLOCK();
     return VR_OK;
 }
 
 int
-conf_set_bool(void *obj, conf_option *opt, void *data)
+conf_set_yesorno(void *obj, conf_option *opt, void *data)
 {
     uint8_t *p;
     conf_value *cv = data;
     int *gt;
 
-    if(cv->type != CONF_VALUE_STRING){
+    if(cv->type != CONF_VALUE_TYPE_STRING){
         log_error("conf pool %s in the conf file error", 
             opt->name);
         return VR_ERROR;
@@ -475,18 +479,18 @@ conf_set_bool(void *obj, conf_option *opt, void *data)
     p = obj;
     gt = (int*)(p + opt->offset);
 
-    if(strcmp(cv->value, CONF_VALUE_TRUE) == 0){
+    if(!strcasecmp(cv->value, CONF_VALUE_YES)){
         *gt = 1;
-    }else if(strcmp(cv->value, CONF_VALUE_FALSE) == 0){
+    }else if(!strcasecmp(cv->value, CONF_VALUE_NO)){
         *gt = 0;
     }else{
-        CONF_ULOCK();
+        CONF_UNLOCK();
         log_error("key %s in conf file must be %s or %s",
-            opt->name, CONF_VALUE_TRUE, CONF_VALUE_FALSE);
+            opt->name, CONF_VALUE_YES, CONF_VALUE_NO);
         return VR_ERROR;
     }
 
-    CONF_ULOCK();
+    CONF_UNLOCK();
     return VR_OK;
 }
 
@@ -499,14 +503,14 @@ conf_set_array_sds(void *obj, conf_option *opt, void *data)
     struct array *gt;
     sds *str;
 
-    if(cv->type != CONF_VALUE_STRING && 
-        cv->type != CONF_VALUE_ARRAY){
+    if(cv->type != CONF_VALUE_TYPE_STRING && 
+        cv->type != CONF_VALUE_TYPE_ARRAY){
         log_error("conf pool %s in the conf file is not a string or array", 
             opt->name);
         return VR_ERROR;
-    } else if (cv->type == CONF_VALUE_ARRAY) {
+    } else if (cv->type == CONF_VALUE_TYPE_ARRAY) {
         cv_sub = array_get(cv->value, j);
-        if ((*cv_sub)->type != CONF_VALUE_STRING) {
+        if ((*cv_sub)->type != CONF_VALUE_TYPE_STRING) {
             log_error("conf pool %s in the conf file is not a string array", 
                 opt->name);
             return VR_ERROR;            
@@ -522,10 +526,10 @@ conf_set_array_sds(void *obj, conf_option *opt, void *data)
         sdsfree(*str);
     }
 
-    if (cv->type == CONF_VALUE_STRING) {
+    if (cv->type == CONF_VALUE_TYPE_STRING) {
         str = array_push(gt);
         *str = sdsdup(cv->value);
-    } else if (cv->type == CONF_VALUE_ARRAY) {
+    } else if (cv->type == CONF_VALUE_TYPE_ARRAY) {
         for (j = 0; j < array_n(cv->value); j ++) {
             cv_sub = array_get(cv->value, j);
             str = array_push(gt);
@@ -533,7 +537,7 @@ conf_set_array_sds(void *obj, conf_option *opt, void *data)
         }
     }
     
-    CONF_ULOCK();
+    CONF_UNLOCK();
     return VR_OK;
 }
 
@@ -562,7 +566,7 @@ conf_get_array_sds(void *obj, conf_option *opt, void *data)
         *str2 = sdsdup(*str1);
     }
     
-    CONF_ULOCK();
+    CONF_UNLOCK();
     return VR_OK;
 }
 
@@ -619,7 +623,7 @@ conf_value *conf_value_create(int type)
     cv->type = type;
     cv->value = NULL;
 
-    if(cv->type == CONF_VALUE_ARRAY){
+    if(cv->type == CONF_VALUE_TYPE_ARRAY){
         cv->value = array_create(3, sizeof(conf_value*));
         if(cv->value == NULL){
             vr_free(cv);
@@ -638,14 +642,14 @@ void conf_value_destroy(conf_value *cv)
         return;
     }
     
-    if(cv->type == CONF_VALUE_UNKNOW){
+    if(cv->type == CONF_VALUE_TYPE_UNKNOW){
         vr_free(cv);
         return;
-    }else if(cv->type == CONF_VALUE_STRING){
+    }else if(cv->type == CONF_VALUE_TYPE_STRING){
         if(cv->value != NULL){
             sdsfree(cv->value);
         }
-    }else if(cv->type == CONF_VALUE_ARRAY){
+    }else if(cv->type == CONF_VALUE_TYPE_ARRAY){
         if(cv->value != NULL){
             while(array_n(cv->value) > 0){
                 cv_sub = array_pop(cv->value);
@@ -796,7 +800,7 @@ static int conf_set_default(vr_conf *cf)
 {
     CONF_WLOCK();
     conf_server_set_default(&cf->cserver);
-    CONF_ULOCK();
+    CONF_UNLOCK();
     return VR_OK;
 }
 
@@ -881,8 +885,8 @@ conf_key_value_insert(dict *org, sds key, conf_value *cv)
         conf_value *cv_old, *cv_new, **cv_sub;
         de = dictFind(org,key);
         cv_old = dictGetVal(de);
-        if (cv_old->type != CONF_VALUE_ARRAY) {
-            cv_new = conf_value_create(CONF_VALUE_ARRAY);
+        if (cv_old->type != CONF_VALUE_TYPE_ARRAY) {
+            cv_new = conf_value_create(CONF_VALUE_TYPE_ARRAY);
             cv_sub = array_push(cv_new->value);
             *cv_sub = cv_old;
             cv_sub = array_push(cv_new->value);
@@ -965,7 +969,7 @@ conf_pre_load_from_string(vr_conf *cf, char *config)
         key = argv[0];
         argv[0] = NULL;
         for (j = 1; j < argc; j ++) {
-            cv = conf_value_create(CONF_VALUE_STRING);
+            cv = conf_value_create(CONF_VALUE_TYPE_STRING);
             cv->value = argv[j];
             argv[j] = NULL;
             ret = conf_key_value_insert(org, key, cv);
@@ -1238,9 +1242,21 @@ CONF_WLOCK(void)
 }
 
 int
-CONF_ULOCK(void)
+CONF_UNLOCK(void)
 {
     return pthread_rwlock_unlock(&conf->rwl);
+}
+
+int
+CONFF_LOCK(void)
+{
+    return pthread_mutex_lock(&conf->flock);
+}
+
+int
+CONFF_UNLOCK(void)
+{
+    return pthread_mutex_unlock(&conf->flock);
 }
 
 const char *
@@ -1279,17 +1295,17 @@ static void configSetCommand(client *c) {
 
     fields = sdssplitlen(value,sdslen(value)," ",1,&fields_count);
     if (fields_count == 1) {
-        cv = conf_value_create(CONF_VALUE_STRING);
+        cv = conf_value_create(CONF_VALUE_TYPE_STRING);
         cv->value = fields[0];
         fields[0] = NULL;
     } else if (fields_count > 1) {
         conf_value **cv_sub;
         uint32_t i;
     
-        cv = conf_value_create(CONF_VALUE_ARRAY);
+        cv = conf_value_create(CONF_VALUE_TYPE_ARRAY);
         for (i = 0; i < fields_count; i ++) {
             cv_sub = array_push(cv->value);
-            *cv_sub = conf_value_create(CONF_VALUE_STRING);
+            *cv_sub = conf_value_create(CONF_VALUE_TYPE_STRING);
             (*cv_sub)->value = fields[i];
             fields[i] = NULL;
         }
@@ -1391,6 +1407,453 @@ static void configGetCommand(client *c) {
 }
 
 /*-----------------------------------------------------------------------------
+ * CONFIG REWRITE implementation
+ *----------------------------------------------------------------------------*/
+
+/* The config rewrite state. */
+struct rewriteConfigState {
+    dict *option_to_line; /* Option -> list of config file lines map */
+    dict *rewritten;      /* Dictionary of already processed options */
+    int numlines;         /* Number of lines in current config */
+    sds *lines;           /* Current lines as an array of sds strings */
+    int has_tail;         /* True if we already added directives that were
+                             not present in the original config file. */
+};
+
+/* Append the new line to the current configuration state. */
+static void rewriteConfigAppendLine(struct rewriteConfigState *state, sds line) {
+    state->lines = vr_realloc(state->lines, sizeof(char*) * (state->numlines+1));
+    state->lines[state->numlines++] = line;
+}
+
+/* Populate the option -> list of line numbers map. */
+static void rewriteConfigAddLineNumberToOption(struct rewriteConfigState *state, sds option, int linenum) {
+    list *l = dictFetchValue(state->option_to_line,option);
+
+    if (l == NULL) {
+        l = listCreate();
+        dictAdd(state->option_to_line,sdsdup(option),l);
+    }
+    listAddNodeTail(l,(void*)(long)linenum);
+}
+
+dictType optionToLineDictType = {
+    dictSdsCaseHash,            /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsDestructor,          /* key destructor */
+    dictListDestructor          /* val destructor */
+};
+
+dictType optionSetDictType = {
+    dictSdsCaseHash,            /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsDestructor,          /* key destructor */
+    NULL                        /* val destructor */
+};
+
+#define CONFIG_MAX_LINE    1024
+#define REDIS_CONFIG_REWRITE_SIGNATURE "# Generated by CONFIG REWRITE"
+/* Read the old file, split it into lines to populate a newly created
+ * config rewrite state, and return it to the caller.
+ *
+ * If it is impossible to read the old file, NULL is returned.
+ * If the old file does not exist at all, an empty state is returned. */
+static struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
+    FILE *fp = fopen(path,"r");
+    struct rewriteConfigState *state = vr_alloc(sizeof(*state));
+    char buf[CONFIG_MAX_LINE+1];
+    int linenum = -1;
+
+    if (fp == NULL && errno != ENOENT) return NULL;
+
+    state->option_to_line = dictCreate(&optionToLineDictType,NULL);
+    state->rewritten = dictCreate(&optionSetDictType,NULL);
+    state->numlines = 0;
+    state->lines = NULL;
+    state->has_tail = 0;
+    if (fp == NULL) return state;
+
+    /* Read the old file line by line, populate the state. */
+    while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL) {
+        int argc;
+        sds *argv;
+        sds line = sdstrim(sdsnew(buf),"\r\n\t ");
+
+        linenum++; /* Zero based, so we init at -1 */
+
+        /* Handle comments and empty lines. */
+        if (line[0] == '#' || line[0] == '\0') {
+            if (!state->has_tail && !strcmp(line,REDIS_CONFIG_REWRITE_SIGNATURE))
+                state->has_tail = 1;
+            rewriteConfigAppendLine(state,line);
+            continue;
+        }
+
+        /* Not a comment, split into arguments. */
+        argv = sdssplitargs(line,&argc);
+        if (argv == NULL) {
+            /* Apparently the line is unparsable for some reason, for
+             * instance it may have unbalanced quotes. Load it as a
+             * comment. */
+            sds aux = sdsnew("# ??? ");
+            aux = sdscatsds(aux,line);
+            sdsfree(line);
+            rewriteConfigAppendLine(state,aux);
+            continue;
+        }
+
+        sdstolower(argv[0]); /* We only want lowercase config directives. */
+
+        /* Now we populate the state according to the content of this line.
+         * Append the line and populate the option -> line numbers map. */
+        rewriteConfigAppendLine(state,line);
+        rewriteConfigAddLineNumberToOption(state,argv[0],linenum);
+
+        sdsfreesplitres(argv,argc);
+    }
+    fclose(fp);
+    return state;
+}
+
+/* Add the specified option to the set of processed options.
+ * This is useful as only unused lines of processed options will be blanked
+ * in the config file, while options the rewrite process does not understand
+ * remain untouched. */
+static void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option) {
+    sds opt = sdsnew(option);
+
+    if (dictAdd(state->rewritten,opt,NULL) != DICT_OK) sdsfree(opt);
+}
+
+/* Rewrite the specified configuration option with the new "line".
+ * It progressively uses lines of the file that were already used for the same
+ * configuration option in the old version of the file, removing that line from
+ * the map of options -> line numbers.
+ *
+ * If there are lines associated with a given configuration option and
+ * "force" is non-zero, the line is appended to the configuration file.
+ * Usually "force" is true when an option has not its default value, so it
+ * must be rewritten even if not present previously.
+ *
+ * The first time a line is appended into a configuration file, a comment
+ * is added to show that starting from that point the config file was generated
+ * by CONFIG REWRITE.
+ *
+ * "line" is either used, or freed, so the caller does not need to free it
+ * in any way. */
+static void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force) {
+    sds o = sdsnew(option);
+    list *l = dictFetchValue(state->option_to_line,o);
+
+    rewriteConfigMarkAsProcessed(state,option);
+
+    if (!l && !force) {
+        /* Option not used previously, and we are not forced to use it. */
+        sdsfree(line);
+        sdsfree(o);
+        return;
+    }
+
+    if (l) {
+        listNode *ln = listFirst(l);
+        int linenum = (long) ln->value;
+
+        /* There are still lines in the old configuration file we can reuse
+         * for this option. Replace the line with the new one. */
+        listDelNode(l,ln);
+        if (listLength(l) == 0) dictDelete(state->option_to_line,o);
+        sdsfree(state->lines[linenum]);
+        state->lines[linenum] = line;
+    } else {
+        /* Append a new line. */
+        if (!state->has_tail) {
+            rewriteConfigAppendLine(state,
+                sdsnew(REDIS_CONFIG_REWRITE_SIGNATURE));
+            state->has_tail = 1;
+        }
+        rewriteConfigAppendLine(state,line);
+    }
+    sdsfree(o);
+}
+
+/* Free the configuration rewrite state. */
+static void rewriteConfigReleaseState(struct rewriteConfigState *state) {
+    sdsfreesplitres(state->lines,state->numlines);
+    dictRelease(state->option_to_line);
+    dictRelease(state->rewritten);
+    vr_free(state);
+}
+
+/* At the end of the rewrite process the state contains the remaining
+ * map between "option name" => "lines in the original config file".
+ * Lines used by the rewrite process were removed by the function
+ * rewriteConfigRewriteLine(), all the other lines are "orphaned" and
+ * should be replaced by empty lines.
+ *
+ * This function does just this, iterating all the option names and
+ * blanking all the lines still associated. */
+static void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
+    dictIterator *di = dictGetIterator(state->option_to_line);
+    dictEntry *de;
+
+    while((de = dictNext(di)) != NULL) {
+        list *l = dictGetVal(de);
+        sds option = dictGetKey(de);
+
+        /* Don't blank lines about options the rewrite process
+         * don't understand. */
+        if (dictFind(state->rewritten,option) == NULL) {
+            log_debug(LOG_DEBUG,"Not rewritten option: %s", option);
+            continue;
+        }
+
+        while(listLength(l)) {
+            listNode *ln = listFirst(l);
+            int linenum = (long) ln->value;
+
+            sdsfree(state->lines[linenum]);
+            state->lines[linenum] = sdsempty();
+            listDelNode(l,ln);
+        }
+    }
+    dictReleaseIterator(di);
+}
+
+/* Glue together the configuration lines in the current configuration
+ * rewrite state into a single string, stripping multiple empty lines. */
+static sds rewriteConfigGetContentFromState(struct rewriteConfigState *state) {
+    sds content = sdsempty();
+    int j, was_empty = 0;
+
+    for (j = 0; j < state->numlines; j++) {
+        /* Every cluster of empty lines is turned into a single empty line. */
+        if (sdslen(state->lines[j]) == 0) {
+            if (was_empty) continue;
+            was_empty = 1;
+        } else {
+            was_empty = 0;
+        }
+        content = sdscatsds(content,state->lines[j]);
+        content = sdscatlen(content,"\n",1);
+    }
+    return content;
+}
+
+/* This function overwrites the old configuration file with the new content.
+ *
+ * 1) The old file length is obtained.
+ * 2) If the new content is smaller, padding is added.
+ * 3) A single write(2) call is used to replace the content of the file.
+ * 4) Later the file is truncated to the length of the new content.
+ *
+ * This way we are sure the file is left in a consistent state even if the
+ * process is stopped between any of the four operations.
+ *
+ * The function returns 0 on success, otherwise -1 is returned and errno
+ * set accordingly. */
+static int rewriteConfigOverwriteFile(char *configfile, sds content) {
+    int retval = 0;
+    int fd = open(configfile,O_RDWR|O_CREAT,0644);
+    int content_size = sdslen(content), padding = 0;
+    struct stat sb;
+    sds content_padded;
+
+    /* 1) Open the old file (or create a new one if it does not
+     *    exist), get the size. */
+    if (fd == -1) return -1; /* errno set by open(). */
+    if (fstat(fd,&sb) == -1) {
+        close(fd);
+        return -1; /* errno set by fstat(). */
+    }
+
+    /* 2) Pad the content at least match the old file size. */
+    content_padded = sdsdup(content);
+    if (content_size < sb.st_size) {
+        /* If the old file was bigger, pad the content with
+         * a newline plus as many "#" chars as required. */
+        padding = sb.st_size - content_size;
+        content_padded = sdsgrowzero(content_padded,sb.st_size);
+        content_padded[content_size] = '\n';
+        memset(content_padded+content_size+1,'#',padding-1);
+    }
+
+    /* 3) Write the new content using a single write(2). */
+    if (write(fd,content_padded,strlen(content_padded)) == -1) {
+        retval = -1;
+        goto cleanup;
+    }
+
+    /* 4) Truncate the file to the right length if we used padding. */
+    if (padding) {
+        if (ftruncate(fd,content_size) == -1) {
+            /* Non critical error... */
+        }
+    }
+
+cleanup:
+    sdsfree(content_padded);
+    close(fd);
+    return retval;
+}
+
+/* Rewrite a numerical (int range) option. */
+static void rewriteConfigIntOption(struct rewriteConfigState *state, char *option, int defvalue) {
+    int value;
+    int force;
+    sds line;
+
+    conf_server_get(option,&value);
+    line = sdscatprintf(sdsempty(),"%s %d",option,value);
+    force = value != defvalue;
+
+    rewriteConfigRewriteLine(state,option,line,force);
+}
+
+/* Rewrite a numerical (long long range) option. */
+static void rewriteConfigLongLongOption(struct rewriteConfigState *state, char *option, long long defvalue) {
+    long long value;
+    int force;
+    sds line;
+
+    conf_server_get(option,&value);
+    line = sdscatprintf(sdsempty(),"%s %lld",option,value);
+    force = value != defvalue;
+
+    rewriteConfigRewriteLine(state,option,line,force);
+}
+
+/* Write the long long 'bytes' value as a string in a way that is parsable
+ * inside redis.conf. If possible uses the GB, MB, KB notation. */
+static int rewriteConfigFormatMemory(char *buf, size_t len, long long bytes) {
+    int gb = 1024*1024*1024;
+    int mb = 1024*1024;
+    int kb = 1024;
+
+    if (bytes && (bytes % gb) == 0) {
+        return snprintf(buf,len,"%lldgb",bytes/gb);
+    } else if (bytes && (bytes % mb) == 0) {
+        return snprintf(buf,len,"%lldmb",bytes/mb);
+    } else if (bytes && (bytes % kb) == 0) {
+        return snprintf(buf,len,"%lldkb",bytes/kb);
+    } else {
+        return snprintf(buf,len,"%lld",bytes);
+    }
+}
+
+/* Rewrite a simple "option-name <bytes>" configuration option. */
+static void rewriteConfigBytesOption(struct rewriteConfigState *state, char *option, long long defvalue) {
+     long long value;
+    char buf[64];
+    int force;
+    sds line;
+
+    conf_server_get(option,&value);
+    force = value != defvalue;
+
+    rewriteConfigFormatMemory(buf,sizeof(buf),value);
+    line = sdscatprintf(sdsempty(),"%s %s",option,buf);
+    rewriteConfigRewriteLine(state,option,line,force);
+}
+
+/* Rewrite an enumeration option. It takes as usually state and option name,
+ * and in addition the enumeration array and the default value for the
+ * option. */
+static void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, configEnumGetStrFun fun, int defval) {
+    int value;
+    sds line;
+    const char *name;
+    int force;
+
+    conf_server_get(option,&value);
+    force = value != defval;
+    name = fun(value);
+    line = sdscatprintf(sdsempty(),"%s %s",option,name);
+    rewriteConfigRewriteLine(state,option,line,force);
+}
+
+/* Rewrite the bind option. */
+static void rewriteConfigBindOption(struct rewriteConfigState *state) {
+    struct array values;
+    sds *value, line;
+    int force = 1;
+    char *option = CONFIG_SOPN_BIND;
+
+    array_init(&values,1,sizeof(sds));
+    conf_server_get(option,&values);
+    /* Nothing to rewrite if we don't have bind addresses. */
+    if (array_n(&values) == 0) {
+        array_deinit(&values);
+        rewriteConfigMarkAsProcessed(state,option);
+        return;
+    }
+
+    /* Rewrite as bind <addr1> <addr2> ... <addrN> */
+    line = sdsnew(option);
+    while(array_n(&values) > 0) {
+        line = sdscat(line," ");
+        value = array_pop(&values);
+        line = sdscatsds(line,*value);
+        sdsfree(*value);
+    }
+    array_deinit(&values);
+
+    rewriteConfigRewriteLine(state,option,line,force);
+}
+
+/* Rewrite the configuration file at "path".
+ * If the configuration file already exists, we try at best to retain comments
+ * and overall structure.
+ *
+ * Configuration parameters that are at their default value, unless already
+ * explicitly included in the old configuration file, are not rewritten.
+ *
+ * On error -1 is returned and errno is set accordingly, otherwise 0. */
+static int rewriteConfig(char *path) {
+    struct rewriteConfigState *state;
+    sds newcontent;
+    int retval;
+    conf_option *cop;
+
+    CONFF_LOCK();
+    /* Step 1: read the old config into our rewrite state. */
+    if ((state = rewriteConfigReadOldFile(path)) == NULL) {
+        CONFF_UNLOCK();
+        return -1;
+    }
+
+    /* Step 2: rewrite every single option, replacing or appending it inside
+     * the rewrite state. */
+    rewriteConfigIntOption(state,CONFIG_SOPN_DATABASES,CONFIG_DEFAULT_LOGICAL_DBNUM);
+    rewriteConfigIntOption(state,CONFIG_SOPN_IDPDATABASE,CONFIG_DEFAULT_INTERNAL_DBNUM);
+    rewriteConfigBytesOption(state,CONFIG_SOPN_MAXMEMORY,CONFIG_DEFAULT_MAXMEMORY);
+    rewriteConfigEnumOption(state,CONFIG_SOPN_MAXMEMORYP,get_evictpolicy_strings,CONFIG_DEFAULT_MAXMEMORY_POLICY);
+    rewriteConfigIntOption(state,CONFIG_SOPN_MAXMEMORYS,CONFIG_DEFAULT_MAXMEMORY_SAMPLES);
+    rewriteConfigLongLongOption(state,CONFIG_SOPN_MTCLIMIT,CONFIG_DEFAULT_MAX_TIME_COMPLEXITY_LIMIT);
+    rewriteConfigBindOption(state);
+    rewriteConfigIntOption(state,CONFIG_SOPN_PORT,CONFIG_DEFAULT_SERVER_PORT);
+    rewriteConfigIntOption(state,CONFIG_SOPN_THREADS,CONFIG_DEFAULT_THREADS_NUM);
+    
+    /* Step 3: remove all the orphaned lines in the old file, that is, lines
+     * that were used by a config option and are no longer used, like in case
+     * of multiple "save" options or duplicated options. */
+    rewriteConfigRemoveOrphaned(state);
+
+    /* Step 4: generate a new configuration file from the modified state
+     * and write it into the original file. */
+    newcontent = rewriteConfigGetContentFromState(state);
+    retval = rewriteConfigOverwriteFile(server.configfile,newcontent);
+    CONFF_UNLOCK();
+
+    sdsfree(newcontent);
+    rewriteConfigReleaseState(state);
+    return retval;
+}
+
+/*-----------------------------------------------------------------------------
  * CONFIG command entry point
  *----------------------------------------------------------------------------*/
 
@@ -1412,23 +1875,23 @@ void configCommand(client *c) {
         resetServerStats();
         resetCommandTableStats();
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"rewrite")) {
+    }*/ else if (!strcasecmp(c->argv[1]->ptr,"rewrite")) {
         if (c->argc != 2) goto badarity;
         if (server.configfile == NULL) {
             addReplyError(c,"The server is running without a config file");
             return;
         }
         if (rewriteConfig(server.configfile) == -1) {
-            serverLog(LL_WARNING,"CONFIG REWRITE failed: %s", strerror(errno));
+            log_warn("CONFIG REWRITE failed: %s", strerror(errno));
             addReplyErrorFormat(c,"Rewriting config file: %s", strerror(errno));
         } else {
-            serverLog(LL_WARNING,"CONFIG REWRITE executed with success.");
+            log_warn("CONFIG REWRITE executed with success.");
             addReply(c,shared.ok);
         }
-    }*/ else {
+    } else {
         addReplyError(c,
             //"CONFIG subcommand must be one of GET, SET, RESETSTAT, REWRITE");
-            "CONFIG subcommand must be GET, SET");
+            "CONFIG subcommand must be GET, SET, REWRITE");
     }
     return;
 
