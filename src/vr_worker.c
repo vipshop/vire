@@ -8,12 +8,6 @@ struct array workers;
 
 static void *worker_thread_run(void *args);
 
-struct connswapunit {
-    int sd;
-    vr_listen *vlisten;
-    struct connswapunit *next;
-};
-
 #define SU_PER_ALLOC 64
 
 /* Free list of swapunit structs */
@@ -23,7 +17,7 @@ static pthread_mutex_t csui_freelist_lock;
 /*
  * Returns a fresh connection connswapunit queue item.
  */
-static struct connswapunit *
+struct connswapunit *
 csui_new(void) {
     struct connswapunit *item = NULL;
     pthread_mutex_lock(&csui_freelist_lock);
@@ -62,7 +56,7 @@ csui_new(void) {
 /*
  * Frees a connection connswapunit queue item (adds it to the freelist.)
  */
-static void 
+void 
 csui_free(struct connswapunit *item) {
     pthread_mutex_lock(&csui_freelist_lock);
     item->next = csui_freelist;
@@ -70,7 +64,7 @@ csui_free(struct connswapunit *item) {
     pthread_mutex_unlock(&csui_freelist_lock);
 }
 
-static void
+void
 csul_push(vr_worker *worker, struct connswapunit *su)
 {
     pthread_mutex_lock(&worker->csullock);
@@ -78,7 +72,7 @@ csul_push(vr_worker *worker, struct connswapunit *su)
     pthread_mutex_unlock(&worker->csullock);
 }
 
-static struct connswapunit *
+struct connswapunit *
 csul_pop(vr_worker *worker)
 {
     struct connswapunit *su = NULL;
@@ -99,6 +93,7 @@ vr_worker_init(vr_worker *worker)
         return VR_ERROR;
     }
 
+    worker->id = 0;
     vr_eventloop_init(&worker->vel);
     worker->socketpairs[0] = -1;
     worker->socketpairs[1] = -1;
@@ -172,6 +167,13 @@ vr_worker_deinit(vr_worker *worker)
     }
 }
 
+int
+worker_get_next_idx(int curidx)
+{
+    int idx = curidx + 1;
+    return idx>=num_worker_threads?0:idx;
+}
+
 void
 dispatch_conn_new(vr_listen *vlisten, int sd)
 {
@@ -182,7 +184,7 @@ dispatch_conn_new(vr_listen *vlisten, int sd)
     if (su == NULL) {
         close(sd);
         /* given that malloc failed this may also fail, but let's try */
-        log_error("Failed to allocate memory for connection object\n");
+        log_error("Failed to allocate memory for connection swap object\n");
         return ;
     }
     
@@ -191,8 +193,8 @@ dispatch_conn_new(vr_listen *vlisten, int sd)
 
     last_worker_thread = tid;
 
-    su->sd = sd;
-    su->vlisten = vlisten;
+    su->num = sd;
+    su->data = vlisten;
 
     csul_push(worker, su);
 
@@ -218,7 +220,7 @@ thread_event_process(aeEventLoop *el, int fd, void *privdata, int mask) {
     ASSERT(fd == worker->socketpairs[1]);
 
     if (vr_read(fd, buf, 1) != 1) {
-        log_debug(LOG_DEBUG, "can't read for worker(id:%d) socketpairs[1](%d)", 
+        log_warn("Can't read for worker(id:%d) socketpairs[1](%d)", 
             worker->vel.thread.id, fd);
         buf[0] = 'c';
     }
@@ -229,8 +231,8 @@ thread_event_process(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (csu == NULL) {
             return;
         }
-        sd = csu->sd;
-        vlisten = csu->vlisten;
+        sd = csu->num;
+        vlisten = csu->data;
         csui_free(csu);
         conn = conn_get(worker->vel.cb);
         if (conn == NULL) {
@@ -266,19 +268,35 @@ thread_event_process(aeEventLoop *el, int fd, void *privdata, int mask) {
             conn_put(conn);
             return;
         }
-        
+        c->curidx = worker->id;
         status = aeCreateFileEvent(worker->vel.el, conn->sd, AE_READABLE, 
             readQueryFromClient, c);
         if (status == AE_ERR) {
             log_error("Unrecoverable error creating worker ipfd file event.");
             return;
         }
-    
-        log_debug(LOG_DEBUG, "accepted c %d from '%s'", 
-            conn->sd, vr_unresolve_peer_desc(conn->sd));
 
         update_stats_add(c->vel->stats, numconnections, 1);
         
+        break;
+    case 'j':
+        csu = csul_pop(worker);
+        if (csu == NULL) {
+            return;
+        }
+        c = csu->data;
+        csui_free(csu);
+        c->vel = &worker->vel;
+        c->curidx = worker->id;
+        c->steps ++;
+        c->cmd->proc(c);
+        
+        if (c->flags&CLIENT_JUMP) {
+            dispatch_conn_exist(c,c->taridx);
+        } else {
+            resetClient(c);
+            linkClientToEventloop(c,c->vel);
+        }
         break;
     default:
         log_error("read error char '%c' for worker(id:%d) socketpairs[1](%d)", 
@@ -326,7 +344,7 @@ int
 workers_init(uint32_t worker_count)
 {
     rstatus_t status;
-    uint32_t i;
+    uint32_t idx;
     vr_worker *worker;
     
     csui_freelist = NULL;
@@ -334,10 +352,10 @@ workers_init(uint32_t worker_count)
 
     array_init(&workers, worker_count, sizeof(vr_worker));
 
-    for (i = 0; i < worker_count; i ++) {
+    for (idx = 0; idx < worker_count; idx ++) {
         worker = array_push(&workers);
         vr_worker_init(worker);
-
+        worker->id = idx;
         status = setup_worker(worker);
         if (status != VR_OK) {
             exit(1);

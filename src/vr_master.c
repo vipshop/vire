@@ -12,7 +12,9 @@ master_init(vr_conf *conf)
     uint32_t j;
     sds *host, listen_str;
     vr_listen **vlisten;
-    
+
+    master.cbsul = NULL;
+    pthread_mutex_init(&master.cbsullock, NULL);
     vr_eventloop_init(&master.vel);
 
     master.vel.thread.fun_run = master_thread_run;
@@ -41,6 +43,12 @@ master_init(vr_conf *conf)
             log_error("Begin listen to %s failed", (*vlisten)->name);
             return VR_ERROR;
         }
+    }
+
+    master.cbsul = listCreate();
+    if (master.cbsul == NULL) {
+        log_error("Create list failed: out of memory");
+        return VR_ENOMEM;
     }
 
     setup_master();
@@ -73,12 +81,118 @@ client_accept(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
+static void
+cbsul_push(struct connswapunit *su)
+{
+    pthread_mutex_lock(&master.cbsullock);
+    listPush(master.cbsul, su);
+    pthread_mutex_unlock(&master.cbsullock);
+}
+
+static struct connswapunit *
+cbsul_pop(void)
+{
+    struct connswapunit *su = NULL;
+
+    pthread_mutex_lock(&master.cbsullock);
+    su = listPop(master.cbsul);
+    pthread_mutex_unlock(&master.cbsullock);
+    
+    return su;
+}
+
+void
+dispatch_conn_exist(client *c, int tid)
+{
+    struct connswapunit *su = csui_new();
+    char buf[1];
+    vr_worker *worker;
+
+    if (su == NULL) {
+        freeClient(c);
+        /* given that malloc failed this may also fail, but let's try */
+        log_error("Failed to allocate memory for connection swap object\n");
+        return ;
+    }
+
+    su->num = tid;
+    su->data = c;
+    
+    unlinkClientFromEventloop(c);
+
+    cbsul_push(su);
+
+    worker = array_get(&workers, (uint32_t)c->curidx);
+
+    /* Back to master */
+    buf[0] = 'b';
+    if (vr_write(worker->socketpairs[1], buf, 1) != 1) {
+        log_error("Notice the worker failed.");
+    }
+}
+
+static void
+thread_event_process(aeEventLoop *el, int fd, void *privdata, int mask) {
+
+    rstatus_t status;
+    vr_worker *worker = privdata;
+    char buf[1];
+    int idx;
+    client *c;
+    struct connswapunit *su;
+
+    ASSERT(el == master.vel.el);
+    ASSERT(fd == worker->socketpairs[0]);
+
+    if (vr_read(fd, buf, 1) != 1) {
+        log_warn("Can't read for worker(id:%d) socketpairs[1](%d)", 
+            worker->vel.thread.id, fd);
+        buf[0] = 'b';
+    }
+    
+    switch (buf[0]) {
+    case 'b':
+        su = cbsul_pop();
+        if (su == NULL) {
+            log_warn("Pop from connection back swap list is null");
+            return;
+        }
+        
+        idx = su->num;
+        su->num = worker->id;
+        worker = array_get(&workers, (uint32_t)idx);
+        csul_push(worker, su);
+
+        /* Jump to the target worker. */
+        buf[0] = 'j';
+        if (vr_write(worker->socketpairs[0], buf, 1) != 1) {
+            log_error("Notice the worker failed.");
+        }
+        break;
+    default:
+        log_error("read error char '%c' for worker(id:%d) socketpairs[0](%d)", 
+            buf[0], worker->vel.thread.id, worker->socketpairs[1]);
+        break;
+    }
+}
+
 static int
 setup_master(void)
 {
     rstatus_t status;
     uint32_t j;
     vr_listen **vlisten;
+    vr_worker *worker;
+
+    for (j = 0; j < array_n(&workers); j ++) {
+        worker = array_get(&workers, j);
+        status = aeCreateFileEvent(master.vel.el, worker->socketpairs[0], 
+            AE_READABLE, thread_event_process, worker);
+        if (status == AE_ERR) {
+            log_error("Unrecoverable error creating master ipfd file event.");
+            return VR_ERROR;
+        }
+    }
 
     for (j = 0; j < array_n(&master.listens); j ++) {
         vlisten = array_get(&master.listens,j);

@@ -43,7 +43,7 @@ client *createClient(vr_eventloop *vel, struct conn *conn) {
     }
 
     selectDb(c,0);
-    c->id = 0;
+    c->id = vel->next_client_id++;
     c->conn = conn;
     c->vel = vel;
     c->scanid = -1;
@@ -84,6 +84,10 @@ client *createClient(vr_eventloop *vel, struct conn *conn) {
     c->pubsub_channels = dictCreate(&setDictType,NULL);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
+    c->curidx = -1;
+    c->taridx = -1;
+    c->steps = 0;
+    c->cache = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (conn->sd != -1) listAddNodeTail(vel->clients,c);
@@ -306,6 +310,7 @@ void addReply(client *c, robj *obj) {
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != VR_OK)
             _addReplyObjectToList(c,obj);
     } else if (obj->encoding == OBJ_ENCODING_INT) {
+        robj *obj_new;
         /* Optimization: if there is room in the static buffer for 32 bytes
          * (more than the max chars a 64 bit integer can take as string) we
          * avoid decoding the object and go for the lower level approach. */
@@ -319,10 +324,10 @@ void addReply(client *c, robj *obj) {
             /* else... continue with the normal code path, but should never
              * happen actually since we verified there is room. */
         }
-        obj = getDecodedObject(obj);
+        obj_new = getDecodedObject(obj);
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != VR_OK)
             _addReplyObjectToList(c,obj);
-        decrRefCount(obj);
+        if (obj_new != obj) freeObject(obj_new);
     } else {
         serverPanic("Wrong obj->encoding in addReply()");
     }
@@ -593,6 +598,78 @@ void disconnectSlaves(void) {
     while (listLength(repl.slaves)) {
         listNode *ln = listFirst(repl.slaves);
         freeClient((client*)ln->value);
+    }
+}
+
+/* Remove the specified client from eventloop lists where the client could
+ * be referenced from this eventloop, not including the Pub/Sub channels.
+ * This is used by clients jump between workers. */
+void unlinkClientFromEventloop(client *c) {
+    listNode *ln;
+    vr_eventloop *vel = c->vel;
+
+    c->vel = NULL;
+
+    if (c->steps >= 1) return;
+    
+    /* If this is marked as current client unset it. */
+    if (vel->current_client == c) vel->current_client = NULL;
+
+    /* Certain operations must be done only if the client has an active socket.
+     * If the client was already unlinked or if it's a "fake client" the
+     * fd is already set to -1. */
+    if (c->conn->sd != -1) {
+        /* Remove from the list of active clients. */
+        ln = listSearchKey(vel->clients,c);
+        ASSERT(ln != NULL);
+        listDelNode(vel->clients,ln);
+
+        /* Unregister async I/O handlers and close the socket. */
+        aeDeleteFileEvent(vel->el,c->conn->sd,AE_READABLE);
+        aeDeleteFileEvent(vel->el,c->conn->sd,AE_WRITABLE);
+    }
+
+    /* Remove from the list of pending writes if needed. */
+    if (c->flags & CLIENT_PENDING_WRITE) {
+        ln = listSearchKey(vel->clients_pending_write,c);
+        ASSERT(ln != NULL);
+        listDelNode(vel->clients_pending_write,ln);
+        c->flags &= ~CLIENT_PENDING_WRITE;
+    }
+
+    /* When client was just unblocked because of a blocking operation,
+     * remove it from the list of unblocked clients. */
+    if (c->flags & CLIENT_UNBLOCKED) {
+        ln = listSearchKey(vel->unblocked_clients,c);
+        ASSERT(ln != NULL);
+        listDelNode(vel->unblocked_clients,ln);
+        c->flags &= ~CLIENT_UNBLOCKED;
+    }
+}
+
+void linkClientToEventloop(client *c,vr_eventloop *vel) {
+    listPush(vel->clients,c);
+    c->vel = vel;
+    if (aeCreateFileEvent(vel->el,c->conn->sd,AE_READABLE,
+        readQueryFromClient,c) == AE_ERR)
+    {
+        freeClient(c);
+        return;
+    }
+
+    /* Handle the remain query buffer */
+    processInputBuffer(c);
+    if (c->flags&CLIENT_JUMP) {
+        dispatch_conn_exist(c,c->taridx);
+    } else {
+        if (clientHasPendingReplies(c) && 
+            !(c->flags&CLIENT_PENDING_WRITE)) {
+            if (aeCreateFileEvent(vel->el, c->conn->sd, AE_WRITABLE,
+                sendReplyToClient, c) == AE_ERR)
+            {
+                freeClientAsync(c);
+            }
+        }
     }
 }
 
@@ -883,6 +960,9 @@ int handleClientsWithPendingWrites(vr_eventloop *vel) {
 void resetClient(client *c) {
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
+    if (c->flags&CLIENT_JUMP)
+        return;
+
     freeClientArgv(c);
     c->reqtype = 0;
     c->multibulklen = 0;
@@ -1152,6 +1232,11 @@ void processInputBuffer(client *c) {
             /* freeMemoryIfNeeded may flush slave output buffers. This may result
              * into a slave, that may be the active client, to be freed. */
             if (c->vel->current_client == NULL) break;
+
+            /* If this client need to jump to another worker,
+             * break this while loop. When this client jumped finished, 
+             * continue handle the remain query buffer. */
+            if (c->flags&CLIENT_JUMP) break;
         }
     }
     c->vel->current_client = NULL;
@@ -1212,6 +1297,10 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
     processInputBuffer(c);
+
+    if (c->flags&CLIENT_JUMP) {
+        dispatch_conn_exist(c,c->taridx);
+    }
 }
 
 void getClientsMaxBuffers(vr_eventloop *vel, unsigned long *longest_output_list,
@@ -1250,9 +1339,7 @@ void genClientPeerId(client *client, char *peerid,
         snprintf(peerid,peerid_len,"%s:0",server.unixsocket);
     } else {
         /* TCP client. */
-        char *peer;
-        peer = vr_unresolve_peer_desc(client->conn->sd);
-        strncpy(peerid, peer, MIN(peerid_len, strlen(peer)));
+        vr_net_format_peer(client->conn->sd,peerid,peerid_len);
     }
 }
 
@@ -1300,8 +1387,10 @@ sds catClientInfoString(sds s, client *client) {
     if (emask & AE_READABLE) *p++ = 'r';
     if (emask & AE_WRITABLE) *p++ = 'w';
     *p = '\0';
+    
     return sdscatfmt(s,
-        "id=%U addr=%s fd=%i name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U obl=%U oll=%U omem=%U events=%s cmd=%s",
+        "oid=%i id=%U addr=%s fd=%i name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U obl=%U oll=%U omem=%U events=%s cmd=%s",
+        client->curidx,
         (unsigned long long) client->id,
         getClientPeerId(client),
         client->conn->sd,
@@ -1309,7 +1398,7 @@ sds catClientInfoString(sds s, client *client) {
         (long long)(client->vel->unixtime - client->ctime),
         (long long)(client->vel->unixtime - client->lastinteraction),
         flags,
-        client->db->id,
+        client->dictid,
         (int) dictSize(client->pubsub_channels),
         (int) listLength(client->pubsub_patterns),
         (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
@@ -1344,10 +1433,32 @@ void clientCommand(client *c) {
 
     if (!strcasecmp(c->argv[1]->ptr,"list") && c->argc == 2) {
         /* CLIENT LIST */
+        sds str = c->cache;
         sds o = getAllClientsInfoString(c->vel);
-        addReplyBulkCBuffer(c,o,sdslen(o));
+
+        str = sdscatsds(str?str:sdsempty(),o);
+
+        if (c->steps >= array_n(&workers) - 1) {
+            addReplyBulkCBuffer(c,str,sdslen(str));
+            c->steps = 0;
+            c->taridx = -1;
+            sdsfree(str);
+            c->cache = NULL;
+            c->flags &= ~CLIENT_JUMP;
+        } else {
+            if (!(c->flags&CLIENT_JUMP))
+                c->flags |= CLIENT_JUMP;
+            c->taridx = worker_get_next_idx(c->curidx);
+            c->cache = str;
+        }
         sdsfree(o);
-    } else if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {
+        return;
+    } else {
+        addReplyError(c, "Syntax error, try CLIENT (LIST)");
+        return;
+    }
+
+    if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {
         /* CLIENT REPLY ON|OFF|SKIP */
         if (!strcasecmp(c->argv[2]->ptr,"on")) {
             c->flags &= ~(CLIENT_REPLY_SKIP|CLIENT_REPLY_OFF);

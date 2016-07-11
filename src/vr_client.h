@@ -40,7 +40,7 @@
 #define CLIENT_REPLY_SKIP (1<<24)  /* Don't send just this reply. */
 #define CLIENT_LUA_DEBUG (1<<25)  /* Run EVAL in debug mode. */
 #define CLIENT_LUA_DEBUG_SYNC (1<<26)  /* EVAL debugging without fork() */
-
+#define CLIENT_JUMP (1<<27)
 
 #define REDIS_REPLY_CHUNK_BYTES (16*1024) /* 16k output buffer */
 
@@ -117,6 +117,11 @@ typedef struct client {
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
 
+    int curidx;             /* The worker idx that this client current belong to. */
+    int taridx;             /* The target worker idx that this client will jump to */
+    int steps;              /* The steps that this client jumps between workers. */
+    void *cache;            /* Cache data for client to jump between workers. */
+
     /* Response buffer */
     int bufpos;
     char buf[PROTO_REPLY_CHUNK_BYTES];
@@ -163,6 +168,7 @@ void getClientsMaxBuffers(vr_eventloop *vel, unsigned long *longest_output_list,
 char *getClientPeerId(client *client);
 sds catClientInfoString(sds s, client *client);
 sds getAllClientsInfoString(vr_eventloop *vel);
+void clientCommand(client *c);
 void rewriteClientCommandVector(client *c, int argc, ...);
 void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
@@ -180,6 +186,8 @@ int clientsArePaused(vr_eventloop *vel);
 int processEventsWhileBlocked(vr_eventloop *vel);
 int handleClientsWithPendingWrites(vr_eventloop *vel);
 int clientHasPendingReplies(client *c);
+void unlinkClientFromEventloop(client *c);
+void linkClientToEventloop(client *c,vr_eventloop *vel);
 void unlinkClient(client *c);
 int writeToClient(int fd, client *c, int handler_installed);
 

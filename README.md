@@ -65,6 +65,7 @@ A quick checklist:
 + dbsize
 + command
 + config
++ client
 
 #### Key
 

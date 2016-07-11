@@ -17,6 +17,7 @@ vr_eventloop_init(vr_eventloop *vel)
     vel->mstime = vr_msec_now();
     vel->lruclock = getLRUClock();
     vel->cb = NULL;
+    vel->next_client_id = 1;    /* Client IDs, start from 1 .*/
     vel->current_client = NULL;
     vel->clients = NULL;
     vel->clients_pending_write = NULL;

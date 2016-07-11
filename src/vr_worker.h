@@ -3,12 +3,13 @@
 
 typedef struct vr_worker {
 
+    int id;
     vr_eventloop vel;
     
-    int socketpairs[2];         /*0: belong to listen thread, 1: belong to myself*/
+    int socketpairs[2];         /*0: belong to master thread, 1: belong to myself*/
     
-    list *csul;
-    pthread_mutex_t csullock;
+    list *csul;    /* Connect swap unit list */
+    pthread_mutex_t csullock;   /* swap unit list locker */
 
     /* Some global state in order to continue the work incrementally 
        * across calls for activeExpireCycle() to expire some keys. */
@@ -23,12 +24,26 @@ typedef struct vr_worker {
     unsigned int rehash_db;
 }vr_worker;
 
+struct connswapunit {
+    int num;
+    void *data;
+    struct connswapunit *next;
+};
+
 extern struct array workers;
 
 int workers_init(uint32_t worker_count);
 int workers_run(void);
 int workers_wait(void);
 void workers_deinit(void);
+
+struct connswapunit *csui_new(void);
+void csui_free(struct connswapunit *item);
+
+void csul_push(vr_worker *worker, struct connswapunit *su);
+struct connswapunit *csul_pop(vr_worker *worker);
+
+int worker_get_next_idx(int curidx);
 
 void dispatch_conn_new(vr_listen *vlisten, int sd);
 

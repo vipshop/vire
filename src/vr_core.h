@@ -70,6 +70,7 @@ struct conn;
 struct client;
 struct clientBufferLimitsConfig;
 struct redisCommand;
+struct vr_worker;
 
 #include <stddef.h>
 #include <stdint.h>

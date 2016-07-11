@@ -16,6 +16,7 @@ typedef struct vr_eventloop {
 
     conn_base *cb;
 
+    uint64_t next_client_id;    /* Next client unique ID. Incremental. */
     struct client *current_client;     /* Current client, only used on crash report */
     list *clients;              /* List of active clients */
     list *clients_pending_write;/* There is to write or install handler. */

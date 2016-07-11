@@ -380,18 +380,20 @@ init_server(struct instance *nci)
     vr_replication_init();
     
     createSharedObjects();
-    
-    status = master_init(conf);
-    if (status != VR_OK) {
-        log_error("init master thread failed");
-        return VR_ERROR;
-    }
 
     server.port = cserver->port;
     
+    /* Init worker first */
     status = workers_init(nci->thread_num);
     if (status != VR_OK) {
         log_error("init worker threads failed");
+        return VR_ERROR;
+    }
+
+    /* Init master after worker init */
+    status = master_init(conf);
+    if (status != VR_OK) {
+        log_error("init master thread failed");
         return VR_ERROR;
     }
 

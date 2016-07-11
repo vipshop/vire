@@ -6,13 +6,17 @@ typedef struct vr_master {
     vr_eventloop vel;
     
     struct array listens;   /* type: vr_listen */
-    
+
+    list *cbsul;    /* Connect back swap unit list */
+    pthread_mutex_t cbsullock;   /* swap unit list locker */
 }vr_master;
 
 extern vr_master master;
 
 int master_init(vr_conf *conf);
 void master_deinit(void);
+
+void dispatch_conn_exist(struct client *c, int tid);
 
 int master_run(void);
 

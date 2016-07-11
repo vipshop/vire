@@ -1137,81 +1137,57 @@ vr_resolve(sds name, int port, struct sockinfo *si)
     return vr_resolve_inet(name, port, si);
 }
 
-/*
- * Unresolve the socket address by translating it to a character string
- * describing the host and service
- *
- * This routine is not reentrant
- */
-char *
-vr_unresolve_addr(struct sockaddr *addr, socklen_t addrlen)
-{
-    static char unresolve[NI_MAXHOST + NI_MAXSERV];
-    static char host[NI_MAXHOST], service[NI_MAXSERV];
-    int status;
+static int vr_net_peer_to_string(int fd, char *ip, size_t ip_len, int *port) {
+    struct sockaddr_storage sa;
+    socklen_t salen = sizeof(sa);
 
-    status = getnameinfo(addr, addrlen, host, sizeof(host),
-                         service, sizeof(service),
-                         NI_NUMERICHOST | NI_NUMERICSERV);
-    if (status < 0) {
-        return "unknown";
+    if (getpeername(fd,(struct sockaddr*)&sa,&salen) == -1) goto error;
+    if (ip_len == 0) goto error;
+
+    if (sa.ss_family == AF_INET) {
+        struct sockaddr_in *s = (struct sockaddr_in *)&sa;
+        if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);
+        if (port) *port = ntohs(s->sin_port);
+    } else if (sa.ss_family == AF_INET6) {
+        struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
+        if (ip) inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len);
+        if (port) *port = ntohs(s->sin6_port);
+    } else if (sa.ss_family == AF_UNIX) {
+        if (ip) strncpy(ip,"/unixsocket",ip_len);
+        if (port) *port = 0;
+    } else {
+        goto error;
     }
+    return 0;
 
-    vr_snprintf(unresolve, sizeof(unresolve), "%s:%s", host, service);
-
-    return unresolve;
+error:
+    if (ip) {
+        if (ip_len >= 2) {
+            ip[0] = '?';
+            ip[1] = '\0';
+        } else if (ip_len == 1) {
+            ip[0] = '\0';
+        }
+    }
+    if (port) *port = 0;
+    return -1;
 }
 
-/*
- * Unresolve the socket descriptor peer address by translating it to a
- * character string describing the host and service
- *
- * This routine is not reentrant
- */
-char *
-vr_unresolve_peer_desc(int sd)
-{
-    static struct sockinfo si;
-    struct sockaddr *addr;
-    socklen_t addrlen;
-    int status;
-
-    memset(&si, 0, sizeof(si));
-    addr = (struct sockaddr *)&si.addr;
-    addrlen = sizeof(si.addr);
-
-    status = getpeername(sd, addr, &addrlen);
-    if (status < 0) {
-        return "unknown";
-    }
-
-    return vr_unresolve_addr(addr, addrlen);
+/* Format an IP,port pair into something easy to parse. If IP is IPv6
+ * (matches for ":"), the ip is surrounded by []. IP and port are just
+ * separated by colons. This the standard to display addresses within Redis. */
+static int vr_net_format_addr(char *buf, size_t buf_len, char *ip, int port) {
+    return snprintf(buf,buf_len, strchr(ip,':') ?
+           "[%s]:%d" : "%s:%d", ip, port);
 }
 
-/*
- * Unresolve the socket descriptor address by translating it to a
- * character string describing the host and service
- *
- * This routine is not reentrant
- */
-char *
-vr_unresolve_desc(int sd)
-{
-    static struct sockinfo si;
-    struct sockaddr *addr;
-    socklen_t addrlen;
-    int status;
+/* Like anetFormatAddr() but extract ip and port from the socket's peer. */
+int vr_net_format_peer(int fd, char *buf, size_t buf_len) {
+    char ip[VR_INET6_ADDRSTRLEN];
+    int port;
 
-    memset(&si, 0, sizeof(si));
-    addr = (struct sockaddr *)&si.addr;
-    addrlen = sizeof(si.addr);
-
-    status = getsockname(sd, addr, &addrlen);
-    if (status < 0) {
-        return "unknown";
-    }
-
-    return vr_unresolve_addr(addr, addrlen);
+    vr_net_peer_to_string(fd,ip,sizeof(ip),&port);
+    return vr_net_format_addr(buf, buf_len, ip, port);
 }
 
 /* Generate the Vire "Run ID", a SHA1-sized random number that identifies a

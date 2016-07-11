@@ -243,9 +243,7 @@ struct sockinfo {
 };
 
 int vr_resolve(sds name, int port, struct sockinfo *si);
-char *vr_unresolve_addr(struct sockaddr *addr, socklen_t addrlen);
-char *vr_unresolve_peer_desc(int sd);
-char *vr_unresolve_desc(int sd);
+int vr_net_format_peer(int fd, char *buf, size_t buf_len);
 
 /*
  * A (very) limited version of snprintf
