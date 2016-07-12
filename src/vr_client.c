@@ -37,6 +37,7 @@ client *createClient(vr_eventloop *vel, struct conn *conn) {
         if (aeCreateFileEvent(vel->el,conn->sd,AE_READABLE,
             readQueryFromClient, c) == AE_ERR)
         {
+            log_error("Unrecoverable error creating client ipfd file event.");
             vr_free(c);
             return NULL;
         }
@@ -1426,6 +1427,15 @@ sds getAllClientsInfoString(vr_eventloop *vel) {
     return o;
 }
 
+struct clientkilldata {
+    sds addr;
+    int type;
+    uint64_t id;
+    int skipme;
+    int killed;
+    int close_this_client;
+};
+
 void clientCommand(client *c) {
     listNode *ln;
     listIter li;
@@ -1453,8 +1463,132 @@ void clientCommand(client *c) {
         }
         sdsfree(o);
         return;
+    } else if (!strcasecmp(c->argv[1]->ptr,"kill")) {
+        /* CLIENT KILL <ip:port>
+         * CLIENT KILL <option> [value] ... <option> [value] */
+        struct clientkilldata *ckd;
+
+        if (c->steps == 0) {
+            ckd = vr_alloc(sizeof(struct clientkilldata));
+            ckd->addr = NULL;
+            ckd->type = -1;
+            ckd->id = 0;
+            ckd->skipme = 1;
+            ckd->killed = 0;
+            ckd->close_this_client = 0;
+
+            if (c->argc == 3) {
+                /* Old style syntax: CLIENT KILL <addr> */
+                ckd->addr = sdsnew(c->argv[2]->ptr);
+                ckd->skipme = 0; /* With the old form, you can kill yourself. */
+            } else if (c->argc > 3) {
+                int i = 2; /* Next option index. */
+    
+                /* New style syntax: parse options. */
+                while(i < c->argc) {
+                    int moreargs = c->argc > i+1;
+    
+                    if (!strcasecmp(c->argv[i]->ptr,"id") && moreargs) {
+                        long long tmp;
+    
+                        if (getLongLongFromObjectOrReply(c,c->argv[i+1],&tmp,NULL)
+                            != VR_OK) {
+                            if (ckd->addr) sdsfree(ckd->addr);
+                            vr_free(ckd);
+                            return;
+                        }
+                        ckd->id = tmp;
+                    } else if (!strcasecmp(c->argv[i]->ptr,"type") && moreargs) {
+                        ckd->type = getClientTypeByName(c->argv[i+1]->ptr);
+                        if (ckd->type == -1) {
+                            if (ckd->addr) sdsfree(ckd->addr);
+                            vr_free(ckd);
+                            addReplyErrorFormat(c,"Unknown client type '%s'",
+                                (char*) c->argv[i+1]->ptr);
+                            return;
+                        }
+                    } else if (!strcasecmp(c->argv[i]->ptr,"addr") && moreargs) {
+                        ckd->addr = sdsnew(c->argv[i+1]->ptr);
+                    } else if (!strcasecmp(c->argv[i]->ptr,"skipme") && moreargs) {
+                        if (!strcasecmp(c->argv[i+1]->ptr,"yes")) {
+                            ckd->skipme = 1;
+                        } else if (!strcasecmp(c->argv[i+1]->ptr,"no")) {
+                            ckd->skipme = 0;
+                        } else {
+                            if (ckd->addr) sdsfree(ckd->addr);
+                            vr_free(ckd);
+                            addReply(c,shared.syntaxerr);
+                            return;
+                        }
+                    } else {
+                        if (ckd->addr) sdsfree(ckd->addr);
+                        vr_free(ckd);
+                        addReply(c,shared.syntaxerr);
+                        return;
+                    }
+                    i += 2;
+                }
+            } else {
+                if (ckd->addr) sdsfree(ckd->addr);
+                vr_free(ckd);
+                addReply(c,shared.syntaxerr);
+                return;
+            }
+
+            if (!(c->flags&CLIENT_JUMP))
+                c->flags |= CLIENT_JUMP;
+            c->taridx = worker_get_next_idx(c->curidx);
+            c->cache = ckd;
+        } else {
+            ckd = c->cache;
+            c->taridx = worker_get_next_idx(c->curidx);
+        }
+
+        /* Iterate clients killing all the matching clients. */
+        listRewind(c->vel->clients,&li);
+        while ((ln = listNext(&li)) != NULL) {
+            client = listNodeValue(ln);
+            if (ckd->addr && strcmp(getClientPeerId(client),ckd->addr) != 0) continue;
+            if (ckd->type != -1 && getClientType(client) != ckd->type) continue;
+            if (ckd->id != 0 && client->id != ckd->id) continue;
+            if (c == client && ckd->skipme) continue;
+
+            /* Kill it. */
+            if (c == client) {
+                ckd->close_this_client = 1;
+            } else {
+                freeClient(client);
+            }
+            ckd->killed++;
+        }
+
+        if (c->steps >= array_n(&workers) - 1) {
+            /* Reply according to old/new format. */
+            if (c->argc == 3) {
+                if (ckd->killed == 0)
+                    addReplyError(c,"No such client");
+                else
+                    addReply(c,shared.ok);
+            } else {
+                addReplyLongLong(c,ckd->killed);
+            }
+            
+            c->steps = 0;
+            c->taridx = -1;
+            c->cache = NULL;
+            c->flags &= ~CLIENT_JUMP;
+            
+            /* If this client has to be closed, flag it as CLOSE_AFTER_REPLY
+             * only after we queued the reply to its output buffers. */
+            if (ckd->close_this_client) c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+
+            if (ckd->addr) sdsfree(ckd->addr);
+            vr_free(ckd);
+        }
+
+        return;
     } else {
-        addReplyError(c, "Syntax error, try CLIENT (LIST)");
+        addReplyError(c, "Syntax error, try CLIENT (LIST | KILL ip:port)");
         return;
     }
 
@@ -1472,92 +1606,6 @@ void clientCommand(client *c) {
             addReply(c,shared.syntaxerr);
             return;
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"kill")) {
-        /* CLIENT KILL <ip:port>
-         * CLIENT KILL <option> [value] ... <option> [value] */
-        char *addr = NULL;
-        int type = -1;
-        uint64_t id = 0;
-        int skipme = 1;
-        int killed = 0, close_this_client = 0;
-
-        if (c->argc == 3) {
-            /* Old style syntax: CLIENT KILL <addr> */
-            addr = c->argv[2]->ptr;
-            skipme = 0; /* With the old form, you can kill yourself. */
-        } else if (c->argc > 3) {
-            int i = 2; /* Next option index. */
-
-            /* New style syntax: parse options. */
-            while(i < c->argc) {
-                int moreargs = c->argc > i+1;
-
-                if (!strcasecmp(c->argv[i]->ptr,"id") && moreargs) {
-                    long long tmp;
-
-                    if (getLongLongFromObjectOrReply(c,c->argv[i+1],&tmp,NULL)
-                        != VR_OK) return;
-                    id = tmp;
-                } else if (!strcasecmp(c->argv[i]->ptr,"type") && moreargs) {
-                    type = getClientTypeByName(c->argv[i+1]->ptr);
-                    if (type == -1) {
-                        addReplyErrorFormat(c,"Unknown client type '%s'",
-                            (char*) c->argv[i+1]->ptr);
-                        return;
-                    }
-                } else if (!strcasecmp(c->argv[i]->ptr,"addr") && moreargs) {
-                    addr = c->argv[i+1]->ptr;
-                } else if (!strcasecmp(c->argv[i]->ptr,"skipme") && moreargs) {
-                    if (!strcasecmp(c->argv[i+1]->ptr,"yes")) {
-                        skipme = 1;
-                    } else if (!strcasecmp(c->argv[i+1]->ptr,"no")) {
-                        skipme = 0;
-                    } else {
-                        addReply(c,shared.syntaxerr);
-                        return;
-                    }
-                } else {
-                    addReply(c,shared.syntaxerr);
-                    return;
-                }
-                i += 2;
-            }
-        } else {
-            addReply(c,shared.syntaxerr);
-            return;
-        }
-
-        /* Iterate clients killing all the matching clients. */
-        listRewind(c->vel->clients,&li);
-        while ((ln = listNext(&li)) != NULL) {
-            client = listNodeValue(ln);
-            if (addr && strcmp(getClientPeerId(client),addr) != 0) continue;
-            if (type != -1 && getClientType(client) != type) continue;
-            if (id != 0 && client->id != id) continue;
-            if (c == client && skipme) continue;
-
-            /* Kill it. */
-            if (c == client) {
-                close_this_client = 1;
-            } else {
-                freeClient(client);
-            }
-            killed++;
-        }
-
-        /* Reply according to old/new format. */
-        if (c->argc == 3) {
-            if (killed == 0)
-                addReplyError(c,"No such client");
-            else
-                addReply(c,shared.ok);
-        } else {
-            addReplyLongLong(c,killed);
-        }
-
-        /* If this client has to be closed, flag it as CLOSE_AFTER_REPLY
-         * only after we queued the reply to its output buffers. */
-        if (close_this_client) c->flags |= CLIENT_CLOSE_AFTER_REPLY;
     } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
         int j, len = sdslen(c->argv[2]->ptr);
         char *p = c->argv[2]->ptr;

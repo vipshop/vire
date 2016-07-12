@@ -264,7 +264,7 @@ thread_event_process(aeEventLoop *el, int fd, void *privdata, int mask) {
 
         c = createClient(&worker->vel, conn);
         if (c == NULL) {
-            log_error("create client failed");
+            log_error("Create client failed");
             conn_put(conn);
             return;
         }
