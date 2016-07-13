@@ -803,7 +803,7 @@ void freeClient(client *c) {
 
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
-    if (c->name) decrRefCount(c->name);
+    if (c->name) freeObject(c->name);
     if (c->argv) vr_free(c->argv);
     freeClientMultiState(c);
     sdsfree(c->peerid);
@@ -1587,8 +1587,36 @@ void clientCommand(client *c) {
         }
 
         return;
-    } else {
-        addReplyError(c, "Syntax error, try CLIENT (LIST | KILL ip:port)");
+    } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
+        int j, len = sdslen(c->argv[2]->ptr);
+        char *p = c->argv[2]->ptr;
+
+        /* Setting the client name to an empty string actually removes
+         * the current name. */
+        if (len == 0) {
+            if (c->name) freeObject(c->name);
+            c->name = NULL;
+            addReply(c,shared.ok);
+            return;
+        }
+
+        /* Otherwise check if the charset is ok. We need to do this otherwise
+         * CLIENT LIST format will break. You should always be able to
+         * split by space to get the different fields. */
+        for (j = 0; j < len; j++) {
+            if (p[j] < '!' || p[j] > '~') { /* ASCII is assumed. */
+                addReplyError(c,
+                    "Client names cannot contain spaces, "
+                    "newlines or special characters.");
+                return;
+            }
+        }
+        if (c->name) freeObject(c->name);
+        c->name = dupStringObjectUnconstant(c->argv[2]);
+        addReply(c,shared.ok);
+        return;
+    }  else {
+        addReplyError(c, "Syntax error, try CLIENT (LIST | KILL ip:port | SETNAME connection-name)");
         return;
     }
 
@@ -1606,34 +1634,6 @@ void clientCommand(client *c) {
             addReply(c,shared.syntaxerr);
             return;
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
-        int j, len = sdslen(c->argv[2]->ptr);
-        char *p = c->argv[2]->ptr;
-
-        /* Setting the client name to an empty string actually removes
-         * the current name. */
-        if (len == 0) {
-            if (c->name) decrRefCount(c->name);
-            c->name = NULL;
-            addReply(c,shared.ok);
-            return;
-        }
-
-        /* Otherwise check if the charset is ok. We need to do this otherwise
-         * CLIENT LIST format will break. You should always be able to
-         * split by space to get the different fields. */
-        for (j = 0; j < len; j++) {
-            if (p[j] < '!' || p[j] > '~') { /* ASCII is assumed. */
-                addReplyError(c,
-                    "Client names cannot contain spaces, "
-                    "newlines or special characters.");
-                return;
-            }
-        }
-        if (c->name) decrRefCount(c->name);
-        c->name = c->argv[2];
-        incrRefCount(c->name);
-        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
         if (c->name)
             addReplyBulk(c,c->name);
