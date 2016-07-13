@@ -1615,7 +1615,13 @@ void clientCommand(client *c) {
         c->name = dupStringObjectUnconstant(c->argv[2]);
         addReply(c,shared.ok);
         return;
-    }  else {
+    } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
+        if (c->name)
+            addReplyBulk(c,c->name);
+        else
+            addReply(c,shared.nullbulk);
+        return;
+    } else {
         addReplyError(c, "Syntax error, try CLIENT (LIST | KILL ip:port | SETNAME connection-name)");
         return;
     }
@@ -1634,11 +1640,6 @@ void clientCommand(client *c) {
             addReply(c,shared.syntaxerr);
             return;
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
-        if (c->name)
-            addReplyBulk(c,c->name);
-        else
-            addReply(c,shared.nullbulk);
     } else if (!strcasecmp(c->argv[1]->ptr,"pause") && c->argc == 3) {
         long long duration;
 
