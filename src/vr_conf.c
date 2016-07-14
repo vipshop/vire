@@ -1844,6 +1844,8 @@ static int rewriteConfig(char *path) {
     rewriteConfigBindOption(state);
     rewriteConfigIntOption(state,CONFIG_SOPN_PORT,CONFIG_DEFAULT_SERVER_PORT);
     rewriteConfigIntOption(state,CONFIG_SOPN_THREADS,CONFIG_DEFAULT_THREADS_NUM);
+    rewriteConfigLongLongOption(state,CONFIG_SOPN_SLOWLOGLST,CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN);
+    rewriteConfigIntOption(state,CONFIG_SOPN_SLOWLOGML,CONFIG_DEFAULT_SLOWLOG_MAX_LEN);
     
     /* Step 3: remove all the orphaned lines in the old file, that is, lines
      * that were used by a config option and are no longer used, like in case
