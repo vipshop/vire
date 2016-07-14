@@ -717,6 +717,8 @@ static int conf_server_set_default(conf_server *cs)
     cs->maxmemory_samples = CONFIG_DEFAULT_MAXMEMORY_SAMPLES;
     cs->maxclients = CONFIG_DEFAULT_MAX_CLIENTS;
     cs->threads = CONFIG_DEFAULT_THREADS_NUM;
+    cs->slowlog_log_slower_than = CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN;
+    cs->slowlog_max_len = CONFIG_DEFAULT_SLOWLOG_MAX_LEN;
 
     while (array_n(&cs->binds) > 0) {
         str = array_pop(&cs->binds);
