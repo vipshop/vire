@@ -1,5 +1,9 @@
 #include <vr_core.h>
 
+static pthread_rwlock_t rwlocker;
+static list *slowlog;                  /* SLOWLOG list of commands */
+static long long slowlog_entry_id;     /* SLOWLOG current entry ID */
+
 /* Create a new slowlog entry.
  * Incrementing the ref count of all the objects retained is up to
  * this function. */
@@ -31,14 +35,12 @@ slowlogEntry *slowlogCreateEntry(robj **argv, int argc, long long duration) {
                     sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);
                 se->argv[j] = createObject(OBJ_STRING,s);
             } else {
-                se->argv[j] = argv[j];
-                incrRefCount(argv[j]);
+                se->argv[j] = dupStringObjectUnconstant(argv[j]);
             }
         }
     }
     se->time = time(NULL);
     se->duration = duration;
-    se->id = server.slowlog_entry_id++;
     return se;
 }
 
@@ -51,7 +53,7 @@ void slowlogFreeEntry(void *septr) {
     int j;
 
     for (j = 0; j < se->argc; j++)
-        decrRefCount(se->argv[j]);
+        freeObject(se->argv[j]);
     vr_free(se->argv);
     vr_free(se);
 }
@@ -59,28 +61,42 @@ void slowlogFreeEntry(void *septr) {
 /* Initialize the slow log. This function should be called a single time
  * at server startup. */
 void slowlogInit(void) {
-    server.slowlog = listCreate();
-    server.slowlog_entry_id = 0;
-    listSetFreeMethod(server.slowlog,slowlogFreeEntry);
+    pthread_rwlock_init(&rwlocker,NULL);
+    slowlog = listCreate();
+    slowlog_entry_id = 0;
+    listSetFreeMethod(slowlog,slowlogFreeEntry);
 }
 
 /* Push a new entry into the slow log.
  * This function will make sure to trim the slow log accordingly to the
  * configured max length. */
 void slowlogPushEntryIfNeeded(robj **argv, int argc, long long duration) {
-    if (server.slowlog_log_slower_than < 0) return; /* Slowlog disabled */
-    if (duration >= server.slowlog_log_slower_than)
-        listAddNodeHead(server.slowlog,slowlogCreateEntry(argv,argc,duration));
+    long long slowlog_log_slower_than;
+    int slowlog_max_len;
+    conf_server_get(CONFIG_SOPN_SLOWLOGLST,&slowlog_log_slower_than);
+    if (slowlog_log_slower_than < 0) return; /* Slowlog disabled */
+    if (duration >= slowlog_log_slower_than) {
+        slowlogEntry *se = slowlogCreateEntry(argv,argc,duration);
+        pthread_rwlock_wrlock(&rwlocker);
+        se->id = slowlog_entry_id++;
+        listAddNodeHead(slowlog,se);
+        pthread_rwlock_unlock(&rwlocker);
+    }
 
+    conf_server_get(CONFIG_SOPN_SLOWLOGML,&slowlog_max_len);
     /* Remove old entries if needed. */
-    while (listLength(server.slowlog) > server.slowlog_max_len)
-        listDelNode(server.slowlog,listLast(server.slowlog));
+    pthread_rwlock_wrlock(&rwlocker);
+    while (listLength(slowlog) > slowlog_max_len)
+        listDelNode(slowlog,listLast(slowlog));
+    pthread_rwlock_unlock(&rwlocker);
 }
 
 /* Remove all the entries from the current slow log. */
 void slowlogReset(void) {
-    while (listLength(server.slowlog) > 0)
-        listDelNode(server.slowlog,listLast(server.slowlog));
+    pthread_rwlock_wrlock(&rwlocker);
+    while (listLength(slowlog) > 0)
+        listDelNode(slowlog,listLast(slowlog));
+    pthread_rwlock_unlock(&rwlocker);
 }
 
 /* The SLOWLOG command. Implements all the subcommands needed to handle the
@@ -90,7 +106,11 @@ void slowlogCommand(client *c) {
         slowlogReset();
         addReply(c,shared.ok);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"len")) {
-        addReplyLongLong(c,listLength(server.slowlog));
+        unsigned long len;
+        pthread_rwlock_rdlock(&rwlocker);
+        len = listLength(slowlog);
+        pthread_rwlock_unlock(&rwlocker);
+        addReplyLongLong(c,len);
     } else if ((c->argc == 2 || c->argc == 3) &&
                !strcasecmp(c->argv[1]->ptr,"get"))
     {
@@ -104,7 +124,8 @@ void slowlogCommand(client *c) {
             getLongFromObjectOrReply(c,c->argv[2],&count,NULL) != VR_OK)
             return;
 
-        listRewind(server.slowlog,&li);
+        pthread_rwlock_rdlock(&rwlocker);
+        listRewind(slowlog,&li);
         totentries = addDeferredMultiBulkLength(c);
         while(count-- && (ln = listNext(&li))) {
             int j;
@@ -119,6 +140,7 @@ void slowlogCommand(client *c) {
                 addReplyBulk(c,se->argv[j]);
             sent++;
         }
+        pthread_rwlock_unlock(&rwlocker);
         setDeferredMultiBulkLength(c,totentries,sent);
     } else {
         addReplyError(c,

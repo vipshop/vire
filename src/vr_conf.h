@@ -13,6 +13,8 @@
 #define CONFIG_SOPN_THREADS      "threads"
 #define CONFIG_SOPN_DIR          "dir"
 #define CONFIG_SOPN_MAXCLIENTS   "maxclients"
+#define CONFIG_SOPN_SLOWLOGLST   "slowlog-log-slower-than"
+#define CONFIG_SOPN_SLOWLOGML    "slowlog-max-len"
 
 #define CONFIG_RUN_ID_SIZE 40
 #define CONFIG_DEFAULT_ACTIVE_REHASHING 1
@@ -35,6 +37,9 @@
 #define CONFIG_DEFAULT_DATA_DIR "viredata"
 
 #define CONFIG_DEFAULT_MAX_TIME_COMPLEXITY_LIMIT 0 /* Not limited */
+
+#define CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN 10000
+#define CONFIG_DEFAULT_SLOWLOG_MAX_LEN 128
 
 #define CONFIG_BINDADDR_MAX 16
 
@@ -96,6 +101,9 @@ typedef struct conf_server {
     int           port;
 
     sds           dir;
+
+    long long     slowlog_log_slower_than;  /* SLOWLOG time limit (to get logged) */
+    int           slowlog_max_len;  /* SLOWLOG max number of items logged */
 } conf_server;
 
 typedef struct vr_conf {

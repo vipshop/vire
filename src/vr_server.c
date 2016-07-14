@@ -354,11 +354,6 @@ init_server(struct instance *nci)
 
     server.ready_keys = listCreate();
 
-    server.slowlog = listCreate();
-    server.slowlog_entry_id = 0;
-    server.slowlog_log_slower_than = -1;
-    server.slowlog_max_len = CONFIG_DEFAULT_SLOWLOG_MAX_LEN;
-
     server.stat_peak_memory = 0;
 
     server.system_memory_size = zmalloc_get_memory_size();
@@ -377,6 +372,7 @@ init_server(struct instance *nci)
 
     server.notify_keyspace_events = 0;
 
+    slowlogInit();
     vr_replication_init();
     
     createSharedObjects();

@@ -101,6 +101,14 @@ static conf_option conf_server_options[] = {
       CONF_FIELD_TYPE_INT, 0,
       conf_set_int, conf_get_int,
       offsetof(conf_server, maxclients) },*/
+    { (char *)CONFIG_SOPN_SLOWLOGLST,
+      CONF_FIELD_TYPE_LONGLONG, 0,
+      conf_set_longlong, conf_get_longlong,
+      offsetof(conf_server, slowlog_log_slower_than) },
+    { (char *)CONFIG_SOPN_SLOWLOGML,
+      CONF_FIELD_TYPE_INT, 0,
+      conf_set_int, conf_get_int,
+      offsetof(conf_server, slowlog_max_len) },
     { NULL, NULL, 0 }
 };
 

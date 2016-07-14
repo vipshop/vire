@@ -66,6 +66,7 @@ A quick checklist:
 + command
 + config
 + client
++ slowlog
 
 #### Key
 
