@@ -848,19 +848,21 @@ sds genVireInfoString(char *section) {
         long long stat_expiredkeys=0;
         long long stat_evictedkeys=0;
         long long stat_keyspace_hits=0, stat_keyspace_misses=0;
+        long long stat_numcommands_ops=0;
+        float stat_net_input_bytes_ops=0, stat_net_output_bytes_ops=0;
 
         for (idx = 0; idx < array_n(&workers); idx ++) {
             worker = array_get(&workers, idx);
             stats = worker->vel.stats;
 #if (defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)) && defined(STATS_ATOMIC_FIRST)
-            stat_numcommands += update_stats_add(stats, numcommands, 0);
-            stat_numconnections += update_stats_add(stats, numconnections, 0);
-            stat_expiredkeys += update_stats_add(stats, expiredkeys, 0);
-            stat_evictedkeys += update_stats_add(stats, evictedkeys, 0);
-            stat_net_input_bytes += update_stats_add(stats, net_input_bytes, 0);
-            stat_net_output_bytes += update_stats_add(stats, net_output_bytes, 0);
-            stat_keyspace_hits += update_stats_add(stats, keyspace_hits, 0);
-            stat_keyspace_misses += update_stats_add(stats, keyspace_misses, 0);
+            stat_numcommands += update_stats_get(stats, numcommands);
+            stat_numconnections += update_stats_get(stats, numconnections);
+            stat_expiredkeys += update_stats_get(stats, expiredkeys);
+            stat_evictedkeys += update_stats_get(stats, evictedkeys);
+            stat_net_input_bytes += update_stats_get(stats, net_input_bytes);
+            stat_net_output_bytes += update_stats_get(stats, net_output_bytes);
+            stat_keyspace_hits += update_stats_get(stats, keyspace_hits);
+            stat_keyspace_misses += update_stats_get(stats, keyspace_misses);
 #else
             pthread_spin_lock(&stats->statslock);
             stat_numcommands += stats->numcommands;
@@ -873,10 +875,13 @@ sds genVireInfoString(char *section) {
             stat_keyspace_misses += stats->keyspace_misses;
             pthread_spin_unlock(&stats->statslock);
 #endif
+            stat_numcommands_ops += getInstantaneousMetric(stats, STATS_METRIC_COMMAND);
+            stat_net_input_bytes_ops += (float)getInstantaneousMetric(stats, STATS_METRIC_NET_INPUT)/1024;
+            stat_net_output_bytes_ops += (float)getInstantaneousMetric(stats, STATS_METRIC_NET_OUTPUT)/1024;
         }
 
 #if (defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)) && defined(STATS_ATOMIC_FIRST)
-        stat_rejected_conn += update_stats_add(master.vel.stats, rejected_conn, 0);
+        stat_rejected_conn = update_stats_get(master.vel.stats, rejected_conn);
 #else
         pthread_spin_lock(&master.vel.stats->statslock);
         stat_rejected_conn = master.vel.stats->rejected_conn;
@@ -888,8 +893,11 @@ sds genVireInfoString(char *section) {
             "# Stats\r\n"
             "total_connections_received:%lld\r\n"
             "total_commands_processed:%lld\r\n"
+            "instantaneous_ops_per_sec:%lld\r\n"
             "total_net_input_bytes:%lld\r\n"
             "total_net_output_bytes:%lld\r\n"
+            "instantaneous_input_kbps:%.2f\r\n"
+            "instantaneous_output_kbps:%.2f\r\n"
             "rejected_connections:%lld\r\n"
             "expired_keys:%lld\r\n"
             "evicted_keys:%lld\r\n"
@@ -897,8 +905,11 @@ sds genVireInfoString(char *section) {
             "keyspace_misses:%lld\r\n",
             stat_numconnections,
             stat_numcommands,
+            stat_numcommands_ops,
             stat_net_input_bytes,
             stat_net_output_bytes,
+            stat_net_input_bytes_ops,
+            stat_net_output_bytes_ops,
             stat_rejected_conn,
             stat_expiredkeys,
             stat_evictedkeys,

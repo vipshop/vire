@@ -443,7 +443,12 @@ worker_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     vel->mstime = vr_msec_now();
 
     run_with_period(100, vel->cronloops) {
-        
+        trackInstantaneousMetric(vel->stats,STATS_METRIC_COMMAND,
+            vel->stats->numcommands);
+        trackInstantaneousMetric(vel->stats,STATS_METRIC_NET_INPUT,
+            vel->stats->net_input_bytes);
+        trackInstantaneousMetric(vel->stats,STATS_METRIC_NET_OUTPUT,
+            vel->stats->net_output_bytes);
     }
 
     /* Close clients that need to be closed asynchronous */

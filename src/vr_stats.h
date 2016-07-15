@@ -3,6 +3,13 @@
 
 #define STATS_ATOMIC_FIRST 1
 
+/* Instantaneous metrics tracking. */
+#define STATS_METRIC_SAMPLES 16     /* Number of samples per metric. */
+#define STATS_METRIC_COMMAND 0      /* Number of commands executed. */
+#define STATS_METRIC_NET_INPUT 1    /* Bytes read to network .*/
+#define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
+#define STATS_METRIC_COUNT 3
+
 typedef struct vr_stats {
     /* Fields used only for stats */
     time_t starttime;          /* Server start time */
@@ -18,17 +25,33 @@ typedef struct vr_stats {
     long long sync_partial_err;/* Number of unaccepted PSYNC requests. */
     long long net_input_bytes; /* Bytes read from network. */
     long long net_output_bytes; /* Bytes written to network. */
+    
+    /* The following two are used to track instantaneous metrics, like
+     * number of operations per second, network traffic. */
+    struct {
+        long long last_sample_time; /* Timestamp of last sample in ms */
+        long long last_sample_count;/* Count in last sample */
+        long long samples[STATS_METRIC_SAMPLES];
+        int idx;
+    } inst_metric[STATS_METRIC_COUNT];
+    
 #if !defined(STATS_ATOMIC_FIRST) || (!defined(__ATOMIC_RELAXED) && !defined(HAVE_ATOMIC))
     pthread_spinlock_t statslock;
 #endif
 }vr_stats;
 
+/* GCC version >= 4.7 */
 #if defined(__ATOMIC_RELAXED) && defined(STATS_ATOMIC_FIRST)
 #define update_stats_add(_stats, _field, _n) __atomic_add_fetch(&(_stats)->_field, (_n), __ATOMIC_RELAXED)
 #define update_stats_sub(_stats, _field, _n) __atomic_sub_fetch(&(_stats)->_field, (_n), __ATOMIC_RELAXED)
+#define update_stats_set(_stats, _field, _n) __atomic_store_n(&(_stats)->_field, (_n), __ATOMIC_RELAXED)
+#define update_stats_get(_stats, _field)     __atomic_load_n(&(_stats)->_field, __ATOMIC_RELAXED)
+/* GCC version >= 4.1 */
 #elif defined(HAVE_ATOMIC) && defined(STATS_ATOMIC_FIRST)
 #define update_stats_add(_stats, _field, _n) __sync_add_and_fetch(&(_stats)->_field, (_n))
 #define update_stats_sub(_stats, _field, _n) __sync_sub_and_fetch(&(_stats)->_field, (_n))
+#define update_stats_set(_stats, _field, _n) __sync_lock_test_and_set(&(_stats)->_field, (_n))
+#define update_stats_get(_stats, _field)     __sync_add_and_fetch(&(_stats)->_field, 0)
 #else
 #define update_stats_add(_stats, _field, _n) do {   \
     pthread_spin_lock(&(_stats)->statslock);        \
@@ -41,9 +64,24 @@ typedef struct vr_stats {
     (_stats)->_field -= (_n);                       \
     pthread_spin_unlock(&(_stats)->statslock);      \
 } while(0)
+
+#define update_stats_set(_stats, _field, _n) do {   \
+    pthread_spin_lock(&(_stats)->statslock);        \
+    (_stats)->_field = (_n);                        \
+    pthread_spin_unlock(&(_stats)->statslock);      \
+} while(0)
+
+#define update_stats_get(_stats, _field) do {   \
+    pthread_spin_lock(&(_stats)->statslock);        \
+    (*_v) = (_stats)->_field;                       \
+    pthread_spin_unlock(&(_stats)->statslock);      \
+} while(0)
 #endif
 
 int vr_stats_init(vr_stats *stats);
 void vr_stats_deinit(vr_stats *stats);
+
+void trackInstantaneousMetric(vr_stats *stats, int metric, long long current_reading);
+long long getInstantaneousMetric(vr_stats *stats, int metric);
 
 #endif

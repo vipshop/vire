@@ -60,3 +60,36 @@ vr_stats_deinit(vr_stats *stats)
     pthread_spin_destroy(&stats->statslock);
 #endif
 }
+
+/* Add a sample to the operations per second array of samples. */
+void trackInstantaneousMetric(vr_stats *stats, int metric, long long current_reading) {
+    long long t = vr_msec_now() - stats->inst_metric[metric].last_sample_time;
+    long long ops = current_reading -
+                    stats->inst_metric[metric].last_sample_count;
+    long long ops_sec;
+
+    ops_sec = t > 0 ? (ops*1000/t) : 0;
+    
+    update_stats_set(stats,inst_metric[metric].samples[stats->inst_metric[metric].idx],ops_sec);
+    stats->inst_metric[metric].idx++;
+    stats->inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
+    stats->inst_metric[metric].last_sample_time = vr_msec_now();
+    stats->inst_metric[metric].last_sample_count = current_reading;
+}
+
+/* Return the mean of all the samples. */
+long long getInstantaneousMetric(vr_stats *stats, int metric) {
+    int j;
+    long long sum = 0;
+
+    for (j = 0; j < STATS_METRIC_SAMPLES; j++) {
+#if (defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)) && defined(STATS_ATOMIC_FIRST)
+        sum += update_stats_get(stats, inst_metric[metric].samples[j]);
+#else
+        pthread_spin_lock(&master.vel.stats->statslock);
+        sum += stats->inst_metric[metric].samples[j];
+        pthread_spin_unlock(&master.vel.stats->statslock);
+#endif
+    }
+    return sum / STATS_METRIC_SAMPLES;
+}
