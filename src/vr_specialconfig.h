@@ -37,4 +37,19 @@
 #endif /* __GNUC__ */
 #endif /* __sun */
 
+
+/* Test for proc filesystem */
+#ifdef __linux__
+#define HAVE_PROC_STAT 1
+#define HAVE_PROC_MAPS 1
+#define HAVE_PROC_SMAPS 1
+#define HAVE_PROC_SOMAXCONN 1
+#endif
+
+/* Test for task_info() */
+#if defined(__APPLE__)
+#define HAVE_TASKINFO 1
+#endif
+
+
 #endif

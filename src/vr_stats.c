@@ -22,6 +22,7 @@ vr_stats_init(vr_stats *stats)
     stats->sync_partial_err = 0;
     stats->net_input_bytes = 0;
     stats->net_output_bytes = 0;
+    stats->peak_memory = 0;
     
 #if !defined(STATS_ATOMIC_FIRST) || (!defined(__ATOMIC_RELAXED) && !defined(HAVE_ATOMIC))
     ret = pthread_spin_init(&stats->statslock, 0);

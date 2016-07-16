@@ -228,8 +228,6 @@ struct vr_server {
     struct redisCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand,
                         *rpopCommand, *sremCommand, *execCommand;
 
-    size_t stat_peak_memory;        /* Max used memory record */
-
     /* System hardware info */
     size_t system_memory_size;  /* Total memory in system as reported by OS */
 };
@@ -347,7 +345,7 @@ void authCommand(struct client *c) ;
 
 int htNeedsResize(dict *dict);
 
-sds genVireInfoString(char *section);
+sds genVireInfoString(vr_eventloop *vel, char *section);
 void infoCommand(client *c);
 void echoCommand(client *c);
 void timeCommand(client *c);

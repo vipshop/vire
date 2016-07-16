@@ -354,9 +354,7 @@ init_server(struct instance *nci)
 
     server.ready_keys = listCreate();
 
-    server.stat_peak_memory = 0;
-
-    server.system_memory_size = zmalloc_get_memory_size();
+    server.system_memory_size = vr_alloc_get_memory_size();
 
     server.rdb_child_pid = -1;
     server.aof_child_pid = -1;
@@ -709,7 +707,7 @@ struct keys_statistics {
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
-sds genVireInfoString(char *section) {
+sds genVireInfoString(vr_eventloop *vel, char *section) {
     sds info = sdsempty();
     time_t uptime = time(NULL)-server.starttime;
     int j, k, numcommands;
@@ -783,6 +781,8 @@ sds genVireInfoString(char *section) {
 
     /* Memory */
     if (allsections || defsections || !strcasecmp(section,"memory")) {
+        uint32_t idx;
+        vr_worker *worker;
         char hmem[64];
         char peak_hmem[64];
         char total_system_hmem[64];
@@ -792,23 +792,45 @@ sds genVireInfoString(char *section) {
         size_t vr_used_memory = vr_alloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
         const char *evict_policy;
+        size_t peak_memory = 0, peak_memory_for_one_worker;
         long long maxmemory;
         int maxmemory_policy;
 
-        /* Peak memory is updated from time to time by serverCron() so it
+        /* Peak memory is updated from time to time by workerCron() so it
          * may happen that the instantaneous value is slightly bigger than
          * the peak value. This may confuse users, so we update the peak
          * if found smaller than the current memory usage. */
-        if (vr_used_memory > server.stat_peak_memory)
-            server.stat_peak_memory = vr_used_memory;
+        for (idx = 0; idx < array_n(&workers); idx ++) {
+            worker = array_get(&workers, idx);
+#if (defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)) && defined(STATS_ATOMIC_FIRST)
+            peak_memory_for_one_worker = update_stats_get(worker->vel.stats, peak_memory);
+#else
+            pthread_spin_lock(&worker->vel.stats->statslock);
+            peak_memory_for_one_worker = worker->vel.stats->peak_memory;
+            pthread_spin_unlock(&worker->vel.stats->statslock);
+#endif
+            if (peak_memory < peak_memory_for_one_worker)
+                peak_memory = peak_memory_for_one_worker;
+        }
+        if (vr_used_memory > peak_memory) {
+            peak_memory = vr_used_memory;
+#if (defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)) && defined(STATS_ATOMIC_FIRST)
+            update_stats_set(vel->stats, peak_memory, vr_used_memory);
+#else
+            pthread_spin_lock(&vel->stats->statslock);
+            vel->stats->peak_memory = vr_used_memory;
+            pthread_spin_unlock(&vel->stats->statslock);
+#endif
+        }
 
         conf_server_get(CONFIG_SOPN_MAXMEMORY,&maxmemory);
         conf_server_get(CONFIG_SOPN_MAXMEMORYP,&maxmemory_policy);
         evict_policy = get_evictpolicy_strings(maxmemory_policy);
     
         bytesToHuman(hmem,vr_used_memory);
-        bytesToHuman(peak_hmem,server.stat_peak_memory);
+        bytesToHuman(peak_hmem,peak_memory);
         bytesToHuman(total_system_hmem,total_system_mem);
+        bytesToHuman(used_memory_rss_hmem,vel->resident_set_size);
         bytesToHuman(maxmemory_hmem,maxmemory);
 
         if (sections++) info = sdscat(info,"\r\n");
@@ -816,6 +838,8 @@ sds genVireInfoString(char *section) {
             "# Memory\r\n"
             "used_memory:%zu\r\n"
             "used_memory_human:%s\r\n"
+            "used_memory_rss:%zu\r\n"
+            "used_memory_rss_human:%s\r\n"
             "used_memory_peak:%zu\r\n"
             "used_memory_peak_human:%s\r\n"
             "total_system_memory:%lu\r\n"
@@ -823,16 +847,20 @@ sds genVireInfoString(char *section) {
             "maxmemory:%lld\r\n"
             "maxmemory_human:%s\r\n"
             "maxmemory_policy:%s\r\n"
+            "mem_fragmentation_ratio:%.2f\r\n"
             "mem_allocator:%s\r\n",
             vr_used_memory,
             hmem,
-            server.stat_peak_memory,
+            vel->resident_set_size,
+            used_memory_rss_hmem,
+            peak_memory,
             peak_hmem,
             (unsigned long)total_system_mem,
             total_system_hmem,
             maxmemory,
             maxmemory_hmem,
             evict_policy,
+            (float)vel->resident_set_size/vr_used_memory,
             VR_MALLOC_LIB
             );
     }
@@ -1019,7 +1047,7 @@ void infoCommand(client *c) {
         addReply(c,shared.syntaxerr);
         return;
     }
-    addReplyBulkSds(c, genVireInfoString(section));
+    addReplyBulkSds(c, genVireInfoString(c->vel, section));
 }
 
 void echoCommand(client *c) {

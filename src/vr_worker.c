@@ -432,6 +432,7 @@ int
 worker_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     vr_worker *worker = clientData;
     vr_eventloop *vel = &worker->vel;
+    size_t stat_used_memory;
 
     UNUSED(eventLoop);
     UNUSED(id);
@@ -450,6 +451,24 @@ worker_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         trackInstantaneousMetric(vel->stats,STATS_METRIC_NET_OUTPUT,
             vel->stats->net_output_bytes);
     }
+
+    /* Sample the RSS here since this is a relatively slow call. */
+    run_with_period(1000, vel->cronloops) {
+        vel->resident_set_size = vr_alloc_get_rss();
+    }
+
+    /* Record the max memory used since the server was started. */
+    stat_used_memory = vr_alloc_used_memory();
+#if (defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)) && defined(STATS_ATOMIC_FIRST)
+    if (stat_used_memory > update_stats_get(vel->stats, peak_memory))
+        update_stats_set(vel->stats, peak_memory, stat_used_memory);
+#else
+    pthread_spin_lock(&vel->stats->statslock);
+    stat_peak_memory = vel->stats->peak_memory;
+    if (stat_used_memory > vel->stats->peak_memory)
+        vel->stats->peak_memory = stat_used_memory;
+    pthread_spin_unlock(&vel->stats->statslock);
+#endif
 
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue(vel);

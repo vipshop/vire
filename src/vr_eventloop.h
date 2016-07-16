@@ -26,6 +26,7 @@ typedef struct vr_eventloop {
     long long clients_pause_end_time; /* Time when we undo clients_paused */
 
     vr_stats *stats;            /* stats for this thread */
+    size_t resident_set_size;   /* RSS sampled in workerCron(). */
 
     long long dirty;            /* Changes to DB from the last save */
 

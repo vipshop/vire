@@ -25,6 +25,7 @@ typedef struct vr_stats {
     long long sync_partial_err;/* Number of unaccepted PSYNC requests. */
     long long net_input_bytes; /* Bytes read from network. */
     long long net_output_bytes; /* Bytes written to network. */
+    size_t    peak_memory;     /* Max used memory record */
     
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */

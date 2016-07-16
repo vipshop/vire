@@ -383,6 +383,9 @@ void bytesToHuman(char *s, unsigned long long n);
 
 sds getAbsolutePath(char *filename);
 
-size_t zmalloc_get_memory_size(void);
+size_t vr_alloc_get_memory_size(void);
+
+size_t vr_alloc_get_rss(void);
+float vr_alloc_get_fragmentation_ratio(size_t rss);
 
 #endif
