@@ -1,7 +1,9 @@
 #ifndef _VR_STATS_H_
 #define _VR_STATS_H_
 
+#if 0
 #define STATS_ATOMIC_FIRST 1
+#endif
 
 /* Instantaneous metrics tracking. */
 #define STATS_METRIC_SAMPLES 16     /* Number of samples per metric. */
@@ -46,13 +48,21 @@ typedef struct vr_stats {
 #define update_stats_add(_stats, _field, _n) __atomic_add_fetch(&(_stats)->_field, (_n), __ATOMIC_RELAXED)
 #define update_stats_sub(_stats, _field, _n) __atomic_sub_fetch(&(_stats)->_field, (_n), __ATOMIC_RELAXED)
 #define update_stats_set(_stats, _field, _n) __atomic_store_n(&(_stats)->_field, (_n), __ATOMIC_RELAXED)
-#define update_stats_get(_stats, _field)     __atomic_load_n(&(_stats)->_field, __ATOMIC_RELAXED)
+#define update_stats_get(_stats, _field, _v) do {           \
+    __atomic_load(&(_stats)->_field, _v, __ATOMIC_RELAXED); \
+} while(0)
+
+#define STATS_LOCK_TYPE "__ATOMIC_RELAXED"
 /* GCC version >= 4.1 */
 #elif defined(HAVE_ATOMIC) && defined(STATS_ATOMIC_FIRST)
 #define update_stats_add(_stats, _field, _n) __sync_add_and_fetch(&(_stats)->_field, (_n))
 #define update_stats_sub(_stats, _field, _n) __sync_sub_and_fetch(&(_stats)->_field, (_n))
 #define update_stats_set(_stats, _field, _n) __sync_lock_test_and_set(&(_stats)->_field, (_n))
-#define update_stats_get(_stats, _field)     __sync_add_and_fetch(&(_stats)->_field, 0)
+#define update_stats_get(_stats, _field, _v) do {           \
+    (*_v) = __sync_add_and_fetch(&(_stats)->_field, 0);     \
+} while(0)
+
+#define STATS_LOCK_TYPE "HAVE_ATOMIC"
 #else
 #define update_stats_add(_stats, _field, _n) do {   \
     pthread_spin_lock(&(_stats)->statslock);        \
@@ -72,11 +82,13 @@ typedef struct vr_stats {
     pthread_spin_unlock(&(_stats)->statslock);      \
 } while(0)
 
-#define update_stats_get(_stats, _field) do {   \
+#define update_stats_get(_stats, _field, _v) do {   \
     pthread_spin_lock(&(_stats)->statslock);        \
     (*_v) = (_stats)->_field;                       \
     pthread_spin_unlock(&(_stats)->statslock);      \
 } while(0)
+
+#define STATS_LOCK_TYPE "pthread_spin_lock"
 #endif
 
 int vr_stats_init(vr_stats *stats);

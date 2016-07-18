@@ -84,13 +84,9 @@ long long getInstantaneousMetric(vr_stats *stats, int metric) {
     long long sum = 0;
 
     for (j = 0; j < STATS_METRIC_SAMPLES; j++) {
-#if (defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)) && defined(STATS_ATOMIC_FIRST)
-        sum += update_stats_get(stats, inst_metric[metric].samples[j]);
-#else
-        pthread_spin_lock(&master.vel.stats->statslock);
-        sum += stats->inst_metric[metric].samples[j];
-        pthread_spin_unlock(&master.vel.stats->statslock);
-#endif
+        long long value;
+        update_stats_get(stats, inst_metric[metric].samples[j], &value);
+        sum += value;
     }
     return sum / STATS_METRIC_SAMPLES;
 }

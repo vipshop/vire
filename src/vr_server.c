@@ -391,8 +391,10 @@ init_server(struct instance *nci)
         return VR_ERROR;
     }
 
-    log_debug(LOG_NOTICE, "mem_alloc_lock_type: %s", malloc_lock_type());
+    log_debug(LOG_NOTICE, "memory alloc lock type: %s", malloc_lock_type());
     log_debug(LOG_NOTICE, "malloc lib: %s", VR_MALLOC_LIB);
+
+    log_debug(LOG_NOTICE, "stats lock type: %s", STATS_LOCK_TYPE);
 
     return VR_OK;
 }
@@ -802,25 +804,14 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
          * if found smaller than the current memory usage. */
         for (idx = 0; idx < array_n(&workers); idx ++) {
             worker = array_get(&workers, idx);
-#if (defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)) && defined(STATS_ATOMIC_FIRST)
-            peak_memory_for_one_worker = update_stats_get(worker->vel.stats, peak_memory);
-#else
-            pthread_spin_lock(&worker->vel.stats->statslock);
-            peak_memory_for_one_worker = worker->vel.stats->peak_memory;
-            pthread_spin_unlock(&worker->vel.stats->statslock);
-#endif
+            update_stats_get(worker->vel.stats, peak_memory, 
+                &peak_memory_for_one_worker);
             if (peak_memory < peak_memory_for_one_worker)
                 peak_memory = peak_memory_for_one_worker;
         }
         if (vr_used_memory > peak_memory) {
             peak_memory = vr_used_memory;
-#if (defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)) && defined(STATS_ATOMIC_FIRST)
             update_stats_set(vel->stats, peak_memory, vr_used_memory);
-#else
-            pthread_spin_lock(&vel->stats->statslock);
-            vel->stats->peak_memory = vr_used_memory;
-            pthread_spin_unlock(&vel->stats->statslock);
-#endif
         }
 
         conf_server_get(CONFIG_SOPN_MAXMEMORY,&maxmemory);
@@ -880,41 +871,32 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
         float stat_net_input_bytes_ops=0, stat_net_output_bytes_ops=0;
 
         for (idx = 0; idx < array_n(&workers); idx ++) {
+            long long stats_value;
             worker = array_get(&workers, idx);
             stats = worker->vel.stats;
-#if (defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)) && defined(STATS_ATOMIC_FIRST)
-            stat_numcommands += update_stats_get(stats, numcommands);
-            stat_numconnections += update_stats_get(stats, numconnections);
-            stat_expiredkeys += update_stats_get(stats, expiredkeys);
-            stat_evictedkeys += update_stats_get(stats, evictedkeys);
-            stat_net_input_bytes += update_stats_get(stats, net_input_bytes);
-            stat_net_output_bytes += update_stats_get(stats, net_output_bytes);
-            stat_keyspace_hits += update_stats_get(stats, keyspace_hits);
-            stat_keyspace_misses += update_stats_get(stats, keyspace_misses);
-#else
-            pthread_spin_lock(&stats->statslock);
-            stat_numcommands += stats->numcommands;
-            stat_numconnections += stats->numconnections;
-            stat_expiredkeys += stats->expiredkeys;
-            stat_evictedkeys += stats->evictedkeys;
-            stat_net_input_bytes += stats->net_input_bytes;
-            stat_net_output_bytes += stats->net_output_bytes;
-            stat_keyspace_hits += stats->keyspace_hits;
-            stat_keyspace_misses += stats->keyspace_misses;
-            pthread_spin_unlock(&stats->statslock);
-#endif
+
+            update_stats_get(stats, numcommands, &stats_value);
+            stat_numcommands += stats_value;
+            update_stats_get(stats, numconnections, &stats_value);
+            stat_numconnections += stats_value;
+            update_stats_get(stats, expiredkeys, &stats_value);
+            stat_expiredkeys += stats_value;
+            update_stats_get(stats, evictedkeys, &stats_value);
+            stat_evictedkeys += stats_value;
+            update_stats_get(stats, net_input_bytes, &stats_value);
+            stat_net_input_bytes += stats_value;
+            update_stats_get(stats, net_output_bytes, &stats_value);
+            stat_net_output_bytes += stats_value;
+            update_stats_get(stats, keyspace_hits, &stats_value);
+            stat_keyspace_hits += stats_value;
+            update_stats_get(stats, keyspace_misses, &stats_value);
+            stat_keyspace_misses += stats_value;
+            
             stat_numcommands_ops += getInstantaneousMetric(stats, STATS_METRIC_COMMAND);
             stat_net_input_bytes_ops += (float)getInstantaneousMetric(stats, STATS_METRIC_NET_INPUT)/1024;
             stat_net_output_bytes_ops += (float)getInstantaneousMetric(stats, STATS_METRIC_NET_OUTPUT)/1024;
         }
-
-#if (defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)) && defined(STATS_ATOMIC_FIRST)
-        stat_rejected_conn = update_stats_get(master.vel.stats, rejected_conn);
-#else
-        pthread_spin_lock(&master.vel.stats->statslock);
-        stat_rejected_conn = master.vel.stats->rejected_conn;
-        pthread_spin_unlock(&master.vel.stats->statslock);
-#endif
+        update_stats_get(master.vel.stats, rejected_conn, &stat_rejected_conn);
         
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,

@@ -1,6 +1,15 @@
 #ifndef _VR_SPECIALCONFIG_H_
 #define _VR_SPECIALCONFIG_H_
 
+#ifdef __APPLE__
+#include <AvailabilityMacros.h>
+#endif
+
+#ifdef __linux__
+#include <linux/version.h>
+#include <features.h>
+#endif
+
 #if (__i386 || __amd64 || __powerpc__) && __GNUC__
 #define GNUC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
 #if defined(__clang__)

@@ -885,7 +885,6 @@ int writeToClient(int fd, client *c, int handler_installed) {
          *
          * However if we are over the maxmemory limit we ignore that and
          * just deliver as much data as it is possible to deliver. */
-        update_stats_add(c->vel->stats, net_output_bytes, totwritten);
         if (totwritten > NET_MAX_WRITES_PER_EVENT &&
             (maxmemory == 0 || vr_alloc_used_memory() < maxmemory)) 
             break;
@@ -901,6 +900,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
         }
     }
     if (totwritten > 0) {
+        update_stats_add(c->vel->stats, net_output_bytes, (long long)totwritten);
         /* For clients representing masters we don't count sending data
          * as an interaction, since we always send REPLCONF ACK commands
          * that take some time to just fill the socket output buffer.
