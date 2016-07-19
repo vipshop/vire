@@ -209,6 +209,8 @@ void populateCommandTable(void) {
 
         retval1 = dictAdd(server.commands, sdsnew(c->name), c);
         ASSERT(retval1 == DICT_OK);
+
+        c->idx = j;
     }
 }
 
@@ -327,8 +329,9 @@ void call(client *c, int flags) {
         slowlogPushEntryIfNeeded(c->vel,c->argv,c->argc,duration);
     }
     if (flags & CMD_CALL_STATS) {
-        c->lastcmd->microseconds += duration;
-        c->lastcmd->calls++;
+        commandStats *cstats = array_get(c->vel->cstable,c->lastcmd->idx);
+        cstats->microseconds += duration;
+        cstats->calls++;
     }
 
     /* Propagate the command into the AOF and replication link */
@@ -720,10 +723,10 @@ static void addReplyCommand(client *c, struct redisCommand *cmd) {
 
 /* COMMAND <subcommand> <args> */
 void commandCommand(client *c) {
-    dictIterator *di;
-    dictEntry *de;
-
     if (c->argc == 1) {
+        dictIterator *di;
+        dictEntry *de;
+        
         addReplyMultiBulkLen(c, dictSize(server.commands));
         di = dictGetIterator(server.commands);
         while ((de = dictNext(di)) != NULL) {
@@ -756,9 +759,91 @@ void commandCommand(client *c) {
         addReplyMultiBulkLen(c,numkeys);
         for (j = 0; j < numkeys; j++) addReplyBulk(c,c->argv[keys[j]+2]);
         getKeysFreeResult(keys);
+    } else if (!strcasecmp(c->argv[1]->ptr, "stats") && c->argc == 2) {
+        int j;
+        struct array *cstableall;
+        struct array *cstable = c->vel->cstable;
+        commandStats *cstats, *cstatsall;
+
+        if (c->steps == 0) {
+            cstableall = commandStatsTableCreate();
+            if (!(c->flags&CLIENT_JUMP))
+                c->flags |= CLIENT_JUMP;
+            c->taridx = worker_get_next_idx(c->curidx);
+            c->cache = cstableall;
+        } else {
+            cstableall = c->cache;
+            c->taridx = worker_get_next_idx(c->curidx);
+        }
+
+        for (j = 0; j < array_n(cstable); j ++) {
+            cstats = array_get(cstable, j);
+            if (!cstats->calls) continue;
+            
+            cstatsall = array_get(cstableall, j);
+            cstatsall->microseconds += cstats->microseconds;
+            cstatsall->calls += cstats->calls;
+        }
+        
+        if (c->steps >= (array_n(&workers) - 1)) {
+            sds command_stats_info;
+            void *replylen_node;
+            long replylen = 0;
+            
+            c->steps = 0;
+            c->taridx = -1;
+            c->cache = NULL;
+            c->flags &= ~CLIENT_JUMP;
+            
+            replylen_node = addDeferredMultiBulkLength(c);
+            for (j = 0; j < array_n(cstableall); j ++) {
+                cstatsall = array_get(cstableall, j);
+                if (!cstatsall->calls) continue;
+                
+                command_stats_info = sdscatprintf(sdsempty(),
+                    "%s:calls=%lld,usec=%lld,usec_per_call=%.2f",
+                    cstatsall->name, cstatsall->calls, cstatsall->microseconds,
+                    (float)cstatsall->microseconds/cstatsall->calls);
+                addReplyBulkSds(c,command_stats_info);
+                replylen ++;
+            }
+
+            setDeferredMultiBulkLength(c,replylen_node,replylen);
+            
+            commandStatsTableDestroy(cstableall);
+        }
     } else {
         addReplyError(c, "Unknown subcommand or wrong number of arguments.");
         return;
     }
 }
 
+struct array *
+commandStatsTableCreate(void)
+{
+    int j;
+    commandStats *cstats;
+    struct array *cstatstable;
+    int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
+    
+
+    cstatstable = array_create(numcommands,sizeof(commandStats));
+    if (cstatstable == NULL) return NULL;
+    for (j = 0; j < numcommands; j ++) {
+        struct redisCommand *c = redisCommandTable+j;
+        cstats = array_push(cstatstable);
+        cstats->name = c->name;
+        cstats->microseconds = 0;
+        cstats->calls = 0;
+        ASSERT(j == c->idx);
+    }
+
+    return cstatstable;
+}
+
+void
+commandStatsTableDestroy(struct array *cstatstable)
+{
+    cstatstable->nelem = 0;
+    array_destroy(cstatstable);
+}

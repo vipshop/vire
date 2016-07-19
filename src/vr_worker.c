@@ -114,6 +114,7 @@ vr_worker_init(vr_worker *worker)
     vr_eventloop_init(&worker->vel, filelimit);
     worker->vel.thread.fun_run = worker_thread_run;
     worker->vel.thread.data = worker;
+    worker->vel.cstable = commandStatsTableCreate();
 
     status = socketpair(AF_LOCAL, SOCK_STREAM, 0, worker->socketpairs);
     if (status < 0) {

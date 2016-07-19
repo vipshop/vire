@@ -34,6 +34,7 @@ vr_eventloop_init(vr_eventloop *vel, int filelimit)
     vel->pubsub_channels = NULL;
     vel->pubsub_patterns = NULL;
     vel->notify_keyspace_events = 0;
+    vel->cstable = NULL;
 
     vel->el = aeCreateEventLoop(filelimit);
     if (vel->el == NULL) {
@@ -145,6 +146,11 @@ vr_eventloop_deinit(vr_eventloop *vel)
         vr_stats_deinit(vel->stats);
         vr_free(vel->stats);
         vel->stats = NULL;
+    }
+
+    if (vel->cstable != NULL) {
+        commandStatsTableDestroy(vel->cstable);
+        vel->cstable = NULL;
     }
 }
 

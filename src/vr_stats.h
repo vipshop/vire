@@ -37,7 +37,7 @@ typedef struct vr_stats {
         long long samples[STATS_METRIC_SAMPLES];
         int idx;
     } inst_metric[STATS_METRIC_COUNT];
-    
+
 #if !defined(STATS_ATOMIC_FIRST) || (!defined(__ATOMIC_RELAXED) && !defined(HAVE_ATOMIC))
     pthread_spinlock_t statslock;
 #endif

@@ -53,8 +53,14 @@ struct redisCommand {
     int firstkey; /* The first argument that's a key (0 = no keys) */
     int lastkey;  /* The last argument that's a key */
     int keystep;  /* The step between first and last key */
-    long long microseconds, calls;
+    int idx, notused;
 };
+
+typedef struct commandStats {
+    char *name;
+    long long microseconds;
+    long long calls;
+}commandStats;
 
 /* The redisOp structure defines a Redis Operation, that is an instance of
  * a command with an argument vector, database ID, propagation target
@@ -102,5 +108,8 @@ void preventCommandAOF(struct client *c);
 void preventCommandReplication(struct client *c);
 
 void commandCommand(struct client *c);
+
+struct array *commandStatsTableCreate(void);
+void commandStatsTableDestroy(struct array *cstatstable);
 
 #endif
