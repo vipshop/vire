@@ -324,7 +324,7 @@ void call(client *c, int flags) {
         //char *latency_event = (c->cmd->flags & CMD_FAST) ?
         //                      "fast-command" : "command";
         //latencyAddSampleIfNeeded(latency_event,duration/1000);
-        slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
+        slowlogPushEntryIfNeeded(c->vel,c->argv,c->argc,duration);
     }
     if (flags & CMD_CALL_STATS) {
         c->lastcmd->microseconds += duration;
@@ -441,7 +441,7 @@ int processCommand(client *c) {
      * First we try to free some memory if possible (if there are volatile
      * keys in the dataset). If there are not the only thing we can do
      * is returning an error. */
-    conf_server_get(CONFIG_SOPN_MAXMEMORY,&maxmemory);
+    maxmemory = c->vel->cc.maxmemory;
     if (maxmemory) {
         int retval = freeMemoryIfNeeded(c->vel);
         /* freeMemoryIfNeeded may flush slave output buffers. This may result

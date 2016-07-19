@@ -842,7 +842,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
     robj *o;
     long long maxmemory;
 
-    conf_server_get(CONFIG_SOPN_MAXMEMORY,&maxmemory);
+    maxmemory = c->vel->cc.maxmemory;
     while(clientHasPendingReplies(c)) {
         if (c->bufpos > 0) {
             nwritten = vr_write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);

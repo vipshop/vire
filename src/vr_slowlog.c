@@ -70,10 +70,11 @@ void slowlogInit(void) {
 /* Push a new entry into the slow log.
  * This function will make sure to trim the slow log accordingly to the
  * configured max length. */
-void slowlogPushEntryIfNeeded(robj **argv, int argc, long long duration) {
+void slowlogPushEntryIfNeeded(vr_eventloop *vel, robj **argv, int argc, long long duration) {
     long long slowlog_log_slower_than;
     int slowlog_max_len;
-    conf_server_get(CONFIG_SOPN_SLOWLOGLST,&slowlog_log_slower_than);
+    
+    slowlog_log_slower_than = vel->cc.slowlog_log_slower_than;
     if (slowlog_log_slower_than < 0) return; /* Slowlog disabled */
     if (duration >= slowlog_log_slower_than) {
         slowlogEntry *se = slowlogCreateEntry(argv,argc,duration);

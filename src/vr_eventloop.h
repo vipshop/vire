@@ -43,10 +43,7 @@ typedef struct vr_eventloop {
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
 
-    /* Config option used multi times for every loop, 
-         * so we cache them here in the cron function.
-         * Not implement now. */
-    long long maxmemory;
+    conf_cache cc;
 }vr_eventloop;
 
 int vr_eventloop_init(vr_eventloop *vel, int filelimit);

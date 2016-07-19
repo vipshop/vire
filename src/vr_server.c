@@ -487,7 +487,7 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
     int maxmemory_policy, maxmemory_samples;
     int ret;
 
-    conf_server_get(CONFIG_SOPN_MAXMEMORY, &maxmemory);
+    maxmemory = vel->cc.maxmemory;
     if (vr_alloc_used_memory() <= maxmemory)
         return VR_OK;
 

@@ -479,6 +479,11 @@ worker_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     databasesCron(worker);
 
+    /* Update the config cache */
+    run_with_period(1000, vel->cronloops) {
+        conf_cache_update(&vel->cc);
+    }
+    
     vel->cronloops ++;
     return 1000/vel->hz;
 }

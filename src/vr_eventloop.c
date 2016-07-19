@@ -84,6 +84,8 @@ vr_eventloop_init(vr_eventloop *vel, int filelimit)
 
     vr_stats_init(vel->stats);
 
+    conf_cache_update(&vel->cc);
+
     return VR_OK;
 }
 

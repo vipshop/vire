@@ -1935,3 +1935,14 @@ badarity:
     addReplyErrorFormat(c,"Wrong number of arguments for CONFIG %s",
         (char*) c->argv[1]->ptr);
 }
+
+int
+conf_cache_update(conf_cache *cc)
+{
+    conf_server_get(CONFIG_SOPN_MAXCLIENTS,&cc->maxclients);
+    conf_server_get(CONFIG_SOPN_MAXMEMORY,&cc->maxmemory);
+    conf_server_get(CONFIG_SOPN_MTCLIMIT,&cc->max_time_complexity_limit);
+    conf_server_get(CONFIG_SOPN_SLOWLOGLST,&cc->slowlog_log_slower_than);
+
+    return VR_OK;
+}

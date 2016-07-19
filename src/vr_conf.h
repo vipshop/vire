@@ -127,6 +127,15 @@ typedef struct conf_value{
     void    *value;
 }conf_value;
 
+/* Config option used multi times for every loop, 
+ * so we cache them here in the cron function. */
+typedef struct conf_cache {
+    int maxclients;
+    long long maxmemory;
+    long long max_time_complexity_limit;
+    long long slowlog_log_slower_than;
+}conf_cache;
+
 extern vr_conf *conf;
 extern conf_server *cserver;
 
@@ -164,5 +173,7 @@ int CONFF_UNLOCK(void);
 const char *get_evictpolicy_strings(int evictpolicy_type);
 
 void configCommand(struct client *c);
+
+int conf_cache_update(conf_cache *cc);
 
 #endif

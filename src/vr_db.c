@@ -416,7 +416,8 @@ void keysCommand(client *c) {
         keys_count += dictSize(c->db->dict);
         unlockDb(c->db);
     }
-    conf_server_get(CONFIG_SOPN_MTCLIMIT,&max_time_complexity_limit);
+
+    max_time_complexity_limit = c->vel->cc.max_time_complexity_limit;
     if (max_time_complexity_limit && 
         keys_count > max_time_complexity_limit) {
         addReply(c,shared.outofcomplexitylimit);
