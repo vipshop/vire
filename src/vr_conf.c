@@ -31,10 +31,6 @@ typedef const char *(*configEnumGetStrFun)(int type);
 #define CONF_TAG_DEFAULT_NOREPLY        "false"
 #define CONF_TAG_DEFAULT_RDB_DISKLESS   "false"
 
-#define CONF_VALUE_TYPE_UNKNOW   0
-#define CONF_VALUE_TYPE_STRING   1
-#define CONF_VALUE_TYPE_ARRAY    2
-
 #define DEFINE_ACTION(_hash, _name) (char*)(#_name),
 static char* hash_strings[] = {
     HASH_CODEC( DEFINE_ACTION )
@@ -93,14 +89,10 @@ static conf_option conf_server_options[] = {
       CONF_FIELD_TYPE_INT, 1,
       conf_set_int, conf_get_int,
       offsetof(conf_server, threads) },
-    /*{ (char *)CONFIG_SOPN_DIR,
-      CONF_FIELD_TYPE_SDS, 1,
-      conf_set_sds, conf_get_sds,
-      offsetof(conf_server, dir) },
     { (char *)CONFIG_SOPN_MAXCLIENTS,
       CONF_FIELD_TYPE_INT, 0,
-      conf_set_int, conf_get_int,
-      offsetof(conf_server, maxclients) },*/
+      conf_set_int_non_zero, conf_get_int,
+      offsetof(conf_server, maxclients) },
     { (char *)CONFIG_SOPN_SLOWLOGLST,
       CONF_FIELD_TYPE_LONGLONG, 0,
       conf_set_longlong, conf_get_longlong,
@@ -780,6 +772,18 @@ conf_server_get(const char *option_name, void *value)
     return opt->get(cserver, opt, value);
 }
 
+int
+conf_server_set(const char *option_name, conf_value *value)
+{
+    conf_option *opt;
+
+    opt = dictFetchValue(cserver->ctable, option_name);
+    if (opt == NULL || opt->flags&CONF_FIELD_FLAGS_NO_MODIFY)
+        return VR_ERROR;
+
+    return opt->set(cserver, opt, value);
+}
+
 static int conf_init(vr_conf *cf)
 {
     int ret;
@@ -1284,23 +1288,38 @@ static void configSetCommand(client *c) {
     sds value;
     sds *fields;
     int fields_count = 0;
-    conf_option *cop;
+    conf_option *opt;
     conf_value *cv;
     
     serverAssertWithInfo(c,c->argv[2],sdsEncodedObject(c->argv[2]));
     serverAssertWithInfo(c,c->argv[3],sdsEncodedObject(c->argv[3]));
-    value = c->argv[3]->ptr;
 
-    cop = dictFetchValue(cserver->ctable, c->argv[2]->ptr);
+    opt = dictFetchValue(cserver->ctable, c->argv[2]->ptr);
 
-    if (cop == NULL) {
+    if (opt == NULL) {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
             (char*)c->argv[2]->ptr);
         return;
-    } else if (cop->flags&CONF_FIELD_FLAGS_NO_MODIFY) {
+    } else if (opt->flags&CONF_FIELD_FLAGS_NO_MODIFY) {
         addReplyErrorFormat(c,"Unsupported modify this CONFIG parameter: %s",
             (char*)c->argv[2]->ptr);
         return;
+    }
+
+    value = c->argv[3]->ptr;
+
+    /* Handle some special action before setting the config value if needed */
+    if (!strcasecmp(c->argv[2]->ptr,CONFIG_SOPN_MAXCLIENTS)) {
+        long maxclients;
+        int filelimit, threads;
+        if (string2l(value,sdslen(value),&maxclients) == 0 || maxclients < 1) goto badfmt;
+        conf_server_get(CONFIG_SOPN_THREADS,&threads);
+        
+        filelimit = adjustOpenFilesLimit((int)maxclients);
+        if ((filelimit-threads*2-CONFIG_MIN_RESERVED_FDS) != maxclients) {
+            addReplyErrorFormat(c,"The operating system is not able to handle the specified number of clients");
+            return;
+        }
     }
 
     fields = sdssplitlen(value,sdslen(value)," ",1,&fields_count);
@@ -1324,16 +1343,14 @@ static void configSetCommand(client *c) {
     }
     sdsfreesplitres(fields,fields_count);
 
-    ret = cop->set(cserver, cop, cv);
+    ret = opt->set(cserver, opt, cv);
     conf_value_destroy(cv);
     if (ret != VR_OK) {
-        addReplyErrorFormat(c,"Invalid argument '%s' for CONFIG SET '%s'",
-            (char*)value, (char*)c->argv[2]->ptr);
-        return;
+        goto badfmt;
     }
 
-    /* Handle some special action if needed */
-    if (!strcmp(cop->name,CONFIG_SOPN_MAXMEMORY)) {
+    /* Handle some special action after setting the config value if needed */
+    if (!strcmp(opt->name,CONFIG_SOPN_MAXMEMORY)) {
         long long maxmemory;
         conf_server_get(CONFIG_SOPN_MAXMEMORY,&maxmemory);
         if (maxmemory) {
@@ -1346,6 +1363,12 @@ static void configSetCommand(client *c) {
 
     /* On success we just return a generic OK for all the options. */
     addReply(c,shared.ok);
+    return;
+
+badfmt: /* Bad format errors */
+    addReplyErrorFormat(c,"Invalid argument '%s' for CONFIG SET '%s'",
+        (char*)value,
+        (char*)c->argv[2]->ptr);
 }
 
 /*-----------------------------------------------------------------------------
@@ -1848,6 +1871,7 @@ static int rewriteConfig(char *path) {
     rewriteConfigIntOption(state,CONFIG_SOPN_THREADS,CONFIG_DEFAULT_THREADS_NUM);
     rewriteConfigLongLongOption(state,CONFIG_SOPN_SLOWLOGLST,CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN);
     rewriteConfigIntOption(state,CONFIG_SOPN_SLOWLOGML,CONFIG_DEFAULT_SLOWLOG_MAX_LEN);
+    rewriteConfigIntOption(state,CONFIG_SOPN_MAXCLIENTS,CONFIG_DEFAULT_MAX_CLIENTS);
     
     /* Step 3: remove all the orphaned lines in the old file, that is, lines
      * that were used by a config option and are no longer used, like in case

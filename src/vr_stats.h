@@ -1,7 +1,7 @@
 #ifndef _VR_STATS_H_
 #define _VR_STATS_H_
 
-#if 0
+#if 1
 #define STATS_ATOMIC_FIRST 1
 #endif
 

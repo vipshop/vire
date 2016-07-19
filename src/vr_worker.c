@@ -88,13 +88,14 @@ int
 vr_worker_init(vr_worker *worker)
 {
     rstatus_t status;
+    int maxclients, threads_num;
+    int filelimit;
     
     if (worker == NULL) {
         return VR_ERROR;
     }
 
     worker->id = 0;
-    vr_eventloop_init(&worker->vel);
     worker->socketpairs[0] = -1;
     worker->socketpairs[1] = -1;
     worker->csul = NULL;
@@ -105,6 +106,12 @@ vr_worker_init(vr_worker *worker)
     worker->resize_db = 0;
     worker->rehash_db = 0;
 
+    conf_server_get(CONFIG_SOPN_MAXCLIENTS,&maxclients);
+    filelimit = adjustOpenFilesLimit(maxclients);
+    if (filelimit <= 0) {
+        return VR_ERROR;
+    }
+    vr_eventloop_init(&worker->vel, filelimit);
     worker->vel.thread.fun_run = worker_thread_run;
     worker->vel.thread.data = worker;
 
@@ -202,6 +209,8 @@ dispatch_conn_new(vr_listen *vlisten, int sd)
     if (vr_write(worker->socketpairs[0], buf, 1) != 1) {
         log_error("Notice the worker failed.");
     }
+    
+    update_curr_clients_add(1);
 }
 
 static void

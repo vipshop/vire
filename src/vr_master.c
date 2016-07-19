@@ -12,11 +12,15 @@ master_init(vr_conf *conf)
     uint32_t j;
     sds *host, listen_str;
     vr_listen **vlisten;
+    int threads_num;
+    int filelimit;
 
     master.cbsul = NULL;
     pthread_mutex_init(&master.cbsullock, NULL);
-    vr_eventloop_init(&master.vel);
 
+    conf_server_get(CONFIG_SOPN_THREADS,&threads_num);
+    filelimit = threads_num*2+CONFIG_MIN_RESERVED_FDS;
+    vr_eventloop_init(&master.vel,filelimit);
     master.vel.thread.fun_run = master_thread_run;
 
     array_init(&master.listens,array_n(&cserver->binds),sizeof(vr_listen*));

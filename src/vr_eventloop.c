@@ -1,11 +1,12 @@
 #include <vr_core.h>
 
 int
-vr_eventloop_init(vr_eventloop *vel)
+vr_eventloop_init(vr_eventloop *vel, int filelimit)
 {    
     rstatus_t status;
+    int maxclients, threads_num;
 
-    if (vel == NULL) {
+    if (vel == NULL || filelimit <= 0) {
         return VR_ERROR;
     }
 
@@ -34,7 +35,7 @@ vr_eventloop_init(vr_eventloop *vel)
     vel->pubsub_patterns = NULL;
     vel->notify_keyspace_events = 0;
 
-    vel->el = aeCreateEventLoop(1024);
+    vel->el = aeCreateEventLoop(filelimit);
     if (vel->el == NULL) {
         log_error("create eventloop failed.");
         return VR_ERROR;

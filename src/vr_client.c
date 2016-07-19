@@ -1,5 +1,7 @@
 #include <vr_core.h>
 
+int ncurr_cconn = 0;       /* current # client connections */
+
 static void setProtocolError(client *c, int pos);
 
 /* Return the size consumed from the allocator, for the specified SDS string,
@@ -1939,4 +1941,20 @@ int processEventsWhileBlocked(vr_eventloop *vel) {
         count += events;
     }
     return count;
+}
+
+int
+current_clients(void)
+{
+    int ccs;
+
+#if defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)
+    ccs = update_curr_clients_add(0);
+#else
+    pthread_mutex_lock(&curr_clients_mutex);
+    ccs = ncurr_cconn;
+    pthread_mutex_unlock(&curr_clients_mutex);
+#endif
+
+    return ccs;
 }

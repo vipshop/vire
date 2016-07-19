@@ -201,4 +201,30 @@ void addReplyErrorFormat(client *c, const char *fmt, ...);
 void addReplyStatusFormat(client *c, const char *fmt, ...);
 #endif
 
+extern int ncurr_cconn;
+
+#if defined(__ATOMIC_RELAXED)
+#define update_curr_clients_add(__n) __atomic_add_fetch(&ncurr_cconn, (__n), __ATOMIC_RELAXED)
+#define update_curr_clients_sub(__n) __atomic_sub_fetch(&ncurr_cconn, (__n), __ATOMIC_RELAXED)
+#elif defined(HAVE_ATOMIC)
+#define update_curr_clients_add(__n) __sync_add_and_fetch(&ncurr_cconn, (__n))
+#define update_curr_clients_sub(__n) __sync_sub_and_fetch(&ncurr_cconn, (__n))
+#else
+pthread_mutex_t curr_clients_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+#define update_curr_clients_add(__n) do {       \
+    pthread_mutex_lock(&curr_clients_mutex);    \
+    ncurr_cconn += (__n);                       \
+    pthread_mutex_unlock(&curr_clients_mutex);  \
+} while(0)
+
+#define update_curr_clients_sub(__n) do {       \
+    pthread_mutex_lock(&curr_clients_mutex);    \
+    ncurr_cconn -= (__n);                       \
+    pthread_mutex_unlock(&curr_clients_mutex);  \
+} while(0)
+#endif
+
+int current_clients(void);
+
 #endif

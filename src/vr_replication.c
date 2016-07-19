@@ -4,7 +4,7 @@ struct vr_replication repl;
 
 int vr_replication_init(void)
 {
-    vr_eventloop_init(&repl.vel);
+    vr_eventloop_init(&repl.vel,1000);
 
     repl.role = REPLICATION_ROLE_MASTER;
     repl.master = NULL;

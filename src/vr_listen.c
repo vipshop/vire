@@ -207,7 +207,7 @@ vr_listen_accept(vr_listen *vlisten)
 {
     rstatus_t status;
     int sd;
-    int maxclients = 10;
+    int maxclients;
     
     ASSERT(vlisten->sd > 0);
     
@@ -229,14 +229,14 @@ vr_listen_accept(vr_listen *vlisten)
             
             if (errno == EMFILE || errno == ENFILE) {
                 log_debug(LOG_CRIT, "accept on p %d "
-                          "used connections %"PRIu32" max client connections %u "
-                          "curr client connections %"PRIu32" failed: %s",
-                          vlisten->sd, conn_ncurr_conn(),
-                          maxclients, conn_ncurr_cconn(), strerror(errno));
+                          "max client connections %d "
+                          "curr client connections %d failed: %s",
+                          vlisten->sd, maxclients, 
+                          current_clients(), strerror(errno));
                 return -1;
             }
 
-            log_error("accept on p %d failed: %s", vlisten->sd, strerror(errno));
+            log_warn("accept on p %d failed: %s", vlisten->sd, strerror(errno));
 
             return -1;
         }
@@ -244,9 +244,9 @@ vr_listen_accept(vr_listen *vlisten)
         break;
     }
 
-    if (conn_ncurr_cconn() >= maxclients) {
-        log_debug(LOG_CRIT, "client connections %"PRIu32" exceed limit %"PRIu32,
-                  conn_ncurr_cconn(), maxclients);
+    if (current_clients() >= maxclients) {
+        log_debug(LOG_CRIT, "client connections %d exceed limit %d",
+                  current_clients(), maxclients);
         status = close(sd);
         if (status < 0) {
             log_error("close c %d failed, ignored: %s", sd, strerror(errno));

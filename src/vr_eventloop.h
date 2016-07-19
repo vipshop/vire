@@ -49,7 +49,7 @@ typedef struct vr_eventloop {
     long long maxmemory;
 }vr_eventloop;
 
-int vr_eventloop_init(vr_eventloop *vel);
+int vr_eventloop_init(vr_eventloop *vel, int filelimit);
 void vr_eventloop_deinit(vr_eventloop *vel);
 
 #endif

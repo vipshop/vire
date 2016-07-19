@@ -781,6 +781,15 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
             server.dbinum);
     }
 
+    /* Clients */
+    if (allsections || defsections || !strcasecmp(section,"clients")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+            "# Clients\r\n"
+            "connected_clients:%d\r\n",
+            current_clients());
+    }
+
     /* Memory */
     if (allsections || defsections || !strcasecmp(section,"memory")) {
         uint32_t idx;
@@ -1045,4 +1054,103 @@ void timeCommand(client *c) {
     addReplyMultiBulkLen(c,2);
     addReplyBulkLongLong(c,tv.tv_sec);
     addReplyBulkLongLong(c,tv.tv_usec);
+}
+
+/* This function will try to raise the max number of open files accordingly to
+ * the configured max number of clients. It also reserves a number of file
+ * descriptors (CONFIG_MIN_RESERVED_FDS) for extra operations of
+ * persistence, listening sockets, log files and so forth.
+ *
+ * If it will not be possible to set the limit accordingly to the configured
+ * max number of clients, the function will do the reverse setting
+ * server.maxclients to the value that we can actually handle. */
+int adjustOpenFilesLimit(int maxclients) {
+    rlim_t maxfiles, finallimit = 0;
+    rlim_t oldlimit;
+    int finalmaxclients;
+    struct rlimit limit;
+    int threads;
+
+    conf_server_get(CONFIG_SOPN_THREADS,&threads);
+    maxfiles = maxclients+threads*2+CONFIG_MIN_RESERVED_FDS;
+    if (getrlimit(RLIMIT_NOFILE,&limit) == -1) {
+        log_warn("Unable to obtain the current NOFILE limit (%s), assuming 1024 and setting the max clients configuration accordingly.",
+            strerror(errno));
+        oldlimit = 1024;
+        finallimit = oldlimit;
+    } else {
+        oldlimit = limit.rlim_cur;
+
+        /* Set the max number of files if the current limit is not enough
+         * for our needs. */
+        if (oldlimit < maxfiles) {
+            rlim_t bestlimit;
+            int setrlimit_error = 0;
+
+            /* Try to set the file limit to match 'maxfiles' or at least
+             * to the higher value supported less than maxfiles. */
+            bestlimit = maxfiles;
+            while(bestlimit > oldlimit) {
+                rlim_t decr_step = 16;
+
+                limit.rlim_cur = bestlimit;
+                limit.rlim_max = bestlimit;
+                if (setrlimit(RLIMIT_NOFILE,&limit) != -1) break;
+                setrlimit_error = errno;
+
+                /* We failed to set file limit to 'bestlimit'. Try with a
+                 * smaller limit decrementing by a few FDs per iteration. */
+                if (bestlimit < decr_step) break;
+                bestlimit -= decr_step;
+            }
+
+            /* Assume that the limit we get initially is still valid if
+             * our last try was even lower. */
+            if (bestlimit < oldlimit) bestlimit = oldlimit;
+
+            finallimit = bestlimit;
+            if (bestlimit < maxfiles) {
+                log_warn("You requested maxclients of %d "
+                    "requiring at least %llu max file descriptors.",
+                    maxclients,
+                    (unsigned long long) maxfiles);
+                log_warn("Server can't set maximum open files "
+                    "to %llu because of OS error: %s.",
+                    (unsigned long long) maxfiles, strerror(setrlimit_error));
+                log_warn("Current maximum open files is %llu. ",
+                    (unsigned long long) bestlimit);
+            } else {
+                log_warn("Increased maximum number of open files "
+                    "to %llu (it was originally set to %llu).",
+                    (unsigned long long) maxfiles,
+                    (unsigned long long) oldlimit);
+            }
+        } else {
+            finallimit = maxfiles;
+        }
+    }
+
+    finalmaxclients = finallimit-threads*2-CONFIG_MIN_RESERVED_FDS;
+    if (finalmaxclients < 1) {
+        log_warn("Your current 'ulimit -n' "
+            "of %llu is not enough for the server to start. "
+            "Please increase your open file limit to at least "
+            "%llu. Exiting.",
+            (unsigned long long) oldlimit,
+            (unsigned long long) maxfiles);
+        return -1;
+    }
+    
+    if (finallimit < maxfiles) {
+        conf_value *cv = conf_value_create(CONF_VALUE_TYPE_STRING);
+        cv->value = sdsfromlonglong((long long)finalmaxclients);
+        conf_server_set(CONFIG_SOPN_MAXCLIENTS,cv);
+        conf_value_destroy(cv);
+        log_warn("maxclients has been reduced to %d to compensate for "
+            "low ulimit. "
+            "If you need higher maxclients increase 'ulimit -n'.",
+            finalmaxclients);
+    }
+    
+    return (int)finallimit;
 }

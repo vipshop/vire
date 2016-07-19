@@ -1,6 +1,9 @@
 #ifndef _VR_SERVER_H_
 #define _VR_SERVER_H_
 
+#define CONFIG_MIN_RESERVED_FDS 32 /* For extra operations of
+                                            * listening sockets, log files and so forth*/
+
 #define CONFIG_AUTHPASS_MAX_LEN 512
 #define PROTO_SHARED_SELECT_CMDS 10
 #define CRON_DBS_PER_CALL 16
@@ -349,5 +352,7 @@ sds genVireInfoString(vr_eventloop *vel, char *section);
 void infoCommand(client *c);
 void echoCommand(client *c);
 void timeCommand(client *c);
+
+int adjustOpenFilesLimit(int maxclients);
 
 #endif

@@ -137,8 +137,19 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
     if (fd >= eventLoop->setsize) {
-        errno = ERANGE;
-        return AE_ERR;
+        int maxclients, threads;
+        int filelimit;
+        conf_server_get(CONFIG_SOPN_MAXCLIENTS,&maxclients);
+        conf_server_get(CONFIG_SOPN_THREADS,&threads);
+        filelimit = maxclients+threads*2+CONFIG_MIN_RESERVED_FDS;
+        if (fd >= filelimit) {
+            errno = ERANGE;
+            return AE_ERR;
+        }
+
+        if (aeResizeSetSize(eventLoop,filelimit) != AE_OK) {
+            return AE_ERR;
+        }
     }
     aeFileEvent *fe = &eventLoop->events[fd];
 

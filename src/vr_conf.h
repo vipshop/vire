@@ -118,6 +118,10 @@ typedef struct vr_conf {
     pthread_mutex_t flock;           /* config file lock */
 }vr_conf;
 
+#define CONF_VALUE_TYPE_UNKNOW   0
+#define CONF_VALUE_TYPE_STRING   1
+#define CONF_VALUE_TYPE_ARRAY    2
+
 typedef struct conf_value{
     int     type;
     void    *value;
@@ -133,6 +137,7 @@ vr_conf *conf_create(char *filename);
 void conf_destroy(vr_conf *cf);
 
 int conf_server_get(const char *option_name, void *value);
+int conf_server_set(const char *option_name, conf_value *value);
 
 int conf_set_maxmemory(void *obj, conf_option *opt, void *data);
 int conf_set_maxmemory_policy(void *obj, conf_option *opt, void *data);

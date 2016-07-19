@@ -2,10 +2,6 @@
 
 #include <vr_core.h>
 
-static uint64_t ntotal_conn;       /* total # connections counter from start */
-static uint32_t ncurr_conn;        /* current # connections */
-static uint32_t ncurr_cconn;       /* current # client connections */
-
 static void conn_free(struct conn *conn);
 
 static struct conn *
@@ -95,6 +91,7 @@ conn_free(struct conn *conn)
     if (conn->sd > 0) {
         close(conn->sd);
         conn->sd = -1;
+        update_curr_clients_sub(1);
     }
 
     if (conn->inqueue) {
@@ -130,6 +127,7 @@ conn_put(struct conn *conn)
     if (conn->sd > 0) {
         close(conn->sd);
         conn->sd = -1;
+        update_curr_clients_sub(1);
     }
 
     if (cb == NULL) {
@@ -333,22 +331,4 @@ conn_sendv(struct conn *conn, struct array *sendv, size_t nsend)
     NOT_REACHED();
 
     return VR_ERROR;
-}
-
-uint32_t
-conn_ncurr_conn()
-{
-    return ncurr_conn;
-}
-
-uint64_t
-conn_ntotal_conn()
-{
-    return ntotal_conn;
-}
-
-uint32_t
-conn_ncurr_cconn()
-{
-    return ncurr_cconn;
 }
