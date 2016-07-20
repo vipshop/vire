@@ -328,8 +328,8 @@ void addReply(client *c, robj *obj) {
              * happen actually since we verified there is room. */
         }
         obj_new = getDecodedObject(obj);
-        if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != VR_OK)
-            _addReplyObjectToList(c,obj);
+        if (_addReplyToBuffer(c,obj_new->ptr,sdslen(obj_new->ptr)) != VR_OK)
+            _addReplyObjectToList(c,obj_new);
         if (obj_new != obj) freeObject(obj_new);
     } else {
         serverPanic("Wrong obj->encoding in addReply()");
@@ -543,7 +543,7 @@ void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
     addReply(c,shared.crlf);
 }
 
-/* Add sds to reply (takes ownership of sds and frees it) */
+/* Add sds to reply (takes ownership of this sds and frees it) */
 void addReplyBulkSds(client *c, sds s)  {
     addReplySds(c,sdscatfmt(sdsempty(),"$%u\r\n",
         (unsigned long)sdslen(s)));
