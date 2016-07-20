@@ -240,6 +240,8 @@ static void createSharedObjects(void) {
         "-READONLY You can't write against a read only slave.\r\n"));
     shared.noautherr = createObject(OBJ_STRING,sdsnew(
         "-NOAUTH Authentication required.\r\n"));
+    shared.noadminerr = createObject(OBJ_STRING,sdsnew(
+        "-NOADMIN Authentication required.\r\n"));
     shared.oomerr = createObject(OBJ_STRING,sdsnew(
         "-OOM command not allowed when used memory > 'maxmemory'.\r\n"));
     shared.execaborterr = createObject(OBJ_STRING,sdsnew(
@@ -683,14 +685,33 @@ void authCommand(client *c) {
     conf_server_get(CONFIG_SOPN_REQUIREPASS,&requirepass);
     if (!requirepass) {
         addReplyError(c,"Client sent AUTH, but no password is set");
+        return;
     } else if (!time_independent_strcmp(c->argv[1]->ptr, requirepass)) {
-      c->authenticated = 1;
-      addReply(c,shared.ok);
+        if (!c->authenticated)
+            c->authenticated = 1;
+        addReply(c,shared.ok);
     } else {
-      c->authenticated = 0;
-      addReplyError(c,"invalid password");
+        c->authenticated = 0;
+        addReplyError(c,"invalid password");
     }
     sdsfree(requirepass);
+}
+
+void adminCommand(client *c) {
+    sds adminpass;
+
+    conf_server_get(CONFIG_SOPN_ADMINPASS,&adminpass);
+    if (!adminpass) {
+        addReplyError(c,"Client sent ADMIN, but no password is set");
+        return;
+    } else if (!time_independent_strcmp(c->argv[1]->ptr, adminpass)) {
+        c->authenticated = 2;
+        addReply(c,shared.ok);
+    } else {
+        c->authenticated = 0;
+        addReplyError(c,"invalid password");
+    }
+    sdsfree(adminpass);
 }
 
 int htNeedsResize(dict *dict) {

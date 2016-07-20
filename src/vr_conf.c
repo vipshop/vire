@@ -105,6 +105,10 @@ static conf_option conf_server_options[] = {
       CONF_FIELD_TYPE_SDS, 0,
       conf_set_password, conf_get_sds,
       offsetof(conf_server, requirepass) },
+    { (char *)CONFIG_SOPN_ADMINPASS,
+      CONF_FIELD_TYPE_SDS, 0,
+      conf_set_password, conf_get_sds,
+      offsetof(conf_server, adminpass) },
     { NULL, NULL, 0 }
 };
 
@@ -205,7 +209,7 @@ conf_set_maxmemory(void *obj, conf_option *opt, void *data)
 {
     uint8_t *p;
     conf_value *cv = data;
-    uint64_t value;
+    long long value;
     long long *gt;
     int err;
 
@@ -221,14 +225,14 @@ conf_set_maxmemory(void *obj, conf_option *opt, void *data)
     gt = (long long *)(p + opt->offset);
 
     value = memtoll(cv->value, &err);
-    if(err != 0){
+    if(err != 0 || value < 0){
         CONF_UNLOCK();
         log_error("value for the key %s in conf file is invalid", 
              opt->name);
         return VR_ERROR;
     }
 
-    *gt = (long long)value;
+    *gt = value;
     conf->version ++;
     CONF_UNLOCK();
     return VR_OK;
@@ -718,6 +722,7 @@ static int conf_server_init(conf_server *cs)
     array_init(&cs->binds,1,sizeof(sds));
     cs->port = CONF_UNSET_NUM;
     cs->requirepass = CONF_UNSET_PTR;
+    cs->adminpass = CONF_UNSET_PTR;
     cs->dir = CONF_UNSET_PTR;
 
     return VR_OK;
@@ -747,6 +752,7 @@ static int conf_server_set_default(conf_server *cs)
     cs->slowlog_log_slower_than = CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN;
     cs->slowlog_max_len = CONFIG_DEFAULT_SLOWLOG_MAX_LEN;
     cs->requirepass = CONF_UNSET_PTR;
+    cs->adminpass = CONF_UNSET_PTR;
 
     while (array_n(&cs->binds) > 0) {
         str = array_pop(&cs->binds);
@@ -798,6 +804,10 @@ static void conf_server_deinit(conf_server *cs)
     if (cs->requirepass != CONF_UNSET_PTR) {
         sdsfree(cs->requirepass);
         cs->requirepass = CONF_UNSET_PTR;    
+    }
+    if (cs->adminpass != CONF_UNSET_PTR) {
+        sdsfree(cs->adminpass);
+        cs->adminpass = CONF_UNSET_PTR;    
     }
 }
 
@@ -1373,6 +1383,12 @@ static void configSetCommand(client *c) {
             addReplyErrorFormat(c,"The operating system is not able to handle the specified number of clients");
             return;
         }
+    } else if (!strcasecmp(c->argv[2]->ptr,CONFIG_SOPN_ADMINPASS)) {
+        if (c->vel->cc.adminpass && c->authenticated < 2) {
+            addReplyErrorFormat(c,"You need adminpass to set this CONFIG parameter: %s",
+                (char*)c->argv[2]->ptr);
+            return;
+        }
     }
 
     fields = sdssplitlen(value,sdslen(value)," ",1,&fields_count);
@@ -1489,11 +1505,22 @@ static void configGetCommand(client *c) {
 
     cop = dictFetchValue(cserver->ctable, pattern);
     if (cop != NULL) {
-        addReplyConfOption(c,cop);
-        matches ++;
+        /* Don't show adminpass if user has no right. */
+        if (!strcmp(cop->name,CONFIG_SOPN_ADMINPASS) && 
+            c->vel->cc.adminpass && c->authenticated < 2) {
+            /* Nothing to show */
+        } else {
+            addReplyConfOption(c,cop);
+            matches ++;
+        }
     } else {
         for (cop = conf_server_options; cop&&cop->name; cop++) {
             if (stringmatch(pattern,cop->name,1)) {
+                /* Don't show adminpass if user has no right. */
+                if (!strcmp(cop->name,CONFIG_SOPN_ADMINPASS) && 
+                    c->vel->cc.adminpass && c->authenticated < 2)
+                    continue;
+                
                 addReplyConfOption(c,cop);
                 matches ++;
             }
@@ -1961,6 +1988,7 @@ static int rewriteConfig(char *path) {
     rewriteConfigIntOption(state,CONFIG_SOPN_SLOWLOGML,CONFIG_DEFAULT_SLOWLOG_MAX_LEN);
     rewriteConfigIntOption(state,CONFIG_SOPN_MAXCLIENTS,CONFIG_DEFAULT_MAX_CLIENTS);
     rewriteConfigSdsOption(state,CONFIG_SOPN_REQUIREPASS,NULL);
+    rewriteConfigSdsOption(state,CONFIG_SOPN_ADMINPASS,NULL);
     
     /* Step 3: remove all the orphaned lines in the old file, that is, lines
      * that were used by a config option and are no longer used, like in case
@@ -2031,6 +2059,7 @@ conf_cache_init(conf_cache *cc)
     cc->cache_version = 0;
     conf_server_get(CONFIG_SOPN_MAXCLIENTS,&cc->maxclients);
     conf_server_get(CONFIG_SOPN_REQUIREPASS,&cc->requirepass);
+    conf_server_get(CONFIG_SOPN_ADMINPASS,&cc->adminpass);
     conf_server_get(CONFIG_SOPN_MAXMEMORY,&cc->maxmemory);
     conf_server_get(CONFIG_SOPN_MTCLIMIT,&cc->max_time_complexity_limit);
     conf_server_get(CONFIG_SOPN_SLOWLOGLST,&cc->slowlog_log_slower_than);
@@ -2045,6 +2074,10 @@ conf_cache_deinit(conf_cache *cc)
     if (cc->requirepass != NULL) {
         sdsfree(cc->requirepass);
         cc->requirepass = NULL;
+    }
+    if (cc->adminpass != NULL) {
+        sdsfree(cc->adminpass);
+        cc->adminpass = NULL;
     }
 
     return VR_OK;
@@ -2064,9 +2097,14 @@ conf_cache_update(conf_cache *cc)
         sdsfree(cc->requirepass);
         cc->requirepass = NULL;
     }
+    if (cc->adminpass != NULL) {
+        sdsfree(cc->adminpass);
+        cc->adminpass = NULL;
+    }
 
     conf_server_get(CONFIG_SOPN_MAXCLIENTS,&cc->maxclients);
     conf_server_get(CONFIG_SOPN_REQUIREPASS,&cc->requirepass);
+    conf_server_get(CONFIG_SOPN_ADMINPASS,&cc->adminpass);
     conf_server_get(CONFIG_SOPN_MAXMEMORY,&cc->maxmemory);
     conf_server_get(CONFIG_SOPN_MTCLIMIT,&cc->max_time_complexity_limit);
     conf_server_get(CONFIG_SOPN_SLOWLOGLST,&cc->slowlog_log_slower_than);

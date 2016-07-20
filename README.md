@@ -58,6 +58,7 @@ A quick checklist:
 + echo
 + select
 + auth
++ admin
 
 #### Server
 

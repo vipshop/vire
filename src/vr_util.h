@@ -76,7 +76,7 @@
     gethostname((char *)_name, (size_t)_len)
 
 #define vr_atoi(_line, _n)          \
-    _vr_atoi((uint8_t *)_line, (size_t)_n)
+    _vr_atoi((char *)_line, (size_t)_n)
 
 int vr_set_blocking(int sd);
 int vr_set_nonblocking(int sd);
@@ -90,7 +90,7 @@ int vr_get_sndbuf(int sd);
 int vr_get_rcvbuf(int sd);
 int vr_set_tcpkeepalive(int sd, int keepidle, int keepinterval, int keepcount);
 
-int _vr_atoi(uint8_t *line, size_t n);
+int _vr_atoi(char *line, size_t n);
 uint32_t digits10(uint64_t v);
 uint32_t sdigits10(int64_t v);
 int ll2string(char* dst, size_t dstlen, long long svalue);

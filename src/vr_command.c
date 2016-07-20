@@ -68,6 +68,7 @@ struct redisCommand redisCommandTable[] = {
     {"echo",echoCommand,2,"F",0,NULL,0,0,0,0,0},
     {"select",selectCommand,2,"lF",0,NULL,0,0,0,0,0},
     {"auth",authCommand,2,"sltF",0,NULL,0,0,0,0,0},
+    {"admin",adminCommand,2,"sltF",0,NULL,0,0,0,0,0},
     /* Server */
     {"info",infoCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"flushdb",flushdbCommand,1,"w",0,NULL,0,0,0,0,0},
@@ -433,10 +434,19 @@ int processCommand(client *c) {
     }
 
     /* Check if the user is authenticated */
-    if (c->vel->cc.requirepass && !c->authenticated && c->cmd->proc != authCommand)
+    if (c->vel->cc.requirepass && !c->authenticated && 
+        c->cmd->proc != authCommand && c->cmd->proc != adminCommand)
     {
         flagTransaction(c);
         addReply(c,shared.noautherr);
+        return VR_OK;
+    }
+
+    if (c->cmd->needadmin && c->vel->cc.adminpass && 
+        c->authenticated < 2 && c->cmd->proc != adminCommand)
+    {
+        flagTransaction(c);
+        addReply(c,shared.noadminerr);
         return VR_OK;
     }
 

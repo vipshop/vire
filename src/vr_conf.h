@@ -16,6 +16,7 @@
 #define CONFIG_SOPN_SLOWLOGLST   "slowlog-log-slower-than"
 #define CONFIG_SOPN_SLOWLOGML    "slowlog-max-len"
 #define CONFIG_SOPN_REQUIREPASS  "requirepass"
+#define CONFIG_SOPN_ADMINPASS    "adminpass"
 
 #define CONFIG_RUN_ID_SIZE 40
 #define CONFIG_DEFAULT_ACTIVE_REHASHING 1
@@ -109,6 +110,7 @@ typedef struct conf_server {
     int           slowlog_max_len;      /* SLOWLOG max number of items logged */
 
     sds           requirepass;          /* Pass for AUTH command, or NULL */
+    sds           adminpass;            /* Pass for ADMIN command, or NULL */
 } conf_server;
 
 typedef struct vr_conf {
@@ -139,6 +141,7 @@ typedef struct conf_cache {
 
     int maxclients;
     sds requirepass;
+    sds adminpass;
     long long maxmemory;
     long long max_time_complexity_limit;
     long long slowlog_log_slower_than;

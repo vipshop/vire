@@ -53,7 +53,8 @@ struct redisCommand {
     int firstkey; /* The first argument that's a key (0 = no keys) */
     int lastkey;  /* The last argument that's a key */
     int keystep;  /* The step between first and last key */
-    int idx, notused;
+    int idx;
+    int needadmin;
 };
 
 typedef struct commandStats {

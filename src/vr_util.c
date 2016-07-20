@@ -212,7 +212,7 @@ vr_set_tcpkeepalive(int sd, int keepidle, int keepinterval, int keepcount)
 }
 
 int
-_vr_atoi(uint8_t *line, size_t n)
+_vr_atoi(char *line, size_t n)
 {
     int value;
 

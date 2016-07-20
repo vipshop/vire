@@ -296,7 +296,7 @@ struct sharedObjectsStruct {
     *colon, *nullbulk, *nullmultibulk, *queued,
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
     *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
-    *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
+    *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noadminerr, *noreplicaserr,
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
     *lpush, *emptyscan, *minstring, *maxstring,
@@ -343,6 +343,7 @@ int freeMemoryIfNeeded(vr_eventloop *vel);
 void pingCommand(struct client *c);
 int time_independent_strcmp(char *a, char *b);
 void authCommand(struct client *c) ;
+void adminCommand(struct client *c) ;
 
 int htNeedsResize(dict *dict);
 
