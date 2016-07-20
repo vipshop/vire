@@ -109,6 +109,10 @@ static conf_option conf_server_options[] = {
       CONF_FIELD_TYPE_SDS, 0,
       conf_set_password, conf_get_sds,
       offsetof(conf_server, adminpass) },
+    { (char *)CONFIG_SOPN_COMMANDSNAP,
+      CONF_FIELD_TYPE_ARRAYSDS, 1,
+      conf_set_commands_need_adminpass, conf_get_array_sds,
+      offsetof(conf_server, commands_need_adminpass) },
     { NULL, NULL, 0 }
 };
 
@@ -580,6 +584,53 @@ conf_set_array_sds(void *obj, conf_option *opt, void *data)
 }
 
 int
+conf_set_commands_need_adminpass(void *obj, conf_option *opt, void *data)
+{
+    uint8_t *p;
+    uint32_t j;
+    conf_value **cv_sub, *cv = data;
+    struct array *gt;
+    sds *str;
+
+    if(cv->type != CONF_VALUE_TYPE_STRING && 
+        cv->type != CONF_VALUE_TYPE_ARRAY){
+        log_error("conf pool %s in the conf file is not a string or array", 
+            opt->name);
+        return VR_ERROR;
+    } else if (cv->type == CONF_VALUE_TYPE_ARRAY) {
+        cv_sub = array_get(cv->value, j);
+        if ((*cv_sub)->type != CONF_VALUE_TYPE_STRING) {
+            log_error("conf pool %s in the conf file is not a string array", 
+                opt->name);
+            return VR_ERROR;            
+        }
+    }
+
+    CONF_WLOCK();
+    p = obj;
+    gt = (struct array*)(p + opt->offset);
+
+    while (array_n(gt) > 0) {
+        str = array_pop(gt);
+        sdsfree(*str);
+    }
+
+    if (cv->type == CONF_VALUE_TYPE_STRING) {
+        str = array_push(gt);
+        *str = sdsdup(cv->value);
+    } else if (cv->type == CONF_VALUE_TYPE_ARRAY) {
+        for (j = 0; j < array_n(cv->value); j ++) {
+            cv_sub = array_get(cv->value, j);
+            str = array_push(gt);
+            *str = sdsdup((*cv_sub)->value);
+        }
+    }
+    conf->version ++;
+    CONF_UNLOCK();
+    return VR_OK;
+}
+
+int
 conf_get_array_sds(void *obj, conf_option *opt, void *data)
 {
     uint8_t *p;
@@ -724,6 +775,7 @@ static int conf_server_init(conf_server *cs)
     cs->requirepass = CONF_UNSET_PTR;
     cs->adminpass = CONF_UNSET_PTR;
     cs->dir = CONF_UNSET_PTR;
+    array_init(&cs->commands_need_adminpass,1,sizeof(sds));
 
     return VR_OK;
 }
@@ -768,6 +820,11 @@ static int conf_server_set_default(conf_server *cs)
     }
     cs->dir = sdsnew(CONFIG_DEFAULT_DATA_DIR);
 
+    while (array_n(&cs->commands_need_adminpass) > 0) {
+        str = array_pop(&cs->commands_need_adminpass);
+        sdsfree(*str);
+    }
+
     return VR_OK;
 }
 
@@ -809,6 +866,12 @@ static void conf_server_deinit(conf_server *cs)
         sdsfree(cs->adminpass);
         cs->adminpass = CONF_UNSET_PTR;    
     }
+
+    while (array_n(&cs->commands_need_adminpass) > 0) {
+        str = array_pop(&cs->commands_need_adminpass);
+        sdsfree(*str);
+    }
+    array_deinit(&cs->commands_need_adminpass);
 }
 
 int
@@ -1497,9 +1560,7 @@ static void addReplyConfOption(client *c,conf_option *cop)
 
 static void configGetCommand(client *c) {
     robj *o = c->argv[2];
-    void *replylen = addDeferredMultiBulkLength(c);
     char *pattern = o->ptr;
-    int matches = 0;
     conf_option *cop;
     serverAssertWithInfo(c,o,sdsEncodedObject(o));
 
@@ -1508,12 +1569,14 @@ static void configGetCommand(client *c) {
         /* Don't show adminpass if user has no right. */
         if (!strcmp(cop->name,CONFIG_SOPN_ADMINPASS) && 
             c->vel->cc.adminpass && c->authenticated < 2) {
-            /* Nothing to show */
+            addReply(c,shared.noadminerr);
         } else {
+            addReplyMultiBulkLen(c,2);
             addReplyConfOption(c,cop);
-            matches ++;
         }
     } else {
+        int matches = 0;
+        void * replylen = addDeferredMultiBulkLength(c);
         for (cop = conf_server_options; cop&&cop->name; cop++) {
             if (stringmatch(pattern,cop->name,1)) {
                 /* Don't show adminpass if user has no right. */
@@ -1525,8 +1588,8 @@ static void configGetCommand(client *c) {
                 matches ++;
             }
         }
+        setDeferredMultiBulkLength(c,replylen,matches*2);
     }
-    setDeferredMultiBulkLength(c,replylen,matches*2);
 }
 
 /*-----------------------------------------------------------------------------
@@ -1952,6 +2015,32 @@ static void rewriteConfigBindOption(struct rewriteConfigState *state) {
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+/* Rewrite the save option. */
+void rewriteConfigCommandsNAPOption(struct rewriteConfigState *state) {
+    struct array values;
+    sds *value, line;
+    int force = 1;
+    char *option = CONFIG_SOPN_COMMANDSNAP;
+
+    array_init(&values,1,sizeof(sds));
+    conf_server_get(option,&values);
+    /* Nothing to rewrite if we don't have commands that need adminpass. */
+    if (array_n(&values) == 0) {
+        array_deinit(&values);
+        rewriteConfigMarkAsProcessed(state,option);
+        return;
+    }
+
+    while(array_n(&values) > 0) {
+        value = array_pop(&values);
+        line = sdscatprintf(sdsempty(),"%s %s",option,*value);
+        rewriteConfigRewriteLine(state,option,line,force);
+        sdsfree(*value);
+    }
+    array_deinit(&values);
+    rewriteConfigMarkAsProcessed(state,option);
+}
+
 /* Rewrite the configuration file at "path".
  * If the configuration file already exists, we try at best to retain comments
  * and overall structure.
@@ -1989,6 +2078,7 @@ static int rewriteConfig(char *path) {
     rewriteConfigIntOption(state,CONFIG_SOPN_MAXCLIENTS,CONFIG_DEFAULT_MAX_CLIENTS);
     rewriteConfigSdsOption(state,CONFIG_SOPN_REQUIREPASS,NULL);
     rewriteConfigSdsOption(state,CONFIG_SOPN_ADMINPASS,NULL);
+    rewriteConfigCommandsNAPOption(state);
     
     /* Step 3: remove all the orphaned lines in the old file, that is, lines
      * that were used by a config option and are no longer used, like in case

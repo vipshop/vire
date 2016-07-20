@@ -300,31 +300,17 @@ static void createSharedObjects(void) {
     }
 }
 
-rstatus_t
+int
 init_server(struct instance *nci)
 {
-    rstatus_t status;
+    int ret;
     uint32_t i;
     redisDb *db;
-
-    conf = conf_create(nci->conf_filename);
-
-    server.pid = getpid();
-    server.configfile = getAbsolutePath(nci->conf_filename);
-    server.hz = 10;
-    server.dblnum = cserver->databases;
-    server.dbinum = cserver->internal_dbs_per_databases;
-    server.dbnum = server.dblnum*server.dbinum;
-    array_init(&server.dbs, server.dbnum, sizeof(redisDb));
-    server.pidfile = nci->pid_filename;
-    server.executable = NULL;
-    server.activerehashing = CONFIG_DEFAULT_ACTIVE_REHASHING;
-    get_random_hex_chars(server.runid, CONFIG_RUN_ID_SIZE);
-    server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
-
-    server.starttime = time(NULL);
     
-    server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
+    server.pid = getpid();
+    server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
+    server.starttime = time(NULL);
+    get_random_hex_chars(server.runid, CONFIG_RUN_ID_SIZE);
 
     server.commands = dictCreate(&commandTableDictType,NULL);
     populateCommandTable();
@@ -335,6 +321,26 @@ init_server(struct instance *nci)
     server.rpopCommand = lookupCommandByCString("rpop");
     server.sremCommand = lookupCommandByCString("srem");
     server.execCommand = lookupCommandByCString("exec");
+
+    conf = conf_create(nci->conf_filename);
+
+    ret = populateCommandsNeedAdminpass();
+    if (ret != VR_OK) {
+        log_error("Populate need adminpass commands failed");
+        return VR_ERROR;
+    }
+
+    server.configfile = getAbsolutePath(nci->conf_filename);
+    server.hz = 10;
+    server.dblnum = cserver->databases;
+    server.dbinum = cserver->internal_dbs_per_databases;
+    server.dbnum = server.dblnum*server.dbinum;
+    array_init(&server.dbs, server.dbnum, sizeof(redisDb));
+    server.pidfile = nci->pid_filename;
+    server.executable = NULL;
+    server.activerehashing = CONFIG_DEFAULT_ACTIVE_REHASHING;
+    
+    server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
 
     for (i = 0; i < server.dbnum; i ++) {
         db = array_push(&server.dbs);
@@ -379,16 +385,16 @@ init_server(struct instance *nci)
     server.port = cserver->port;
     
     /* Init worker first */
-    status = workers_init(nci->thread_num);
-    if (status != VR_OK) {
-        log_error("init worker threads failed");
+    ret = workers_init(nci->thread_num);
+    if (ret != VR_OK) {
+        log_error("Init worker threads failed");
         return VR_ERROR;
     }
 
     /* Init master after worker init */
-    status = master_init(conf);
-    if (status != VR_OK) {
-        log_error("init master thread failed");
+    ret = master_init(conf);
+    if (ret != VR_OK) {
+        log_error("Init master thread failed");
         return VR_ERROR;
     }
 

@@ -90,6 +90,8 @@ typedef struct redisOpArray {
 extern dictType commandTableDictType;
 
 void populateCommandTable(void);
+int populateCommandsNeedAdminpass(void);
+
 struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandOrOriginal(sds name);
 struct redisCommand *lookupCommandByCString(char *s);

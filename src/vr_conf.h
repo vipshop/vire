@@ -17,6 +17,7 @@
 #define CONFIG_SOPN_SLOWLOGML    "slowlog-max-len"
 #define CONFIG_SOPN_REQUIREPASS  "requirepass"
 #define CONFIG_SOPN_ADMINPASS    "adminpass"
+#define CONFIG_SOPN_COMMANDSNAP  "commands-need-adminpass"
 
 #define CONFIG_RUN_ID_SIZE 40
 #define CONFIG_DEFAULT_ACTIVE_REHASHING 1
@@ -111,6 +112,7 @@ typedef struct conf_server {
 
     sds           requirepass;          /* Pass for AUTH command, or NULL */
     sds           adminpass;            /* Pass for ADMIN command, or NULL */
+    struct array  commands_need_adminpass;
 } conf_server;
 
 typedef struct vr_conf {
@@ -176,6 +178,7 @@ int conf_set_int(void *obj, conf_option *opt, void *data);
 int conf_set_longlong(void *obj, conf_option *opt, void *data);
 int conf_set_yesorno(void *obj, conf_option *opt, void *data);
 int conf_set_array_sds(void *obj, conf_option *opt, void *data);
+int conf_set_commands_need_adminpass(void *obj, conf_option *opt, void *data);
 
 int CONF_RLOCK(void);
 int CONF_WLOCK(void);

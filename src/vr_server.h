@@ -335,7 +335,7 @@ unsigned int dictObjHash(const void *key);
 int dictObjKeyCompare(void *privdata, const void *key1, const void *key2);
 void dictListDestructor(void *privdata, void *val);
 
-rstatus_t init_server(struct instance *nci);
+int init_server(struct instance *nci);
 
 unsigned int getLRUClock(void);
 

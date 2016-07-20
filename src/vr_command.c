@@ -216,6 +216,29 @@ void populateCommandTable(void) {
     }
 }
 
+int populateCommandsNeedAdminpass(void) {
+    struct array commands_need_adminpass;
+    sds *command_name;
+    struct redisCommand *command;
+
+    array_init(&commands_need_adminpass,1,sizeof(sds));
+    conf_server_get(CONFIG_SOPN_COMMANDSNAP,&commands_need_adminpass);
+    while (array_n(&commands_need_adminpass)) {
+        command_name = array_pop(&commands_need_adminpass);
+        command = lookupCommand(*command_name);
+        if (command == NULL) {
+            log_error("Unknow command %s for commands-need-amdminpass",
+                command_name);
+            return VR_ERROR;
+        }
+        command->needadmin = 1;
+        sdsfree(*command_name);
+    }
+    array_deinit(&commands_need_adminpass);
+
+    return VR_OK;
+}
+
 struct redisCommand *lookupCommand(sds name) {
     return dictFetchValue(server.commands, name);
 }
