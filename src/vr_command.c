@@ -67,6 +67,7 @@ struct redisCommand redisCommandTable[] = {
     {"ping",pingCommand,-1,"tF",0,NULL,0,0,0,0,0},
     {"echo",echoCommand,2,"F",0,NULL,0,0,0,0,0},
     {"select",selectCommand,2,"lF",0,NULL,0,0,0,0,0},
+    {"auth",authCommand,2,"sltF",0,NULL,0,0,0,0,0},
     /* Server */
     {"info",infoCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"flushdb",flushdbCommand,1,"w",0,NULL,0,0,0,0,0},
@@ -432,7 +433,7 @@ int processCommand(client *c) {
     }
 
     /* Check if the user is authenticated */
-    if (server.requirepass && !c->authenticated && c->cmd->proc != authCommand)
+    if (c->vel->cc.requirepass && !c->authenticated && c->cmd->proc != authCommand)
     {
         flagTransaction(c);
         addReply(c,shared.noautherr);

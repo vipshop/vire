@@ -85,7 +85,7 @@ vr_eventloop_init(vr_eventloop *vel, int filelimit)
 
     vr_stats_init(vel->stats);
 
-    conf_cache_update(&vel->cc);
+    conf_cache_init(&vel->cc);
 
     return VR_OK;
 }
@@ -152,5 +152,7 @@ vr_eventloop_deinit(vr_eventloop *vel)
         commandStatsTableDestroy(vel->cstable);
         vel->cstable = NULL;
     }
+
+    conf_cache_deinit(&vel->cc);
 }
 

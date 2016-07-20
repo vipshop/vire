@@ -15,6 +15,7 @@
 #define CONFIG_SOPN_MAXCLIENTS   "maxclients"
 #define CONFIG_SOPN_SLOWLOGLST   "slowlog-log-slower-than"
 #define CONFIG_SOPN_SLOWLOGML    "slowlog-max-len"
+#define CONFIG_SOPN_REQUIREPASS  "requirepass"
 
 #define CONFIG_RUN_ID_SIZE 40
 #define CONFIG_DEFAULT_ACTIVE_REHASHING 1
@@ -40,6 +41,8 @@
 
 #define CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN 10000
 #define CONFIG_DEFAULT_SLOWLOG_MAX_LEN 128
+
+#define CONFIG_AUTHPASS_MAX_LEN 512
 
 #define CONFIG_BINDADDR_MAX 16
 
@@ -97,13 +100,15 @@ typedef struct conf_server {
 
     int           threads;
 
-    struct array  binds;    /* Type: sds */
+    struct array  binds;                /* Type: sds */
     int           port;
 
     sds           dir;
 
     long long     slowlog_log_slower_than;  /* SLOWLOG time limit (to get logged) */
-    int           slowlog_max_len;  /* SLOWLOG max number of items logged */
+    int           slowlog_max_len;      /* SLOWLOG max number of items logged */
+
+    sds           requirepass;          /* Pass for AUTH command, or NULL */
 } conf_server;
 
 typedef struct vr_conf {
@@ -130,7 +135,10 @@ typedef struct conf_value{
 /* Config option used multi times for every loop, 
  * so we cache them here in the cron function. */
 typedef struct conf_cache {
+    unsigned long long cache_version;
+
     int maxclients;
+    sds requirepass;
     long long maxmemory;
     long long max_time_complexity_limit;
     long long slowlog_log_slower_than;
@@ -145,6 +153,8 @@ void conf_value_destroy(conf_value *cv);
 vr_conf *conf_create(char *filename);
 void conf_destroy(vr_conf *cf);
 
+unsigned long long conf_version_get(void);
+
 int conf_server_get(const char *option_name, void *value);
 int conf_server_set(const char *option_name, conf_value *value);
 
@@ -158,6 +168,7 @@ int conf_get_longlong(void *obj, conf_option *opt, void *data);
 int conf_get_array_sds(void *obj, conf_option *opt, void *data);
 
 int conf_set_sds(void *obj, conf_option *opt, void *data);
+int conf_set_password(void *obj, conf_option *opt, void *data);
 int conf_set_int(void *obj, conf_option *opt, void *data);
 int conf_set_longlong(void *obj, conf_option *opt, void *data);
 int conf_set_yesorno(void *obj, conf_option *opt, void *data);
@@ -174,6 +185,8 @@ const char *get_evictpolicy_strings(int evictpolicy_type);
 
 void configCommand(struct client *c);
 
+int conf_cache_init(conf_cache *cc);
+int conf_cache_deinit(conf_cache *cc);
 int conf_cache_update(conf_cache *cc);
 
 #endif

@@ -57,6 +57,7 @@ A quick checklist:
 + quit
 + echo
 + select
++ auth
 
 #### Server
 

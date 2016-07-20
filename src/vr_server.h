@@ -101,8 +101,6 @@ struct vr_server {
     char *pidfile;              /* PID file path */
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
     char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
-
-    char *requirepass;          /* Pass for AUTH command, or NULL */
     
     /* Networking */
     int port;                   /* TCP listening port */

@@ -319,7 +319,6 @@ init_server(struct instance *nci)
     server.activerehashing = CONFIG_DEFAULT_ACTIVE_REHASHING;
     get_random_hex_chars(server.runid, CONFIG_RUN_ID_SIZE);
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
-    server.requirepass = NULL;
 
     server.starttime = time(NULL);
     
@@ -679,15 +678,19 @@ int time_independent_strcmp(char *a, char *b) {
 }
 
 void authCommand(client *c) {
-    if (!server.requirepass) {
+    sds requirepass;
+
+    conf_server_get(CONFIG_SOPN_REQUIREPASS,&requirepass);
+    if (!requirepass) {
         addReplyError(c,"Client sent AUTH, but no password is set");
-    } else if (!time_independent_strcmp(c->argv[1]->ptr, server.requirepass)) {
+    } else if (!time_independent_strcmp(c->argv[1]->ptr, requirepass)) {
       c->authenticated = 1;
       addReply(c,shared.ok);
     } else {
       c->authenticated = 0;
       addReplyError(c,"invalid password");
     }
+    sdsfree(requirepass);
 }
 
 int htNeedsResize(dict *dict) {

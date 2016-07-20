@@ -101,6 +101,10 @@ static conf_option conf_server_options[] = {
       CONF_FIELD_TYPE_INT, 0,
       conf_set_int, conf_get_int,
       offsetof(conf_server, slowlog_max_len) },
+    { (char *)CONFIG_SOPN_REQUIREPASS,
+      CONF_FIELD_TYPE_SDS, 0,
+      conf_set_password, conf_get_sds,
+      offsetof(conf_server, requirepass) },
     { NULL, NULL, 0 }
 };
 
@@ -225,7 +229,7 @@ conf_set_maxmemory(void *obj, conf_option *opt, void *data)
     }
 
     *gt = (long long)value;
-
+    conf->version ++;
     CONF_UNLOCK();
     return VR_OK;
 }
@@ -312,11 +316,12 @@ conf_set_int_non_zero(void *obj, conf_option *opt, void *data)
             opt->name);
         return VR_ERROR;
     }
-
+    conf->version ++;
     CONF_UNLOCK();
     return VR_OK;
 }
 
+/* The return data need to free by users. */
 int
 conf_get_sds(void *obj, conf_option *opt, void *data)
 {
@@ -354,6 +359,35 @@ conf_set_sds(void *obj, conf_option *opt, void *data)
     gt = (sds*)(p + opt->offset);
 
     *gt = sdsnewlen(cv->value, sdslen(cv->value));
+    conf->version ++;
+    CONF_UNLOCK();
+    return VR_OK;
+}
+
+int
+conf_set_password(void *obj, conf_option *opt, void *data)
+{
+    uint8_t *p;
+    conf_value *cv = data;
+    sds *gt;
+
+    if(cv->type != CONF_VALUE_TYPE_STRING){
+        log_error("Conf pool %s in the conf file is not a string", 
+            opt->name);
+        return VR_ERROR;
+    } else if (sdslen(cv->value) > CONFIG_AUTHPASS_MAX_LEN) {
+        log_error("Password is longer than CONFIG_AUTHPASS_MAX_LEN");
+        return VR_ERROR;
+    }
+
+    CONF_WLOCK();
+    p = obj;
+    gt = (sds*)(p + opt->offset);
+
+    if (*gt != NULL) sdsfree(*gt);
+    if (sdslen(cv->value) == 0) *gt = NULL;
+    else *gt = sdsnewlen(cv->value, sdslen(cv->value));
+    conf->version ++;
     CONF_UNLOCK();
     return VR_OK;
 }
@@ -409,7 +443,7 @@ conf_set_int(void *obj, conf_option *opt, void *data)
             opt->name);
         return VR_ERROR;
     }
-
+    conf->version ++;
     CONF_UNLOCK();
     return VR_OK;
 }
@@ -456,7 +490,7 @@ conf_set_longlong(void *obj, conf_option *opt, void *data)
             opt->name);
         return VR_ERROR;
     }
-
+    conf->version ++;
     CONF_UNLOCK();
     return VR_OK;
 }
@@ -489,7 +523,7 @@ conf_set_yesorno(void *obj, conf_option *opt, void *data)
             opt->name, CONF_VALUE_YES, CONF_VALUE_NO);
         return VR_ERROR;
     }
-
+    conf->version ++;
     CONF_UNLOCK();
     return VR_OK;
 }
@@ -536,7 +570,7 @@ conf_set_array_sds(void *obj, conf_option *opt, void *data)
             *str = sdsdup((*cv_sub)->value);
         }
     }
-    
+    conf->version ++;
     CONF_UNLOCK();
     return VR_OK;
 }
@@ -683,6 +717,7 @@ static int conf_server_init(conf_server *cs)
     cs->threads = CONF_UNSET_NUM;
     array_init(&cs->binds,1,sizeof(sds));
     cs->port = CONF_UNSET_NUM;
+    cs->requirepass = CONF_UNSET_PTR;
     cs->dir = CONF_UNSET_PTR;
 
     return VR_OK;
@@ -711,6 +746,7 @@ static int conf_server_set_default(conf_server *cs)
     cs->threads = CONFIG_DEFAULT_THREADS_NUM;
     cs->slowlog_log_slower_than = CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN;
     cs->slowlog_max_len = CONFIG_DEFAULT_SLOWLOG_MAX_LEN;
+    cs->requirepass = CONF_UNSET_PTR;
 
     while (array_n(&cs->binds) > 0) {
         str = array_pop(&cs->binds);
@@ -757,6 +793,11 @@ static void conf_server_deinit(conf_server *cs)
     if (cs->dir != CONF_UNSET_PTR) {
         sdsfree(cs->dir);
         cs->dir = CONF_UNSET_PTR;    
+    }
+
+    if (cs->requirepass != CONF_UNSET_PTR) {
+        sdsfree(cs->requirepass);
+        cs->requirepass = CONF_UNSET_PTR;    
     }
 }
 
@@ -1243,6 +1284,18 @@ conf_destroy(vr_conf *cf)
     vr_free(cf);
 }
 
+unsigned long long
+conf_version_get(void)
+{
+    unsigned long long version;
+    
+    CONF_RLOCK();
+    version = conf->version;
+    CONF_UNLOCK();
+
+    return version;
+}
+
 int
 CONF_RLOCK(void)
 {
@@ -1323,7 +1376,12 @@ static void configSetCommand(client *c) {
     }
 
     fields = sdssplitlen(value,sdslen(value)," ",1,&fields_count);
-    if (fields_count == 1) {
+    if (fields == NULL) {
+        goto badfmt;
+    } else if (fields_count == 0) {
+        cv = conf_value_create(CONF_VALUE_TYPE_STRING);
+        cv->value = sdsempty();
+    } else if (fields_count == 1) {
         cv = conf_value_create(CONF_VALUE_TYPE_STRING);
         cv->value = fields[0];
         fields[0] = NULL;
@@ -1339,6 +1397,7 @@ static void configSetCommand(client *c) {
             fields[i] = NULL;
         }
     } else {
+        log_debug(LOG_NOTICE, "fields_count: %d", fields_count);
         serverPanic("Error config set value");
     }
     sdsfreesplitres(fields,fields_count);
@@ -1394,7 +1453,11 @@ static void addReplyConfOption(client *c,conf_option *cop)
     } else if (cop->type == CONF_FIELD_TYPE_SDS) {
         sds value;
         conf_server_get(cop->name,&value);
-        addReplyBulkSds(c,value);
+        if (value == NULL) {
+            addReplyBulkCString(c,"");
+        } else {
+            addReplyBulkSds(c,value);
+        }
     } else if (cop->type == CONF_FIELD_TYPE_ARRAYSDS) {
         struct array values;
         sds value = sdsempty();
@@ -1746,6 +1809,31 @@ static void rewriteConfigIntOption(struct rewriteConfigState *state, char *optio
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+/* Rewrite a numerical (int range) option. */
+static void rewriteConfigSdsOption(struct rewriteConfigState *state, char *option, sds defvalue) {
+    sds value;
+    int force;
+    sds line;
+
+    conf_server_get(option,&value);
+    if (defvalue == NULL && value == NULL) {
+        force = 0;
+    } else if (defvalue != NULL && value != NULL && !sdscmp(value,defvalue)) {
+        force = 0;
+    } else {
+        force = 1;
+    }
+
+    if (value == NULL) {
+        line = sdscatprintf(sdsempty(),"%s \"\"",option);
+    } else {
+        line = sdscatprintf(sdsempty(),"%s %s",option,value);
+        sdsfree(value);
+    }
+    
+    rewriteConfigRewriteLine(state,option,line,force);
+}
+
 /* Rewrite a numerical (long long range) option. */
 static void rewriteConfigLongLongOption(struct rewriteConfigState *state, char *option, long long defvalue) {
     long long value;
@@ -1872,6 +1960,7 @@ static int rewriteConfig(char *path) {
     rewriteConfigLongLongOption(state,CONFIG_SOPN_SLOWLOGLST,CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN);
     rewriteConfigIntOption(state,CONFIG_SOPN_SLOWLOGML,CONFIG_DEFAULT_SLOWLOG_MAX_LEN);
     rewriteConfigIntOption(state,CONFIG_SOPN_MAXCLIENTS,CONFIG_DEFAULT_MAX_CLIENTS);
+    rewriteConfigSdsOption(state,CONFIG_SOPN_REQUIREPASS,NULL);
     
     /* Step 3: remove all the orphaned lines in the old file, that is, lines
      * that were used by a config option and are no longer used, like in case
@@ -1937,12 +2026,52 @@ badarity:
 }
 
 int
-conf_cache_update(conf_cache *cc)
+conf_cache_init(conf_cache *cc)
 {
+    cc->cache_version = 0;
     conf_server_get(CONFIG_SOPN_MAXCLIENTS,&cc->maxclients);
+    conf_server_get(CONFIG_SOPN_REQUIREPASS,&cc->requirepass);
     conf_server_get(CONFIG_SOPN_MAXMEMORY,&cc->maxmemory);
     conf_server_get(CONFIG_SOPN_MTCLIMIT,&cc->max_time_complexity_limit);
     conf_server_get(CONFIG_SOPN_SLOWLOGLST,&cc->slowlog_log_slower_than);
+
+    return VR_OK;
+}
+
+int
+conf_cache_deinit(conf_cache *cc)
+{
+    cc->cache_version = 0;
+    if (cc->requirepass != NULL) {
+        sdsfree(cc->requirepass);
+        cc->requirepass = NULL;
+    }
+
+    return VR_OK;
+}
+
+int
+conf_cache_update(conf_cache *cc)
+{
+    unsigned long long cversion = conf_version_get();
+
+    /* Not need update conf cache. */
+    if (cversion <= cc->cache_version) {
+        return;
+    }
+
+    if (cc->requirepass != NULL) {
+        sdsfree(cc->requirepass);
+        cc->requirepass = NULL;
+    }
+
+    conf_server_get(CONFIG_SOPN_MAXCLIENTS,&cc->maxclients);
+    conf_server_get(CONFIG_SOPN_REQUIREPASS,&cc->requirepass);
+    conf_server_get(CONFIG_SOPN_MAXMEMORY,&cc->maxmemory);
+    conf_server_get(CONFIG_SOPN_MTCLIMIT,&cc->max_time_complexity_limit);
+    conf_server_get(CONFIG_SOPN_SLOWLOGLST,&cc->slowlog_log_slower_than);
+
+    cc->cache_version = cversion;
 
     return VR_OK;
 }
