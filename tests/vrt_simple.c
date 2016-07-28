@@ -505,6 +505,42 @@ error:
     return 0;
 }
 
+static int simple_test_cmd_strlen(vire_instance *vi)
+{
+    char *key = "test_cmd_strlen-key";
+    char *value = "test_cmd_strlen-value";
+    char *MESSAGE = "STRLEN simple test";
+    redisReply * reply = NULL;
+    
+    reply = redisCommand(vi->ctx, "set %s %s", key, value);
+    if (reply == NULL || reply->type != REDIS_REPLY_STATUS || 
+        reply->len != 2 || strcmp(reply->str,"OK")) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "strlen %s", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+        reply->integer != strlen(value)) {
+        goto error;
+    }
+    freeReplyObject(reply);
+    reply = NULL;
+
+    show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
+
+    return 1;
+
+error:
+
+    if (reply) freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_ERR,MESSAGE,errmsg);
+    errmsg[0] = '\0';
+
+    return 0;
+}
+
 void simple_test(void)
 {
     vire_instance *vi;
@@ -527,6 +563,7 @@ void simple_test(void)
     ok_count+=simple_test_cmd_incrby(vi);
     ok_count+=simple_test_cmd_decrby(vi);
     ok_count+=simple_test_cmd_append(vi);
+    ok_count+=simple_test_cmd_strlen(vi);
     
     vire_instance_destroy(vi);
 }
