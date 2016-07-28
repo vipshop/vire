@@ -317,6 +317,73 @@ error:
     return 0;
 }
 
+static int simple_test_cmd_incrby(vire_instance *vi)
+{
+    char *key = "test_cmd_incrby-key";
+    long long n = 0, incrby_times = 100, incrby_step = 3;
+    char *MESSAGE = "INCRBY simple test";
+    redisReply * reply = NULL;
+
+    reply = redisCommand(vi->ctx, "del %s", key);
+    if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    while (n < incrby_times) {
+        reply = redisCommand(vi->ctx, "incrby %s %lld", key, incrby_step);
+        if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+            reply->integer != (n+1)*incrby_step) {
+            vrt_scnprintf(errmsg, LOG_MAX_LEN, "incrby %lld %lld times error", 
+                incrby_step, n+1);
+            goto error;
+        }
+        freeReplyObject(reply);
+        
+        n ++;
+    }
+
+    reply = redisCommand(vi->ctx, "get %s", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_STRING) {
+        goto error;
+    } else {
+        long long value;
+        if (!string2ll(reply->str,reply->len,&value) || 
+            value != incrby_times*incrby_step) {
+            vrt_scnprintf(errmsg, LOG_MAX_LEN, "incrby to %lld error, %s in fact", 
+                incrby_times*incrby_step, reply->str);
+            goto error;
+        }
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "set %s %s", key, "a");
+    if (reply == NULL || reply->type != REDIS_REPLY_STATUS || 
+        reply->len != 2 || strcmp(reply->str,"OK")) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "incrby %s %lld", key, incrby_times);
+    if (reply == NULL || reply->type != REDIS_REPLY_ERROR) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
+
+    return 1;
+
+error:
+
+    if (reply) freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_ERR,MESSAGE,errmsg);
+    errmsg[0] = '\0';
+
+    return 0;
+}
+
 void simple_test(void)
 {
     vire_instance *vi;
@@ -336,6 +403,7 @@ void simple_test(void)
     ok_count+=simple_test_cmd_psetex(vi);
     ok_count+=simple_test_cmd_incr(vi);
     ok_count+=simple_test_cmd_decr(vi);
+    ok_count+=simple_test_cmd_incrby(vi);
     
     vire_instance_destroy(vi);
 }
