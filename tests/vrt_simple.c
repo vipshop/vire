@@ -541,6 +541,49 @@ error:
     return 0;
 }
 
+static int simple_test_cmd_getset(vire_instance *vi)
+{
+    char *key = "test_cmd_getset-key";
+    char *oldvalue = "test_cmd_getset-oldvalue";
+    char *newvalue = "test_cmd_getset-newvalue";
+    char *MESSAGE = "GETSET simple test";
+    redisReply * reply = NULL;
+    
+    reply = redisCommand(vi->ctx, "set %s %s", key, oldvalue);
+    if (reply == NULL || reply->type != REDIS_REPLY_STATUS || 
+        reply->len != 2 || strcmp(reply->str,"OK")) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "getset %s %s", key, newvalue);
+    if (reply == NULL || reply->type != REDIS_REPLY_STRING || 
+        reply->len != strlen(oldvalue) || strcmp(reply->str,oldvalue)) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "get %s", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_STRING || 
+        reply->len != strlen(newvalue) || strcmp(reply->str,newvalue)) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
+
+    return 1;
+
+error:
+
+    if (reply) freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_ERR,MESSAGE,errmsg);
+    errmsg[0] = '\0';
+
+    return 0;
+}
+
 void simple_test(void)
 {
     vire_instance *vi;
@@ -564,6 +607,7 @@ void simple_test(void)
     ok_count+=simple_test_cmd_decrby(vi);
     ok_count+=simple_test_cmd_append(vi);
     ok_count+=simple_test_cmd_strlen(vi);
+    ok_count+=simple_test_cmd_getset(vi);
     
     vire_instance_destroy(vi);
 }
