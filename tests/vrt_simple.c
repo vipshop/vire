@@ -451,6 +451,60 @@ error:
     return 0;
 }
 
+static int simple_test_cmd_append(vire_instance *vi)
+{
+    char *key = "test_cmd_append-key";
+    char *final_value = "pqwpioqjqwoiuqiorueljsakhdflkqueuquewqwei[oqfiqpq-0ewrq0hdalkjz.zhjaidhfioahd";
+    char *start = final_value, *pos = start, *end = final_value+strlen(final_value);
+    int step = 3, len;
+    char buf[20];
+    char *MESSAGE = "APPEND simple test";
+    redisReply * reply = NULL;
+
+    reply = redisCommand(vi->ctx, "del %s", key);
+    if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    while (pos < end) {        
+        len = (end-pos >= step) ? step : (end-pos);
+        memcpy(buf,pos,len);
+        buf[len] = '\0';
+        reply = redisCommand(vi->ctx, "append %s %s", key, buf);
+        if (reply == NULL || reply->type != REDIS_REPLY_INTEGER) {
+            goto error;
+        } else if (reply->integer != pos-start+len) {
+            vrt_scnprintf(errmsg, LOG_MAX_LEN, "append %s %s error", 
+                key, buf);
+            goto error;
+        }
+        freeReplyObject(reply);
+        
+        pos += len;
+    }
+
+    reply = redisCommand(vi->ctx, "get %s", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_STRING || 
+        reply->len != strlen(final_value) || strcmp(reply->str,final_value)) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
+
+    return 1;
+
+error:
+
+    if (reply) freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_ERR,MESSAGE,errmsg);
+    errmsg[0] = '\0';
+
+    return 0;
+}
+
 void simple_test(void)
 {
     vire_instance *vi;
@@ -472,6 +526,7 @@ void simple_test(void)
     ok_count+=simple_test_cmd_decr(vi);
     ok_count+=simple_test_cmd_incrby(vi);
     ok_count+=simple_test_cmd_decrby(vi);
+    ok_count+=simple_test_cmd_append(vi);
     
     vire_instance_destroy(vi);
 }
