@@ -138,6 +138,48 @@ error:
     return 0;
 }
 
+static int simple_test_cmd_psetex(vire_instance *vi)
+{
+    char *key = "test_cmd_setex-key";
+    char *value = "test_cmd_setex-value";
+    long long milliseconds = 100000;
+    char *MESSAGE = "PSETEX simple test";
+    redisReply * reply = NULL;
+    
+    reply = redisCommand(vi->ctx, "psetex %s %lld %s", key, milliseconds, value);
+    if (reply == NULL || reply->type != REDIS_REPLY_STATUS || 
+        reply->len != 2 || strcmp(reply->str,"OK")) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "get %s", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_STRING || 
+        reply->len != strlen(value) || strcmp(reply->str,value)) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "pttl %s", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+        reply->integer > milliseconds ||  reply->integer < milliseconds - 2000) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_OK,MESSAGE);
+
+    return 1;
+
+error:
+
+    if (reply) freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_ERR,MESSAGE);
+
+    return 0;
+}
+
 void simple_test(void)
 {
     vire_instance *vi;
@@ -152,6 +194,7 @@ void simple_test(void)
     ok_count+=simple_test_cmd_get_set(vi);
     ok_count+=simple_test_cmd_setnx(vi);
     ok_count+=simple_test_cmd_setex(vi);
+    ok_count+=simple_test_cmd_psetex(vi);
     
     vire_instance_destroy(vi);
 }
