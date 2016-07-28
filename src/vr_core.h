@@ -25,16 +25,6 @@
 # define VR_STATS 0
 #endif
 
-#ifdef HAVE_EPOLL
-# define VR_HAVE_EPOLL 1
-#elif HAVE_KQUEUE
-# define VR_HAVE_KQUEUE 1
-#elif HAVE_EVENT_PORTS
-# define VR_HAVE_EVENT_PORTS 1
-#else
-# error missing scalable I/O event notification mechanism
-#endif
-
 #ifdef HAVE_LITTLE_ENDIAN
 # define VR_LITTLE_ENDIAN 1
 #endif
@@ -91,6 +81,8 @@ struct vr_worker;
 #include <sys/resource.h>
 #include <netinet/in.h>
 
+#include <ae.h>
+
 #include <vr_util.h>
 #include <vr_signal.h>
 
@@ -120,7 +112,6 @@ struct vr_worker;
 #include <vr_conf.h>
 
 #include <vr_thread.h>
-#include <ae.h>
 #include <vr_eventloop.h>
 #include <vr_master.h>
 #include <vr_worker.h>

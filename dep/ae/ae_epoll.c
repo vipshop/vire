@@ -37,18 +37,18 @@ typedef struct aeApiState {
 } aeApiState;
 
 static int aeApiCreate(aeEventLoop *eventLoop) {
-    aeApiState *state = vr_alloc(sizeof(aeApiState));
+    aeApiState *state = malloc(sizeof(aeApiState));
 
     if (!state) return -1;
-    state->events = vr_alloc(sizeof(struct epoll_event)*eventLoop->setsize);
+    state->events = malloc(sizeof(struct epoll_event)*eventLoop->setsize);
     if (!state->events) {
-        vr_free(state);
+        free(state);
         return -1;
     }
     state->epfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
     if (state->epfd == -1) {
-        vr_free(state->events);
-        vr_free(state);
+        free(state->events);
+        free(state);
         return -1;
     }
     eventLoop->apidata = state;
@@ -58,7 +58,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
 static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
     aeApiState *state = eventLoop->apidata;
 
-    state->events = vr_realloc(state->events, sizeof(struct epoll_event)*setsize);
+    state->events = realloc(state->events, sizeof(struct epoll_event)*setsize);
     return 0;
 }
 
@@ -66,8 +66,8 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     aeApiState *state = eventLoop->apidata;
 
     close(state->epfd);
-    vr_free(state->events);
-    vr_free(state);
+    free(state->events);
+    free(state);
 }
 
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {

@@ -92,7 +92,7 @@ typedef struct client {
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
     int flags;              /* Client flags: CLIENT_* macros. */
-    int authenticated;      /* When requirepass is non-NULL. */
+    int authenticated;      /* When requirepass(1) or adminpass(2) is non-NULL. */
     int replstate;          /* Replication state if this is a slave. */
     int repl_put_online_on_ack; /* Install slave write handler on ACK. */
     int repldbfd;           /* Replication DB file descriptor. */

@@ -40,19 +40,21 @@
 #include <time.h>
 #include <errno.h>
 
-#include <vr_core.h>
-
 #include <ae.h>
+
+#ifdef HAVE_CONFIG_H
+# include <config.h>
+#endif
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
-#ifdef VR_HAVE_EVENT_PORTS
+#ifdef HAVE_EVENT_PORTS
 #include "ae_evport.c"
 #else
-    #ifdef VR_HAVE_EPOLL
+    #ifdef HAVE_EPOLL
     #include "ae_epoll.c"
     #else
-        #ifdef VR_HAVE_KQUEUE
+        #ifdef HAVE_KQUEUE
         #include "ae_kqueue.c"
         #else
         #include "ae_select.c"
@@ -64,9 +66,9 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
 
-    if ((eventLoop = vr_alloc(sizeof(*eventLoop))) == NULL) goto err;
-    eventLoop->events = vr_alloc(sizeof(aeFileEvent)*setsize);
-    eventLoop->fired = vr_alloc(sizeof(aeFiredEvent)*setsize);
+    if ((eventLoop = malloc(sizeof(*eventLoop))) == NULL) goto err;
+    eventLoop->events = malloc(sizeof(aeFileEvent)*setsize);
+    eventLoop->fired = malloc(sizeof(aeFiredEvent)*setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
     eventLoop->setsize = setsize;
     eventLoop->lastTime = time(NULL);
@@ -85,9 +87,9 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
 
 err:
     if (eventLoop) {
-        vr_free(eventLoop->events);
-        vr_free(eventLoop->fired);
-        vr_free(eventLoop);
+        free(eventLoop->events);
+        free(eventLoop->fired);
+        free(eventLoop);
     }
     return NULL;
 }
@@ -111,8 +113,8 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
     if (eventLoop->maxfd >= setsize) return AE_ERR;
     if (aeApiResize(eventLoop,setsize) == -1) return AE_ERR;
 
-    eventLoop->events = vr_realloc(eventLoop->events,sizeof(aeFileEvent)*setsize);
-    eventLoop->fired = vr_realloc(eventLoop->fired,sizeof(aeFiredEvent)*setsize);
+    eventLoop->events = realloc(eventLoop->events,sizeof(aeFileEvent)*setsize);
+    eventLoop->fired = realloc(eventLoop->fired,sizeof(aeFiredEvent)*setsize);
     eventLoop->setsize = setsize;
 
     /* Make sure that if we created new slots, they are initialized with
@@ -124,9 +126,9 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
 
 void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     aeApiFree(eventLoop);
-    vr_free(eventLoop->events);
-    vr_free(eventLoop->fired);
-    vr_free(eventLoop);
+    free(eventLoop->events);
+    free(eventLoop->fired);
+    free(eventLoop);
 }
 
 void aeStop(aeEventLoop *eventLoop) {
@@ -137,17 +139,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
     if (fd >= eventLoop->setsize) {
-        int maxclients, threads;
-        int filelimit;
-        conf_server_get(CONFIG_SOPN_MAXCLIENTS,&maxclients);
-        conf_server_get(CONFIG_SOPN_THREADS,&threads);
-        filelimit = maxclients+threads*2+CONFIG_MIN_RESERVED_FDS;
-        if (fd >= filelimit) {
-            errno = ERANGE;
-            return AE_ERR;
-        }
-
-        if (aeResizeSetSize(eventLoop,filelimit) != AE_OK) {
+        if (aeResizeSetSize(eventLoop,fd+1000) != AE_OK) {
             return AE_ERR;
         }
     }
@@ -219,7 +211,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     long long id = eventLoop->timeEventNextId++;
     aeTimeEvent *te;
 
-    te = vr_alloc(sizeof(*te));
+    te = malloc(sizeof(*te));
     if (te == NULL) return AE_ERR;
     te->id = id;
     aeAddMillisecondsToNow(milliseconds,&te->when_sec,&te->when_ms);
@@ -310,7 +302,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
                 prev->next = te->next;
             if (te->finalizerProc)
                 te->finalizerProc(eventLoop, te->clientData);
-            vr_free(te);
+            free(te);
             te = next;
             continue;
         }

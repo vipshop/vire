@@ -425,6 +425,8 @@ vr_pre_run(struct instance *nci)
         return status;
     }
 
+    log_debug(LOG_VERB, "Vire used logfile: %s", nci->conf_filename);
+
     if (!vr_test_conf(nci, false)) {
         log_error("conf file %s is error", nci->conf_filename);
         return VR_ERROR;
@@ -447,13 +449,13 @@ vr_pre_run(struct instance *nci)
     if (nci->pid_filename) {
         status = vr_create_pidfile(nci);
         if (status != VR_OK) {
-            return status;
+            return VR_ERROR;
         }
     }
 
     status = init_server(nci);
     if (status != VR_OK) {
-        return status;
+        return VR_ERROR;
     }
 
     vr_print_run(nci);
@@ -491,10 +493,10 @@ vr_run(struct instance *nci)
     workers_run();
 
     /* wait for the worker finish */
-	workers_wait();
+    workers_wait();
 
     /* deinit the workers */
-	workers_deinit();
+    workers_deinit();
 }
 
 int

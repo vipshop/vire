@@ -2,6 +2,6 @@ MAINTAINERCLEANFILES = Makefile.in aclocal.m4 configure config.h.in config.h.in~
 
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = dep src
+SUBDIRS = dep src tests
 
 EXTRA_DIST = README.md NOTICE LICENSE ChangeLog conf scripts notes

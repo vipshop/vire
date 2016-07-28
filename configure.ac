@@ -223,12 +223,20 @@ AC_CONFIG_COMMANDS_PRE([cd dep/jemalloc-4.2.0])
 AC_CONFIG_COMMANDS_PRE([./configure --with-jemalloc-prefix=je_])
 AC_CONFIG_COMMANDS_PRE([cd ../..])
 
+# Untar the hiredis-0.13.3.tar.gz in dep/ before config.status is rerun
+AC_CONFIG_COMMANDS_PRE([rm -rf dep/hiredis-0.13.3])
+AC_CONFIG_COMMANDS_PRE([mkdir dep/hiredis-0.13.3])
+AC_CONFIG_COMMANDS_PRE([tar zxvf dep/hiredis-0.13.3.tar.gz -C dep])
+AC_CONFIG_COMMANDS_PRE([cd dep/hiredis-0.13.3])
+AC_CONFIG_COMMANDS_PRE([cd ../..])
+
 # Define Makefiles
 AC_CONFIG_FILES([Makefile
                  dep/Makefile
+                 dep/ae/Makefile
                  src/Makefile
-                 src/ae/Makefile
-                 src/hashkit/Makefile])
+                 src/hashkit/Makefile
+                 tests/Makefile])
 
 # Generate the "configure" script
 AC_OUTPUT
