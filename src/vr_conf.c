@@ -1142,7 +1142,7 @@ conf_pre_validate(vr_conf *cf)
             fp = stdin;
         } else {
             if ((fp = fopen(cf->fname,"r")) == NULL) {
-                log_error("Fatal error, can't open config file '%s'", cf->fname);
+                log_error("Open config file '%s' failed: %s", cf->fname, strerror(errno));
                 sdsfree(config);
                 return VR_ERROR;
             }

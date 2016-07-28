@@ -18,7 +18,7 @@ static char *execute_file = VIRE_TEST_CONFIG_DEFAULT_EXECUTE_FILE;
 
 static sds workdir = NULL;
 
-static int vireport = 8889; /* The available port for vire to start */
+static int vireport = 55556; /* The available port for vire to start */
 
 void set_execute_file(char *file)
 {
@@ -33,7 +33,7 @@ static sds vire_conf_create(char *dir, int port)
     
     conf_file = sdscatfmt(sdsempty(),"%s\/vire.conf",dir);
 
-    fd = open(conf_file,O_WRONLY|O_CREAT|O_TRUNC);
+    fd = open(conf_file,O_WRONLY|O_CREAT|O_TRUNC,0644);
     if (fd < 0) {
         test_log_error("Open conf file %s failed: %s", conf_file, strerror(errno));
         sdsfree(conf_file);

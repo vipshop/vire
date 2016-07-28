@@ -57,11 +57,12 @@ void simple_test(void)
     
     vi = start_one_vire_instance();
     if (vi == NULL) {
+        test_log_error("Run vire instance failed");
         return;
     }
 
     simple_test_cmd_get_set(vi);
-
+    
     
     vire_instance_destroy(vi);
 }
