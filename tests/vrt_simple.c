@@ -255,7 +255,7 @@ error:
 static int simple_test_cmd_decr(vire_instance *vi)
 {
     char *key = "test_cmd_decr-key";
-    long long n = 0, incr_times = 100;
+    long long n = 0, decr_times = 100;
     char *MESSAGE = "DECR simple test";
     redisReply * reply = NULL;
 
@@ -265,7 +265,7 @@ static int simple_test_cmd_decr(vire_instance *vi)
     }
     freeReplyObject(reply);
 
-    while (n < incr_times) {
+    while (n < decr_times) {
         reply = redisCommand(vi->ctx, "decr %s", key);
         if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
             reply->integer + n != -1) {
@@ -282,9 +282,9 @@ static int simple_test_cmd_decr(vire_instance *vi)
         goto error;
     } else {
         long long value;
-        if (!string2ll(reply->str,reply->len,&value) || value + incr_times != 0) {
+        if (!string2ll(reply->str,reply->len,&value) || value + decr_times != 0) {
             vrt_scnprintf(errmsg, LOG_MAX_LEN, "decr to -%lld error, %s in fact", 
-                incr_times, reply->str);
+                decr_times, reply->str);
             goto error;
         }
     }
@@ -384,6 +384,73 @@ error:
     return 0;
 }
 
+static int simple_test_cmd_decrby(vire_instance *vi)
+{
+    char *key = "test_cmd_decrby-key";
+    long long n = 0, decrby_times = 100, decrby_step = 3;
+    char *MESSAGE = "DECRBY simple test";
+    redisReply * reply = NULL;
+
+    reply = redisCommand(vi->ctx, "del %s", key);
+    if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    while (n < decrby_times) {
+        reply = redisCommand(vi->ctx, "decrby %s %lld", key, decrby_step);
+        if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+            reply->integer + (n+1)*decrby_step != 0) {
+            vrt_scnprintf(errmsg, LOG_MAX_LEN, "decrby %lld %lld times error", 
+                decrby_step, n+1);
+            goto error;
+        }
+        freeReplyObject(reply);
+        
+        n ++;
+    }
+
+    reply = redisCommand(vi->ctx, "get %s", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_STRING) {
+        goto error;
+    } else {
+        long long value;
+        if (!string2ll(reply->str,reply->len,&value) || 
+            value + decrby_times*decrby_step != 0) {
+            vrt_scnprintf(errmsg, LOG_MAX_LEN, "decrby to -%lld error, %s in fact", 
+                decrby_times*decrby_step, reply->str);
+            goto error;
+        }
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "set %s %s", key, "a");
+    if (reply == NULL || reply->type != REDIS_REPLY_STATUS || 
+        reply->len != 2 || strcmp(reply->str,"OK")) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "decrby %s %lld", key, decrby_step);
+    if (reply == NULL || reply->type != REDIS_REPLY_ERROR) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
+
+    return 1;
+
+error:
+
+    if (reply) freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_ERR,MESSAGE,errmsg);
+    errmsg[0] = '\0';
+
+    return 0;
+}
+
 void simple_test(void)
 {
     vire_instance *vi;
@@ -404,6 +471,7 @@ void simple_test(void)
     ok_count+=simple_test_cmd_incr(vi);
     ok_count+=simple_test_cmd_decr(vi);
     ok_count+=simple_test_cmd_incrby(vi);
+    ok_count+=simple_test_cmd_decrby(vi);
     
     vire_instance_destroy(vi);
 }
