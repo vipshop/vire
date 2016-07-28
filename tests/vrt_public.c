@@ -297,11 +297,12 @@ vire_instance *start_one_vire_instance(void)
     return vi;
 }
 
-void show_test_result(int result,char *test_message)
+void show_test_result(int result,char *test_content,char *errmsg)
 {
     if (result == VRT_TEST_OK) {
-        test_log_out("[\033[32mOK\033[0m]: %s", test_message);
+        test_log_out("[\033[32mOK\033[0m]: %s", test_content);
     } else if (result == VRT_TEST_ERR) {
-        test_log_out("[\033[31mERR\033[0m]: %s", test_message);
+        test_log_out("[\033[31mERR\033[0m]: %s, fail cause: %s", test_content, 
+            (errmsg==NULL||strlen(errmsg)==0)?"unknown":errmsg);
     }
 }

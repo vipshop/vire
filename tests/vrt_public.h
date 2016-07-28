@@ -57,6 +57,6 @@ int destroy_work_dir(void);
 
 vire_instance *start_one_vire_instance(void);
 
-void show_test_result(int result,char *test_message);
+void show_test_result(int result,char *test_content,char *errmsg);
 
 #endif

@@ -15,10 +15,8 @@
 
 #include <vrt_util.h>
 
-#define LOG_MAX_LEN 256 /* max length of log message */
-
 int
-_vscnprintf(char *buf, size_t size, const char *fmt, va_list args)
+vrt_vscnprintf(char *buf, size_t size, const char *fmt, va_list args)
 {
     int n;
 
@@ -46,13 +44,13 @@ _vscnprintf(char *buf, size_t size, const char *fmt, va_list args)
 }
 
 int
-_scnprintf(char *buf, size_t size, const char *fmt, ...)
+vrt_scnprintf(char *buf, size_t size, const char *fmt, ...)
 {
     va_list args;
     int n;
 
     va_start(args, fmt);
-    n = _vscnprintf(buf, size, fmt, args);
+    n = vrt_vscnprintf(buf, size, fmt, args);
     va_end(args);
 
     return n;
@@ -69,7 +67,7 @@ _test_log_error(const char *file, int line, const char *fmt, ...)
     len = 0;            /* length of output buffer */
     size = LOG_MAX_LEN; /* size of output buffer */
     
-    len += _scnprintf(buf + len, size - len, "%s:%d ", file, line);
+    len += vrt_scnprintf(buf + len, size - len, "%s:%d ", file, line);
 
     va_start(args, fmt);
     len += vsnprintf(buf + len, size - len, fmt, args);

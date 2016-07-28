@@ -29,9 +29,11 @@
 #define CRLF                "\x0d\x0a"
 #define CRLF_LEN            (sizeof("\x0d\x0a") - 1)
 
+#define LOG_MAX_LEN 256 /* max length of log message */
+
 void _test_log_error(const char *file, int line, const char *fmt, ...);
 void _test_log_out(const char *fmt, ...);
-#ifdef VRT_DEBUG_LOG
+#if defined(VRT_DEBUG_LOG)
 #define test_log_debug(...) do {                              \
     _test_log_error(__FILE__, __LINE__, __VA_ARGS__);         \
 } while (0)
@@ -44,6 +46,8 @@ void _test_log_out(const char *fmt, ...);
 #define test_log_out(...) do {                                \
     _test_log_out(__VA_ARGS__);                               \
 } while (0)
+
+int vrt_scnprintf(char *buf, size_t size, const char *fmt, ...);
 
 int64_t vrt_usec_now(void);
 int64_t vrt_msec_now(void);
