@@ -134,6 +134,9 @@ main(int argc, char **argv)
     }
 
     create_work_dir();
+
+    test_log_out("Testing Vire version %s \n", VR_VERSION_STRING);
+    
     simple_test();
     
 clean:

@@ -832,22 +832,22 @@ static int simple_test_cmd_mget_mset(vire_instance *vi)
     char values[MGET_MSET_KEYS_COUNT][30];
     char *argv[1+2*MGET_MSET_KEYS_COUNT];
     size_t argvlen[1+2*MGET_MSET_KEYS_COUNT];
-    int j;
+    int j, idx;
     redisReply *reply = NULL;
 
-    for (j = 0; j < 333; j ++) {
-        vrt_scnprintf(keys[j], "%s%d", key, j);
-        vrt_scnprintf(keys[j], "%s%d", value, j);
+    for (j = 0; j < MGET_MSET_KEYS_COUNT; j ++) {
+        vrt_scnprintf(keys[j], 30,"%s%d", key, j);
+        vrt_scnprintf(values[j], 30,"%s%d", value, j);
     }
     
     argv[0] = "mset";
     argvlen[0] = strlen(argv[0]);
-    for (j = 1; j < 1+2*MGET_MSET_KEYS_COUNT; j ++) {
-        if (j%2 == 1)
-            argv[j] = keys[j-1];
-        else 
-            argv[j] = values[j-1];
-        argvlen[j] = strlen(argv[j]);
+    idx = 1;
+    for (j = 0; j < MGET_MSET_KEYS_COUNT; j ++) {
+        argv[idx] = keys[j];
+        argvlen[idx++] = strlen(keys[j]);
+        argv[idx] = values[j];
+        argvlen[idx++] = strlen(values[j]);
     }
     
     reply = redisCommandArgv(vi->ctx, 1+2*MGET_MSET_KEYS_COUNT, argv, argvlen);
@@ -898,6 +898,162 @@ error:
     return 0;
 }
 
+#define TEST_HASH_ENCODED_ZIPLIST    0
+#define TEST_HASH_ENCODED_HT         1
+#define TEST_HASH_ENCODED_CAUSED_BY_FILED    0
+#define TEST_HASH_ENCODED_CAUSED_BY_VALUE    1
+#define TEST_HASH_ENCODED_CAUSED_BY_ALL      2
+#define TEST_HASH_ENCODED_ZIPLIST_FIELD_COUNT    56
+#define TEST_HASH_ENCODED_HT_FIELD_COUNT         678
+#define TEST_HASH_ENCODED_ZIPLIST_VALUE_LEN      21
+#define TEST_HASH_ENCODED_HT_VALUE_LEN           111
+
+struct test_hash_member {
+    char *field;
+    char *value;
+};
+
+static void test_hash_members_destroy(struct test_hash_member **thms)
+{
+    int j = 0;
+    while (thms[j]) {
+        free(thms[j]->field);
+        free(thms[j]->value);
+        free(thms[j]);
+        j ++;
+    }
+    free(thms);
+}
+    
+static struct test_hash_member **simple_test_hash_init(vire_instance *vi, char *key, int hash_encode, int encode_cause)
+{
+    char *field = "test_hash-field";
+    char *value = "test_hash-value";
+    int field_count, value_len;
+    int j,n;
+    struct test_hash_member **thms = NULL;
+    redisReply *reply = NULL;
+
+    reply = redisCommand(vi->ctx, "del %s", key);
+    if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    if (hash_encode == TEST_HASH_ENCODED_ZIPLIST) {
+        field_count = TEST_HASH_ENCODED_ZIPLIST_FIELD_COUNT;
+        value_len = TEST_HASH_ENCODED_ZIPLIST_VALUE_LEN;
+    } else if (encode_cause == TEST_HASH_ENCODED_CAUSED_BY_FILED) {
+        field_count = TEST_HASH_ENCODED_HT_FIELD_COUNT;
+        value_len = TEST_HASH_ENCODED_ZIPLIST_VALUE_LEN;
+    } else if (encode_cause == TEST_HASH_ENCODED_CAUSED_BY_VALUE) {
+        field_count = TEST_HASH_ENCODED_ZIPLIST_FIELD_COUNT;
+        value_len = TEST_HASH_ENCODED_HT_VALUE_LEN;
+    } else if (encode_cause == TEST_HASH_ENCODED_CAUSED_BY_ALL) {
+        field_count = TEST_HASH_ENCODED_HT_FIELD_COUNT;
+        value_len = TEST_HASH_ENCODED_HT_VALUE_LEN;
+    }
+    
+    thms = malloc((field_count+1)*sizeof(struct test_hash_member*));
+    for (j = 0; j < field_count; j ++) {
+        thms[j] = malloc(sizeof(struct test_hash_member));
+        thms[j]->field = malloc(30*sizeof(char));
+        thms[j]->value = malloc((value_len+1)*sizeof(char));
+        vrt_scnprintf(thms[j]->field, 30, "%s%d", field, j);
+        n = vrt_scnprintf(thms[j]->value, value_len, "%s%d", value, j);
+        if (n < value_len) {
+            memset(thms[j]->value,'x',value_len-n);
+            thms[j]->value[value_len] = '\0';
+        }
+    }
+    thms[field_count] = NULL;
+
+    for (j = 0; j < field_count; j ++) { 
+        reply = redisCommand(vi->ctx, "hset %s %s %s", 
+            key, thms[j]->field, thms[j]->value);
+        if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+            reply->integer != 1) {
+            goto error;
+        }
+        freeReplyObject(reply);
+    }
+
+    reply = redisCommand(vi->ctx, "hlen %s", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+        reply->integer != field_count) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "object encoding %s", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_STRING) {
+        goto error;
+    } else {
+        if (hash_encode == TEST_HASH_ENCODED_ZIPLIST) {
+            if(reply->len != 7 || strcmp(reply->str, "ziplist")) {
+                goto error;
+            }
+        } else {
+            if(reply->len != 9 || strcmp(reply->str, "hashtable")) {
+                goto error;
+            }
+        }
+    }
+    freeReplyObject(reply);
+    
+    return thms;
+
+error:
+
+    if (thms) {
+        test_hash_members_destroy(thms);
+        thms = NULL;
+    }
+
+    if (reply) freeReplyObject(reply);
+
+    return NULL;
+}
+
+static int simple_test_hash_encode(vire_instance *vi)
+{
+    char *key = "test_hash_encode";
+    char *MESSAGE = "HASH ENCODE simple test";
+    struct test_hash_member **thms;
+    
+    thms = simple_test_hash_init(vi,key,TEST_HASH_ENCODED_ZIPLIST,TEST_HASH_ENCODED_CAUSED_BY_FILED);
+    if (thms == NULL) {
+        goto error;
+    }
+    test_hash_members_destroy(thms);
+    thms = simple_test_hash_init(vi,key,TEST_HASH_ENCODED_ZIPLIST,TEST_HASH_ENCODED_CAUSED_BY_VALUE);
+    if (thms == NULL) {
+        goto error;
+    }
+    test_hash_members_destroy(thms);
+    thms = simple_test_hash_init(vi,key,TEST_HASH_ENCODED_HT,TEST_HASH_ENCODED_CAUSED_BY_FILED);
+    if (thms == NULL) {
+        goto error;
+    }
+    test_hash_members_destroy(thms);
+    thms = simple_test_hash_init(vi,key,TEST_HASH_ENCODED_HT,TEST_HASH_ENCODED_CAUSED_BY_VALUE);
+    if (thms == NULL) {
+        goto error;
+    }
+    test_hash_members_destroy(thms);
+    
+    show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
+
+    return 1;
+
+error:
+
+    show_test_result(VRT_TEST_ERR,MESSAGE,errmsg);
+    errmsg[0] = '\0';
+
+    return 0;
+}
+
 void simple_test(void)
 {
     vire_instance *vi;
@@ -928,6 +1084,8 @@ void simple_test(void)
     ok_count+=simple_test_cmd_getrange_setrange(vi);
     ok_count+=simple_test_cmd_bitpos(vi);
     ok_count+=simple_test_cmd_mget_mset(vi);
+    /* Hash */
+    ok_count+=simple_test_hash_encode(vi);
     
     vire_instance_destroy(vi);
 }
