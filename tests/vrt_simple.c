@@ -646,6 +646,51 @@ error:
     return 0;
 }
 
+static int simple_test_cmd_getbit_setbit(vire_instance *vi)
+{
+    char *key = "test_cmd_getbit_setbit-key";
+    char *MESSAGE = "GETBIT/SETBIT simple test";
+    int begin = 11, step = 3, times = 79, n;
+    redisReply * reply = NULL;
+
+    n = 0;
+    while(n < times) {
+        reply = redisCommand(vi->ctx, "setbit %s %d 1", key, begin+n*step);
+        if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+            reply->integer != 0) {
+            goto error;
+        }
+        freeReplyObject(reply);
+
+        n ++;
+    }
+
+    n = 0;
+    while(n < times) {
+        reply = redisCommand(vi->ctx, "getbit %s %d", key, begin+n*step);
+        if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+            reply->integer != 1) {
+            goto error;
+        }
+        freeReplyObject(reply);
+
+        n ++;
+    }
+
+    show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
+
+    return 1;
+
+error:
+
+    if (reply) freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_ERR,MESSAGE,errmsg);
+    errmsg[0] = '\0';
+
+    return 0;
+}
+
 void simple_test(void)
 {
     vire_instance *vi;
@@ -659,6 +704,7 @@ void simple_test(void)
 
     errmsg[0] = '\0';
 
+    /* String */
     ok_count+=simple_test_cmd_get_set(vi);
     ok_count+=simple_test_cmd_setnx(vi);
     ok_count+=simple_test_cmd_setex(vi);
@@ -671,6 +717,7 @@ void simple_test(void)
     ok_count+=simple_test_cmd_strlen(vi);
     ok_count+=simple_test_cmd_getset(vi);
     ok_count+=simple_test_cmd_incrbyfloat(vi);
+    ok_count+= simple_test_cmd_getbit_setbit(vi);
     
     vire_instance_destroy(vi);
 }
