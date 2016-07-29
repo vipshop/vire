@@ -822,6 +822,82 @@ error:
     return 0;
 }
 
+#define MGET_MSET_KEYS_COUNT 333
+static int simple_test_cmd_mget_mset(vire_instance *vi)
+{
+    char *key = "test_cmd_mget_mset-key";
+    char *value = "test_cmd_mget_mset-value";
+    char *MESSAGE = "MGET/MSET simple test";
+    char keys[MGET_MSET_KEYS_COUNT][30];
+    char values[MGET_MSET_KEYS_COUNT][30];
+    char *argv[1+2*MGET_MSET_KEYS_COUNT];
+    size_t argvlen[1+2*MGET_MSET_KEYS_COUNT];
+    int j;
+    redisReply *reply = NULL;
+
+    for (j = 0; j < 333; j ++) {
+        vrt_scnprintf(keys[j], "%s%d", key, j);
+        vrt_scnprintf(keys[j], "%s%d", value, j);
+    }
+    
+    argv[0] = "mset";
+    argvlen[0] = strlen(argv[0]);
+    for (j = 1; j < 1+2*MGET_MSET_KEYS_COUNT; j ++) {
+        if (j%2 == 1)
+            argv[j] = keys[j-1];
+        else 
+            argv[j] = values[j-1];
+        argvlen[j] = strlen(argv[j]);
+    }
+    
+    reply = redisCommandArgv(vi->ctx, 1+2*MGET_MSET_KEYS_COUNT, argv, argvlen);
+    if (reply == NULL || reply->type != REDIS_REPLY_STATUS || 
+        reply->len != 2 || strcmp(reply->str,"OK")) {
+        vrt_scnprintf(errmsg, LOG_MAX_LEN, "mset %d keys error", 
+            MGET_MSET_KEYS_COUNT);
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    argv[0] = "mget";
+    argvlen[0] = strlen(argv[0]);
+    for (j = 1; j < 1+MGET_MSET_KEYS_COUNT; j ++) {
+        argv[j] = keys[j-1];
+        argvlen[j] = strlen(argv[j]);
+    }
+
+    reply = redisCommandArgv(vi->ctx, 1+MGET_MSET_KEYS_COUNT, argv, argvlen);
+    if (reply == NULL || reply->type != REDIS_REPLY_ARRAY || 
+        reply->elements != MGET_MSET_KEYS_COUNT) {
+        vrt_scnprintf(errmsg, LOG_MAX_LEN, "mget %d keys error", 
+            MGET_MSET_KEYS_COUNT);
+        goto error;
+    }
+    for (j = 0; j < MGET_MSET_KEYS_COUNT; j ++) {
+        redisReply *reply_sub = reply->element[j];
+        if (reply_sub == NULL ||
+            reply_sub->type != REDIS_REPLY_STRING || 
+            reply_sub->len != strlen(values[j]) || 
+            strcmp(reply_sub->str, values[j]))
+            goto error;
+    }
+    freeReplyObject(reply);
+    reply = NULL;
+
+    show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
+
+    return 1;
+
+error:
+
+    if (reply) freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_ERR,MESSAGE,errmsg);
+    errmsg[0] = '\0';
+
+    return 0;
+}
+
 void simple_test(void)
 {
     vire_instance *vi;
@@ -851,6 +927,7 @@ void simple_test(void)
     ok_count+=simple_test_cmd_getbit_setbit_bitcount(vi);
     ok_count+=simple_test_cmd_getrange_setrange(vi);
     ok_count+=simple_test_cmd_bitpos(vi);
+    ok_count+=simple_test_cmd_mget_mset(vi);
     
     vire_instance_destroy(vi);
 }
