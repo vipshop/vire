@@ -691,6 +691,58 @@ error:
     return 0;
 }
 
+static int simple_test_cmd_getrange_setrange(vire_instance *vi)
+{
+    char *key = "test_cmd_getrange_setrange-key";
+    char *MESSAGE = "GETRANGE/SETRANGE simple test";
+    char *range_value = "o090pl[]m,187h";
+    int begin = 11, step = 53, times = 79, n;
+    redisReply * reply = NULL;
+
+    n = 0;
+    while(n < times) {
+        reply = redisCommand(vi->ctx, "setrange %s %d %s", 
+            key, begin+n*step, range_value);
+        if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+            reply->integer != begin+n*step+strlen(range_value)) {
+            vrt_scnprintf(errmsg, LOG_MAX_LEN, "setrange %s %d %s error", 
+                key, begin+n*step, range_value);
+            goto error;
+        }
+        freeReplyObject(reply);
+
+        n ++;
+    }
+
+    n = 0;
+    while(n < times) {
+        reply = redisCommand(vi->ctx, "getrange %s %d %d", key, 
+            begin+n*step, begin+n*step+strlen(range_value)-1);
+        if (reply == NULL || reply->type != REDIS_REPLY_STRING || 
+            reply->len != strlen(range_value) || strcmp(reply->str, range_value)) {
+            vrt_scnprintf(errmsg, LOG_MAX_LEN, "getrange %s %d %d error", 
+                key, begin+n*step, begin+n*step+strlen(range_value)-1);
+            goto error;
+        }
+        freeReplyObject(reply);
+
+        n ++;
+    }
+
+    show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
+
+    return 1;
+
+error:
+
+    if (reply) freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_ERR,MESSAGE,errmsg);
+    errmsg[0] = '\0';
+
+    return 0;
+}
+
 void simple_test(void)
 {
     vire_instance *vi;
@@ -717,7 +769,8 @@ void simple_test(void)
     ok_count+=simple_test_cmd_strlen(vi);
     ok_count+=simple_test_cmd_getset(vi);
     ok_count+=simple_test_cmd_incrbyfloat(vi);
-    ok_count+= simple_test_cmd_getbit_setbit(vi);
+    ok_count+=simple_test_cmd_getbit_setbit(vi);
+    ok_count+=simple_test_cmd_getrange_setrange(vi);
     
     vire_instance_destroy(vi);
 }
