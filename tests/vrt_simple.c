@@ -750,6 +750,78 @@ error:
     return 0;
 }
 
+static int simple_test_cmd_bitpos(vire_instance *vi)
+{
+    char *key = "test_cmd_bitpos-key";
+    char *MESSAGE = "BITPOS simple test";
+    int pos = 11;
+    redisReply * reply = NULL;
+
+    reply = redisCommand(vi->ctx, "del %s", key);
+    if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "bitpos %s 1", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+        reply->integer != -1) {
+        vrt_scnprintf(errmsg, LOG_MAX_LEN, "bitpos %s 1 first time error", 
+            key);
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "setbit %s 1 0", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+        reply->integer != 0) {
+        vrt_scnprintf(errmsg, LOG_MAX_LEN, "setbit %s 1 0 error", 
+            key);
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "bitpos %s 1", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+        reply->integer != -1) {
+        vrt_scnprintf(errmsg, LOG_MAX_LEN, "bitpos %s 1 second time error", 
+            key);
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "setbit %s %d 1", key, pos);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+        reply->integer != 0) {
+        vrt_scnprintf(errmsg, LOG_MAX_LEN, "setbit %s %d 1 error", 
+            key, pos);
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "bitpos %s 1", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+        reply->integer != pos) {
+        vrt_scnprintf(errmsg, LOG_MAX_LEN, "bitpos %s 1 third time error", 
+            key);
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
+
+    return 1;
+
+error:
+
+    if (reply) freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_ERR,MESSAGE,errmsg);
+    errmsg[0] = '\0';
+
+    return 0;
+}
+
 void simple_test(void)
 {
     vire_instance *vi;
@@ -778,6 +850,7 @@ void simple_test(void)
     ok_count+=simple_test_cmd_incrbyfloat(vi);
     ok_count+=simple_test_cmd_getbit_setbit_bitcount(vi);
     ok_count+=simple_test_cmd_getrange_setrange(vi);
+    ok_count+=simple_test_cmd_bitpos(vi);
     
     vire_instance_destroy(vi);
 }
