@@ -646,10 +646,10 @@ error:
     return 0;
 }
 
-static int simple_test_cmd_getbit_setbit(vire_instance *vi)
+static int simple_test_cmd_getbit_setbit_bitcount(vire_instance *vi)
 {
-    char *key = "test_cmd_getbit_setbit-key";
-    char *MESSAGE = "GETBIT/SETBIT simple test";
+    char *key = "test_cmd_getbit_setbit_bitcount-key";
+    char *MESSAGE = "GETBIT/SETBIT/BITCOUNT simple test";
     int begin = 11, step = 3, times = 79, n;
     redisReply * reply = NULL;
 
@@ -676,6 +676,13 @@ static int simple_test_cmd_getbit_setbit(vire_instance *vi)
 
         n ++;
     }
+
+    reply = redisCommand(vi->ctx, "bitcount %s", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+        reply->integer != times) {
+        goto error;
+    }
+    freeReplyObject(reply);
 
     show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
 
@@ -769,7 +776,7 @@ void simple_test(void)
     ok_count+=simple_test_cmd_strlen(vi);
     ok_count+=simple_test_cmd_getset(vi);
     ok_count+=simple_test_cmd_incrbyfloat(vi);
-    ok_count+=simple_test_cmd_getbit_setbit(vi);
+    ok_count+=simple_test_cmd_getbit_setbit_bitcount(vi);
     ok_count+=simple_test_cmd_getrange_setrange(vi);
     
     vire_instance_destroy(vi);
