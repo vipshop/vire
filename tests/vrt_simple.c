@@ -1138,6 +1138,71 @@ error:
     return 0;
 }
 
+static int simple_test_cmd_hlen(vire_instance *vi)
+{
+    char *key = "test_cmd_hlen-key";
+    char *field = "test_cmd_hlen-field";
+    char *value = "test_cmd_hlen-value";
+    char *MESSAGE = "HLEN simple test";
+    redisReply * reply = NULL;
+    int hash_len, j;
+
+    hash_len = 51;
+    reply = redisCommand(vi->ctx, "del %s", key);
+    if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
+        goto error;
+    }
+    freeReplyObject(reply);
+    for (j = 0; j < hash_len; j ++) {
+        reply = redisCommand(vi->ctx, "hset %s %s%d %s", key, field, j, value);
+        if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+            reply->integer != 1) {
+            goto error;
+        }
+        freeReplyObject(reply);
+    }
+    reply = redisCommand(vi->ctx, "hlen %s", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+        reply->integer != hash_len) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    hash_len = 5111;
+    reply = redisCommand(vi->ctx, "del %s", key);
+    if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
+        goto error;
+    }
+    freeReplyObject(reply);
+    for (j = 0; j < hash_len; j ++) {
+        reply = redisCommand(vi->ctx, "hset %s %s%d %s", key, field, j, value);
+        if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+            reply->integer != 1) {
+            goto error;
+        }
+        freeReplyObject(reply);
+    }
+    reply = redisCommand(vi->ctx, "hlen %s", key);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+        reply->integer != hash_len) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
+
+    return 1;
+
+error:
+
+    if (reply) freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_ERR,MESSAGE,errmsg);
+    errmsg[0] = '\0';
+
+    return 0;
+}
+
 void simple_test(void)
 {
     vire_instance *vi;
@@ -1171,6 +1236,7 @@ void simple_test(void)
     /* Hash */
     ok_count+=simple_test_hash_encode(vi);
     ok_count+=simple_test_cmd_hget_hset(vi);
+    ok_count+=simple_test_cmd_hlen(vi);
     
     vire_instance_destroy(vi);
 }
