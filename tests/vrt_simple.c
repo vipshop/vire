@@ -1296,10 +1296,10 @@ error:
     return 0;
 }
 
-void simple_test(void)
+int simple_test(void)
 {
     vire_instance *vi;
-    int ok_count = 0;
+    int ok_count = 0, all_count = 0;
     
     vi = start_one_vire_instance();
     if (vi == NULL) {
@@ -1310,27 +1310,29 @@ void simple_test(void)
     errmsg[0] = '\0';
 
     /* String */
-    ok_count+=simple_test_cmd_get_set(vi);
-    ok_count+=simple_test_cmd_setnx(vi);
-    ok_count+=simple_test_cmd_setex(vi);
-    ok_count+=simple_test_cmd_psetex(vi);
-    ok_count+=simple_test_cmd_incr(vi);
-    ok_count+=simple_test_cmd_decr(vi);
-    ok_count+=simple_test_cmd_incrby(vi);
-    ok_count+=simple_test_cmd_decrby(vi);
-    ok_count+=simple_test_cmd_append(vi);
-    ok_count+=simple_test_cmd_strlen(vi);
-    ok_count+=simple_test_cmd_getset(vi);
-    ok_count+=simple_test_cmd_incrbyfloat(vi);
-    ok_count+=simple_test_cmd_getbit_setbit_bitcount(vi);
-    ok_count+=simple_test_cmd_getrange_setrange(vi);
-    ok_count+=simple_test_cmd_bitpos(vi);
-    ok_count+=simple_test_cmd_mget_mset(vi);
+    ok_count+=simple_test_cmd_get_set(vi); all_count++;
+    ok_count+=simple_test_cmd_setnx(vi); all_count++;
+    ok_count+=simple_test_cmd_setex(vi); all_count++;
+    ok_count+=simple_test_cmd_psetex(vi); all_count++;
+    ok_count+=simple_test_cmd_incr(vi); all_count++;
+    ok_count+=simple_test_cmd_decr(vi); all_count++;
+    ok_count+=simple_test_cmd_incrby(vi); all_count++;
+    ok_count+=simple_test_cmd_decrby(vi); all_count++;
+    ok_count+=simple_test_cmd_append(vi); all_count++;
+    ok_count+=simple_test_cmd_strlen(vi); all_count++;
+    ok_count+=simple_test_cmd_getset(vi); all_count++;
+    ok_count+=simple_test_cmd_incrbyfloat(vi); all_count++;
+    ok_count+=simple_test_cmd_getbit_setbit_bitcount(vi); all_count++;
+    ok_count+=simple_test_cmd_getrange_setrange(vi); all_count++;
+    ok_count+=simple_test_cmd_bitpos(vi); all_count++;
+    ok_count+=simple_test_cmd_mget_mset(vi); all_count++;
     /* Hash */
-    ok_count+=simple_test_hash_encode(vi);
-    ok_count+=simple_test_cmd_hget_hset(vi);
-    ok_count+=simple_test_cmd_hlen(vi);
-    ok_count+=simple_test_cmd_hdel(vi);
+    ok_count+=simple_test_hash_encode(vi); all_count++;
+    ok_count+=simple_test_cmd_hget_hset(vi); all_count++;
+    ok_count+=simple_test_cmd_hlen(vi); all_count++;
+    ok_count+=simple_test_cmd_hdel(vi); all_count++;
     
     vire_instance_destroy(vi);
+
+    return ok_count==all_count?1:0;
 }

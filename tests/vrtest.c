@@ -116,6 +116,7 @@ int
 main(int argc, char **argv)
 {
     int ret;
+    int ok_count = 0, all_count = 0;
 
     vr_set_default_options();
 
@@ -137,10 +138,12 @@ main(int argc, char **argv)
 
     test_log_out("Testing Vire version %s \n", VR_VERSION_STRING);
     
-    simple_test();
+    ok_count+=simple_test(); all_count++;
     
 clean:
     destroy_work_dir();
-    
+
+    if (ok_count == all_count)
+        test_log_out("\n\\o/ \033[32;1mAll tests passed without errors!\033[0m\n");
     return VRT_OK;
 }
