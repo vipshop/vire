@@ -913,6 +913,15 @@ struct test_hash_member {
     char *value;
 };
 
+static int test_hash_member_length(struct test_hash_member **thms)
+{
+    int j = 0;
+    while (thms[j]) {
+        j ++;
+    }
+    return j;
+}
+
 static void test_hash_members_destroy(struct test_hash_member **thms)
 {
     int j = 0;
@@ -924,7 +933,7 @@ static void test_hash_members_destroy(struct test_hash_member **thms)
     }
     free(thms);
 }
-    
+
 static struct test_hash_member **simple_test_hash_init(vire_instance *vi, char *key, int hash_encode, int encode_cause)
 {
     char *field = "test_hash-field";
@@ -1041,12 +1050,87 @@ static int simple_test_hash_encode(vire_instance *vi)
         goto error;
     }
     test_hash_members_destroy(thms);
+    thms = simple_test_hash_init(vi,key,TEST_HASH_ENCODED_HT,TEST_HASH_ENCODED_CAUSED_BY_ALL);
+    if (thms == NULL) {
+        goto error;
+    }
+    test_hash_members_destroy(thms);
     
     show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
 
     return 1;
 
 error:
+
+    show_test_result(VRT_TEST_ERR,MESSAGE,errmsg);
+    errmsg[0] = '\0';
+
+    return 0;
+}
+
+static int simple_test_cmd_hget_hset(vire_instance *vi)
+{
+    char *key = "test_cmd_hget_hset-key";
+    char *field = "test_cmd_hget_hset-field";
+    char *value = "test_cmd_hget_hset-value";
+    char *MESSAGE = "HGET/HSET simple test";
+    redisReply * reply = NULL;
+    struct test_hash_member **thms = NULL;
+    int idx;
+
+    reply = redisCommand(vi->ctx, "del %s", key);
+    if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
+        goto error;
+    }
+    freeReplyObject(reply);
+    
+    reply = redisCommand(vi->ctx, "hset %s %s %s", key, field, value);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+        reply->integer != 1) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    reply = redisCommand(vi->ctx, "hget %s %s", key, field);
+    if (reply == NULL || reply->type != REDIS_REPLY_STRING || 
+        reply->len != strlen(value) || strcmp(reply->str,value)) {
+        goto error;
+    }
+    freeReplyObject(reply);
+
+    thms = simple_test_hash_init(vi,key,TEST_HASH_ENCODED_HT,TEST_HASH_ENCODED_CAUSED_BY_FILED);
+    if (thms == NULL) {
+        goto error;
+    }
+    reply = redisCommand(vi->ctx, "hset %s %s %s", key, field, value);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER || 
+        reply->integer != 1) {
+        goto error;
+    }
+    freeReplyObject(reply);
+    reply = redisCommand(vi->ctx, "hget %s %s", key, field);
+    if (reply == NULL || reply->type != REDIS_REPLY_STRING || 
+        reply->len != strlen(value) || strcmp(reply->str,value)) {
+        goto error;
+    }
+    freeReplyObject(reply);
+    idx = test_hash_member_length(thms)/2;
+    reply = redisCommand(vi->ctx, "hget %s %s", key, thms[idx]->field);
+    if (reply == NULL || reply->type != REDIS_REPLY_STRING || 
+        reply->len != strlen(thms[idx]->value) || strcmp(reply->str,thms[idx]->value)) {
+        goto error;
+    }
+    freeReplyObject(reply);
+    test_hash_members_destroy(thms);
+
+    show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
+
+    return 1;
+
+error:
+
+    if (reply) freeReplyObject(reply);
+    if (thms) test_hash_members_destroy(thms);
 
     show_test_result(VRT_TEST_ERR,MESSAGE,errmsg);
     errmsg[0] = '\0';
@@ -1086,6 +1170,7 @@ void simple_test(void)
     ok_count+=simple_test_cmd_mget_mset(vi);
     /* Hash */
     ok_count+=simple_test_hash_encode(vi);
+    ok_count+=simple_test_cmd_hget_hset(vi);
     
     vire_instance_destroy(vi);
 }
