@@ -15,6 +15,15 @@
 
 #include <vrt_util.h>
 
+void
+vrt_assert(const char *cond, const char *file, int line, int panic)
+{
+    test_log_error("assert '%s' failed @ (%s, %d)", cond, file, line);
+    if (panic) {
+        abort();
+    }
+}
+
 int
 vrt_vscnprintf(char *buf, size_t size, const char *fmt, va_list args)
 {

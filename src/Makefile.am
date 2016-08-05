@@ -4,7 +4,7 @@ AM_CPPFLAGS =
 if !OS_SOLARIS
 AM_CPPFLAGS += -D_GNU_SOURCE
 endif
-AM_CPPFLAGS += -I $(top_srcdir)/src/hashkit
+AM_CPPFLAGS += -I $(top_srcdir)/dep/hashkit
 AM_CPPFLAGS += -I $(top_srcdir)/dep/ae
 AM_CPPFLAGS += -I $(top_srcdir)/dep/jemalloc-4.2.0/include
 AM_CPPFLAGS += -I $(top_srcdir)/dep/hiredis-0.13.3
@@ -30,8 +30,6 @@ endif
 if OS_FREEBSD
 AM_LDFLAGS += -lexecinfo
 endif
-
-SUBDIRS = hashkit
 
 sbin_PROGRAMS = vire
 
@@ -84,5 +82,5 @@ vire_SOURCES =                          \
     vr.c
     
 vire_LDADD = $(top_builddir)/dep/ae/libae.a
-vire_LDADD += $(top_builddir)/src/hashkit/libhashkit.a
+vire_LDADD += $(top_builddir)/dep/hashkit/libhashkit.a
 vire_LDADD += $(top_builddir)/dep/jemalloc-4.2.0/lib/libjemalloc.a

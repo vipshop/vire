@@ -11,24 +11,16 @@
 
 #include <hiredis.h>
 
-#define VRT_OK        0
-#define VRT_ERROR    -1
-
 #define VRT_TEST_OK     0
 #define VRT_TEST_ERR    1
 
-#define VRT_UINT8_MAXLEN     (3 + 1)
-#define VRT_UINT16_MAXLEN    (5 + 1)
-#define VRT_UINT32_MAXLEN    (10 + 1)
-#define VRT_UINT64_MAXLEN    (20 + 1)
-#define VRT_UINTMAX_MAXLEN   VRT_UINT64_MAXLEN
-
-#define VRT_MAXHOSTNAMELEN   256
-
-#define LF                  (uint8_t) 10
-#define CR                  (uint8_t) 13
-#define CRLF                "\x0d\x0a"
-#define CRLF_LEN            (sizeof("\x0d\x0a") - 1)
+#define TEST_CMD_TYPE_STRING    (1<<0)
+#define TEST_CMD_TYPE_LIST      (1<<1)
+#define TEST_CMD_TYPE_SET       (1<<2)
+#define TEST_CMD_TYPE_ZSET      (1<<3)
+#define TEST_CMD_TYPE_HASH      (1<<4)
+#define TEST_CMD_TYPE_SERVER    (1<<5)
+#define TEST_CMD_TYPE_KEY       (1<<6)
 
 typedef struct vire_instance {
     sds host;

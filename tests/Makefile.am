@@ -8,6 +8,9 @@ AM_CPPFLAGS += -I $(top_srcdir)/src/
 AM_CPPFLAGS += -I $(top_srcdir)/dep/ae
 AM_CPPFLAGS += -I $(top_srcdir)/dep/jemalloc-4.2.0/include
 AM_CPPFLAGS += -I $(top_srcdir)/dep/hiredis-0.13.3
+AM_CPPFLAGS += -I $(top_srcdir)/dep/hashkit
+AM_CPPFLAGS += -I $(top_srcdir)/dep/dlist
+AM_CPPFLAGS += -I $(top_srcdir)/dep/darray
 
 AM_CFLAGS = 
 AM_CFLAGS += -fno-strict-aliasing
@@ -42,3 +45,20 @@ viretest_SOURCES =                      \
 viretest_LDADD = $(top_builddir)/dep/ae/libae.a
 viretest_LDADD += $(top_builddir)/dep/jemalloc-4.2.0/lib/libjemalloc.a
 viretest_LDADD += $(top_builddir)/dep/hiredis-0.13.3/libhiredis.a
+
+noinst_PROGRAMS += vireabtest
+
+vireabtest_SOURCES =                        \
+    vrt_util.c vrt_util.h                   \
+    vrt_public.c vrt_public.h               \
+    vrt_produce_data.c vrt_produce_data.h   \
+    vrt_dispatch_data.c vrt_dispatch_data.h \
+    vrt_check_data.c vrt_check_data.h       \
+    vrabtest.c vrabtest.h
+    
+vireabtest_LDADD = $(top_builddir)/dep/ae/libae.a
+vireabtest_LDADD += $(top_builddir)/dep/jemalloc-4.2.0/lib/libjemalloc.a
+vireabtest_LDADD += $(top_builddir)/dep/hiredis-0.13.3/libhiredis.a
+vireabtest_LDADD += $(top_builddir)/dep/hashkit/libhashkit.a
+vireabtest_LDADD += $(top_builddir)/dep/dlist/libdlist.a
+vireabtest_LDADD += $(top_builddir)/dep/darray/libdarray.a

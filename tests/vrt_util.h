@@ -47,6 +47,14 @@ void _test_log_out(const char *fmt, ...);
     _test_log_out(__VA_ARGS__);                               \
 } while (0)
 
+void vrt_assert(const char *cond, const char *file, int line, int panic);
+
+#define ASSERT(_x) do {                         \
+    if (!(_x)) {                                \
+        vrt_assert(#_x, __FILE__, __LINE__, 1);  \
+    }                                           \
+} while (0)
+
 int vrt_scnprintf(char *buf, size_t size, const char *fmt, ...);
 
 int64_t vrt_usec_now(void);
@@ -62,6 +70,6 @@ int d2string(char *buf, size_t len, double value);
 int create_dir(char *path);
 int destroy_dir(char *dir);
 
-int get_pid_from_reply(redisContext *redisctx, char *host, int port);
+int get_pid_from_reply(struct redisContext *redisctx, char *host, int port);
 
 #endif

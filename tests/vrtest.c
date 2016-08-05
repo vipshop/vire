@@ -38,14 +38,14 @@ static char short_options[] = "hVe:p:";
 static void
 vr_show_usage(void)
 {
-    test_log_out(
-        "Usage: vire [-?hV] [-e execute-file] [-p pid-file]" CRLF
+    printf(
+        "Usage: viretest [-?hV] [-e execute-file] [-p pid-file]" CRLF
         "" CRLF);
-    test_log_out(
+    printf(
         "Options:" CRLF
         "  -h, --help             : this help" CRLF
         "  -V, --version          : show version and exit" CRLF
-        "  -e, --execute-file     : vire execute file" CRLF
+        "  -e, --execute-file     : vire execute file, default is src/vire" CRLF
         "  -p, --pid-file         : pid file" CRLF
         "" CRLF);
 }
@@ -127,7 +127,7 @@ main(int argc, char **argv)
     }
 
     if (show_version) {
-        test_log_error("This is viretest-%s", VR_VERSION_STRING);
+        test_log_out("This is viretest-%s", VR_VERSION_STRING);
         if (show_help) {
             vr_show_usage();
         }

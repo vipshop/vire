@@ -233,9 +233,11 @@ AC_CONFIG_COMMANDS_PRE([cd ../..])
 # Define Makefiles
 AC_CONFIG_FILES([Makefile
                  dep/Makefile
+                 dep/hashkit/Makefile
                  dep/ae/Makefile
+                 dep/dlist/Makefile
+                 dep/darray/Makefile
                  src/Makefile
-                 src/hashkit/Makefile
                  tests/Makefile])
 
 # Generate the "configure" script
