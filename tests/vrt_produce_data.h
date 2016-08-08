@@ -2,7 +2,35 @@
 #define _VRT_PRODUCE_DATA_H_
 
 /* Producer flags. Please check the producer table defined in the vrt_produce_data.c file
- * for more information about the meaning of every flag. */
+ * for more information about the meaning of every flag.
+ * This is the meaning of the flags:
+ *
+ * w: write command (may modify the key space).
+ * r: read command  (will never modify the key space).
+ * m: may increase memory usage once called. Don't allow if out of memory.
+ * a: admin command, like SAVE or SHUTDOWN.
+ * p: Pub/Sub related command.
+ * f: force replication of this command, regardless of server.dirty.
+ * s: command not allowed in scripts.
+ * R: random command. Command is not deterministic, that is, the same command
+ *    with the same arguments, with the same key space, may have different
+ *    results. For instance SPOP and RANDOMKEY are two random commands.
+ * S: Sort command output array if called from script, so that the output
+ *    is deterministic.
+ * l: Allow command while loading the database.
+ * t: Allow command while a slave has stale data but is not allowed to
+ *    server this data. Normally no command is accepted in this condition
+ *    but just a few.
+ * M: Do not automatically propagate the command on MONITOR.
+ * k: Perform an implicit ASKING for this command, so the command will be
+ *    accepted in cluster mode if the slot is marked as 'importing'.
+ * F: Fast command: O(1) or O(log(N)) command that should never delay
+ *    its execution as long as the kernel scheduler is giving us time.
+ *    Note that commands that may trigger a DEL as a side effect (like SET)
+ *    are not fast commands.
+ * A: Add a new key if the key was not exist before.
+ */
+
 #define PRO_WRITE 1                   /* "w" flag */
 #define PRO_READONLY 2                /* "r" flag */
 #define PRO_DENYOOM 4                 /* "m" flag */
@@ -17,11 +45,13 @@
 #define PRO_SKIP_MONITOR 2048         /* "M" flag */
 #define PRO_ASKING 4096               /* "k" flag */
 #define PRO_FAST 8192                 /* "F" flag */
+#define PRO_ADD 16384                 /* "A" flag */
 
 struct data_producer;
+struct produce_scheme;
 
-typedef struct data_unit *redis_command_proc(struct data_producer *dp);
-typedef int *redis_get_keys_proc(struct data_producer *dp, sds **argv, int argc, int *numkeys);
+typedef struct data_unit *redis_command_proc(struct data_producer *dp, struct produce_scheme *ps);
+typedef int *redis_get_keys_proc(struct data_producer *dp, sds *argv, int argc, int *numkeys);
 typedef struct data_producer {
     char *name;     /* Command name */
     redis_command_proc *proc;
@@ -51,7 +81,8 @@ data_unit *data_unit_get(void);
 void data_unit_put(data_unit *du);
 
 int vrt_produce_data_init(int key_length_range_min, int key_length_range_max, 
-    int produce_cmd_types, unsigned int produce_threads_count);
+    int produce_cmd_types, unsigned int produce_threads_count, long long cached_keys,
+    int hit_ratio);
 void vrt_produce_data_deinit(void);
 
 int vrt_start_produce_data(void);

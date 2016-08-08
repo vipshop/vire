@@ -24,6 +24,8 @@
 #define CONFIG_DEFAULT_KEY_LENGTH_RANGE_END         100
 #define CONFIG_DEFAULT_TEST_TARGET                  ""
 #define CONFIG_DEFAULT_PRODUCE_THREADS_COUNT        1
+#define CONFIG_DEFAULT_CACHED_KEYS_COUNT            10000
+#define CONFIG_DEFAULT_HIT_RATIO                    75
 #define CONFIG_DEFAULT_DISPATCH_THREADS_COUNT       1
 #define CONFIG_DEFAULT_CLIENTS_PER_DISPATCH_THREAD  10
 
@@ -38,6 +40,8 @@ struct config {
     int cmd_type;
     char *test_targets; 
     int produce_data_threads;
+    long long cached_keys_per_produce_thread;
+    int hit_ratio;
     int dispatch_data_threads;
     int clients_per_dispatch_thread;
     char *pid_filename;
@@ -59,13 +63,15 @@ static struct option long_options[] = {
     { "command-types",          required_argument,  NULL,   'T' },
     { "test-targets",           required_argument,  NULL,   't' },
     { "produce-data-threads",   required_argument,  NULL,   'p' },
+    { "cached-keys",            required_argument,  NULL,   'K' },
+    { "hit-ratio",              required_argument,  NULL,   'H' },
     { "dispatch-data-threads",  required_argument,  NULL,   'd' },
     { "clients",                required_argument,  NULL,   'c' },
     { "pid-file",               required_argument,  NULL,   'P' },
     { NULL,                     0,                  NULL,    0  }
 };
 
-static char short_options[] = "hVDC:i:k:T:t:p:d:c:P:";
+static char short_options[] = "hVDP:C:i:k:T:t:p:K:H:d:c:";
 
 static void
 vrt_show_usage(void)
@@ -79,15 +85,17 @@ vrt_show_usage(void)
         "  -V, --version                : show version and exit" CRLF
         "  -D, --daemonize              : run as a daemon" CRLF);
     printf(
+        "  -P, --pid-file               : pid file" CRLF
         "  -C, --checker                : the checker to check data consistency" CRLF
         "  -i, --check-interval         : the interval for checking data consistency" CRLF
         "  -k, --key-length-range       : the key length to generate for test" CRLF
         "  -T, --command-types          : the command types to generate for test" CRLF
         "  -t, --test-targets           : the test targets for test, like vire[127.0.0.1:12301]-redis[127.0.0.1:12311]" CRLF
         "  -p, --produce-data-threads   : the threads count to produce test data" CRLF
+        "  -K, --cached-keys            : the cached keys count for every produce data thread" CRLF
+        "  -H, --hit-ratio              : the hit ratio for readonly commands, between 0 and 100" CRLF
         "  -d, --dispatch-data-threads  : the threads count to dispatch test data to target groups" CRLF
         "  -c, --clients                : the clients count for every dispatch data thread" CRLF
-        "  -P, --pid-file               : pid file" CRLF
         "" CRLF);
 }
 
@@ -104,6 +112,8 @@ vrt_set_default_options(void)
         TEST_CMD_TYPE_SERVER|TEST_CMD_TYPE_KEY;
     config.test_targets = CONFIG_DEFAULT_TEST_TARGET; 
     config.produce_data_threads = CONFIG_DEFAULT_PRODUCE_THREADS_COUNT;
+    config.cached_keys_per_produce_thread = CONFIG_DEFAULT_CACHED_KEYS_COUNT;
+    config.hit_ratio = CONFIG_DEFAULT_HIT_RATIO;
     config.dispatch_data_threads = CONFIG_DEFAULT_DISPATCH_THREADS_COUNT;
     config.clients_per_dispatch_thread = CONFIG_DEFAULT_CLIENTS_PER_DISPATCH_THREAD;
 }
@@ -168,6 +178,26 @@ vrt_get_options(int argc, char **argv)
                 return VRT_ERROR;
             }
             config.produce_data_threads = (int)lvalue;
+            break;
+
+        case 'K':
+            if (string2ll(optarg,strlen(optarg),&llvalue) != 1) {
+                test_log_error("vireabtest: option -K requires a number");
+                return VRT_ERROR;
+            }
+            config.cached_keys_per_produce_thread = llvalue;
+            break;
+
+        case 'H':
+            if (string2l(optarg,strlen(optarg),&lvalue) != 1) {
+                test_log_error("vireabtest: option -H requires a number");
+                return VRT_ERROR;
+            }
+            if (lvalue < 0 || lvalue > 100) {
+                test_log_error("vireabtest: option hit-ratio need between 0 and 100");
+                return VRT_ERROR;
+            }
+            config.hit_ratio = (int)lvalue;
             break;
 
         case 'd':
@@ -523,7 +553,9 @@ main(int argc, char **argv)
     }
     
     ret = vrt_produce_data_init(config.key_length_range_begin,
-        config.key_length_range_end,config.cmd_type, config.produce_data_threads);
+        config.key_length_range_end,config.cmd_type, 
+        config.produce_data_threads, config.cached_keys_per_produce_thread, 
+        config.hit_ratio);
     if (ret != VRT_OK) {
         test_log_error("Init data producer failed");
         return VRT_ERROR;

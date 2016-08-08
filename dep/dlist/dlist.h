@@ -55,6 +55,8 @@ dlistNode *dlistIndex(dlist *list, long index);
 void dlistRewind(dlist *list, dlistIter *li);
 void dlistRewindTail(dlist *list, dlistIter *li);
 void dlistRotate(dlist *list);
+dlist *dlistPush(dlist *list, void *value);
+void *dlistPop(dlist *list);
 
 /* Directions for iterators */
 #define AL_START_HEAD 0

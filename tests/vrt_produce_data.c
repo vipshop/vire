@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <signal.h>
+#include <assert.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
 
@@ -15,10 +16,22 @@
 #include <vrt_public.h>
 #include <vrt_produce_data.h>
 
+typedef struct produce_scheme {
+    long long ckeys_write_idx;
+    long long max_ckeys_count;    /* Max keys count that can be cached in the ckeys array. */
+    sds *ckeys;    /* Cached keys that may exist in the target redis/vire servers. */
+
+    int hit_ratio;   /* Hit ratio for the read commands. [0%,100%] */
+    int hit_ratio_idx;   /* [0,hit_ratio_array_len-1] */
+    int hit_ratio_array_len; /* 100 usually */
+    int *hit_ratio_array;    /* Stored 0 or 1 for every element, 1 means used key in the cached keys array. */
+} produce_scheme;
+
 typedef struct produce_thread {
     int id;
     pthread_t thread_id;
-    
+
+    produce_scheme *ps;
 } produce_thread;
 
 static unsigned int key_length_min;
@@ -33,6 +46,26 @@ static darray needed_cmd_type_producer;  /* type:  data_producer*/
 static unsigned int needed_cmd_type_producer_count;
 
 static darray produce_threads;
+
+static sds get_random_cached_key(produce_scheme *ps)
+{
+    int idx;
+    sds key;
+
+    key = ps->ckeys[0];
+    if (sdslen(key) == 0) {
+        return NULL;
+    }
+
+    key = ps->ckeys[ps->max_ckeys_count-1];
+    if (sdslen(key) == 0) {
+        idx = rand()%ps->ckeys_write_idx;
+    } else {
+        idx = rand()%ps->max_ckeys_count;
+    }
+    
+    return ps->ckeys[idx];
+}
 
 static unsigned int get_random_num(void)
 {
@@ -77,18 +110,35 @@ static sds get_random_string(void)
     return str;
 }
 
-static data_unit *get_cmd_producer(data_producer *dp);
-static data_unit *set_cmd_producer(data_producer *dp);
-static data_unit *del_cmd_producer(data_producer *dp);
+static sds get_random_key_with_hit_ratio(produce_scheme *ps)
+{
+    sds key;
+    if (ps->hit_ratio_array[ps->hit_ratio_idx++] == 0 || 
+        ps->ckeys[ps->ckeys_write_idx] == NULL) {
+        key = get_random_key();
+    } else {
+        key = get_random_cached_key(ps);
+        if (key == NULL) key = get_random_key();
+        else key = sdsdup(key);
+    }
+    if (ps->hit_ratio_idx >= ps->hit_ratio_array_len) {
+        ps->hit_ratio_idx = 0;
+    }
+    return key;
+}
+
+static data_unit *get_cmd_producer(data_producer *dp, produce_scheme *ps);
+static data_unit *set_cmd_producer(data_producer *dp, produce_scheme *ps);
+static data_unit *del_cmd_producer(data_producer *dp, produce_scheme *ps);
 
 static int producers_count;
 data_producer redis_data_producer_table[] = {
     {"get",get_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
-    {"set",set_cmd_producer,-3,"wm",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
+    {"set",set_cmd_producer,-3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
     {"del",del_cmd_producer,-2,"w",0,NULL,1,-1,1,TEST_CMD_TYPE_KEY},
 };
 
-static data_unit *get_cmd_producer(data_producer *dp)
+static data_unit *get_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
 
@@ -97,12 +147,12 @@ static data_unit *get_cmd_producer(data_producer *dp)
     du->argc = 2;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key();
+    du->argv[1] = get_random_key_with_hit_ratio(ps);
     
     return du;
 }
 
-static data_unit *set_cmd_producer(data_producer *dp)
+static data_unit *set_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
 
@@ -117,7 +167,7 @@ static data_unit *set_cmd_producer(data_producer *dp)
     return du;
 }
 
-static data_unit *del_cmd_producer(data_producer *dp)
+static data_unit *del_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
 
@@ -153,7 +203,75 @@ void data_unit_put(data_unit *du)
     free(du);
 }
 
-static int vrt_produce_threads_init(unsigned int produce_threads_count)
+static produce_scheme *produce_scheme_create(long long max_cached_keys, int hit_ratio)
+{
+    produce_scheme *ps;
+    int count, idx;
+    int ratio;
+    
+    ps = malloc(sizeof(*ps));
+    if (ps == NULL) return NULL;
+
+    ps->max_ckeys_count = max_cached_keys;
+    ps->ckeys_write_idx = 0;
+    ps->ckeys = malloc(ps->max_ckeys_count*sizeof(sds));
+    for (idx = 0; idx < ps->max_ckeys_count; idx ++) {
+        ps->ckeys[idx] = sdsempty();
+        sdsMakeRoomFor(ps->ckeys[idx],key_length_max);
+    }
+
+    /* Generate the hit ratio. */
+    ps->hit_ratio_array_len = 100;
+    ps->hit_ratio = hit_ratio;
+    ps->hit_ratio_idx = 0;
+    ps->hit_ratio_array = malloc(ps->hit_ratio_array_len*sizeof(int));
+    ratio = ps->hit_ratio_array_len/ps->hit_ratio;
+    if (ratio > 1) {
+        count = ps->hit_ratio;
+        for (idx = 0; idx < ps->hit_ratio_array_len; idx ++) {
+            ps->hit_ratio_array[idx] = 0;
+        }
+    } else {
+        count = ps->hit_ratio_array_len - ps->hit_ratio;
+        for (idx = 0; idx < ps->hit_ratio_array_len; idx ++) {
+            ps->hit_ratio_array[idx] = 1;
+        }
+    }
+    while (count > 0) {
+        idx = rand()%ps->hit_ratio_array_len;
+        if (ratio > 1) {
+            if (ps->hit_ratio_array[idx] == 0) {
+                count --;
+                ps->hit_ratio_array[idx] = 1;
+            }
+        } else {
+            if (ps->hit_ratio_array[idx] == 1) {
+                count --;
+                ps->hit_ratio_array[idx] = 0;
+            }
+        }
+    }
+
+    return ps;
+}
+
+static void produce_scheme_destroy(produce_scheme *ps)
+{
+    int j;
+    if (ps->ckeys) {
+        for (j = 0; j < ps->max_ckeys_count; j ++) {
+            if (ps->ckeys[j]) sdsfree(ps->ckeys[j]);
+        }
+        free(ps->ckeys);
+    }
+    
+    free(ps->hit_ratio_array);
+
+    free(ps);
+}
+
+static int vrt_produce_threads_init(unsigned int produce_threads_count, 
+    long long cached_keys, int hit_ratio)
 {
     unsigned int idx;
     darray_init(&produce_threads, produce_threads_count, sizeof(produce_thread));
@@ -161,6 +279,7 @@ static int vrt_produce_threads_init(unsigned int produce_threads_count)
         produce_thread *pt = darray_push(&produce_threads);
         pt->id = idx;
         pt->thread_id = 0;
+        pt->ps = produce_scheme_create(cached_keys, hit_ratio);
     }
     
     return VRT_OK;
@@ -168,7 +287,14 @@ static int vrt_produce_threads_init(unsigned int produce_threads_count)
 
 static void vrt_produce_threads_deinit(void)
 {
-    produce_threads.nelem = 0;
+    produce_thread *pt;
+    while (darray_n(&produce_threads) > 0) {
+        pt == darray_pop(&produce_threads);
+        if (pt->ps) {
+            produce_scheme_destroy(pt->ps);
+            pt->ps = NULL;
+        }
+    }
     darray_deinit(&produce_threads);
 }
 
@@ -185,7 +311,7 @@ static void *vrt_produce_thread_run(void *args)
     while (1) {
         idx = rand()%needed_cmd_type_producer_count;
         dp = darray_get(&needed_cmd_type_producer,idx);
-        du = (*dp)->proc(*dp);
+        du = (*dp)->proc(*dp,pt->ps);
         
         ret = data_dispatch(du);
         if (ret == -1) {
@@ -193,13 +319,34 @@ static void *vrt_produce_thread_run(void *args)
         } else if (ret == 1) {
             usleep(10000);
         }
+
+        /* Cache this key if needed. */
+        if ((*dp)->flags&PRO_ADD) {
+            produce_scheme *ps = pt->ps;
+            int numkeys;
+            int *keyindex;
+            sds key;
+
+            keyindex = get_keys_from_data_producer((*dp),du->argv,du->argc,&numkeys);
+            if (numkeys <= 0) {
+                assert(0);
+                return NULL;
+            }
+
+            key = du->argv[keyindex[0]];
+            sdscpylen(ps->ckeys[ps->ckeys_write_idx],key,sdslen(key));
+            ps->ckeys_write_idx ++;
+            if (ps->ckeys_write_idx >= ps->max_ckeys_count)
+                ps->ckeys_write_idx = 0;
+        }
     }
     
     return NULL;
 }
 
 int vrt_produce_data_init(int key_length_range_min, int key_length_range_max, 
-    int produce_cmd_types, unsigned int produce_threads_count)
+    int produce_cmd_types, unsigned int produce_threads_count, long long cached_keys,
+    int hit_ratio)
 {
     int j;
     
@@ -232,6 +379,7 @@ int vrt_produce_data_init(int key_length_range_min, int key_length_range_max,
             case 'M': dp->flags |= PRO_SKIP_MONITOR; break;
             case 'k': dp->flags |= PRO_ASKING; break;
             case 'F': dp->flags |= PRO_FAST; break;
+            case 'A': dp->flags |= PRO_ADD; break;
             default: return VRT_ERROR;
             }
             f++;
@@ -249,7 +397,7 @@ int vrt_produce_data_init(int key_length_range_min, int key_length_range_max,
         return VRT_ERROR;
     }
 
-    vrt_produce_threads_init(produce_threads_count);
+    vrt_produce_threads_init(produce_threads_count, cached_keys, hit_ratio);
     
     return VRT_OK;
 }
@@ -295,7 +443,7 @@ int vrt_wait_produce_data(void)
 
 /* The base case is to use the keys position as given in the data producer table
  * (firstkey, lastkey, step). */
-static int *get_keys_using_data_producer_table(data_producer *dp,sds **argv, int argc, int *numkeys) {
+static int *get_keys_using_data_producer_table(data_producer *dp,sds *argv, int argc, int *numkeys) {
     int j, i = 0, last, *keys;
 
     if (dp->firstkey == 0) {

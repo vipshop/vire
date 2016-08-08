@@ -302,3 +302,25 @@ void dlistRotate(dlist *list) {
     tail->next = list->head;
     list->head = tail;
 }
+
+dlist *dlistPush(dlist *list, void *value) {
+    dlistAddNodeTail(list, value);
+    return list;
+}
+
+void *dlistPop(dlist *list) {
+    dlistNode *node;
+    void *value;
+    
+    node = dlistFirst(list);
+    if (node == NULL) {
+        return NULL;
+    }
+
+    value = dlistNodeValue(node);
+    dlistDelNode(list, node);
+
+    if (list->free) return NULL;
+    
+    return value;
+}
