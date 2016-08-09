@@ -81,6 +81,7 @@ data_unit *data_unit_get(void);
 void data_unit_put(data_unit *du);
 
 int vrt_produce_data_init(int key_length_range_min, int key_length_range_max, 
+    int string_max_length,
     int produce_cmd_types, unsigned int produce_threads_count, long long cached_keys,
     int hit_ratio);
 void vrt_produce_data_deinit(void);

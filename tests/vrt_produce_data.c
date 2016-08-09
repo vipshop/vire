@@ -432,6 +432,7 @@ static void *vrt_produce_thread_run(void *args)
 }
 
 int vrt_produce_data_init(int key_length_range_min, int key_length_range_max, 
+    int string_max_length,
     int produce_cmd_types, unsigned int produce_threads_count, long long cached_keys,
     int hit_ratio)
 {
@@ -442,7 +443,7 @@ int vrt_produce_data_init(int key_length_range_min, int key_length_range_max,
     if (key_length_max < key_length_min) return VRT_ERROR;
     key_length_range_gap = key_length_max-key_length_min;
     field_length_max = 128;
-    string_length_max = 128;
+    string_length_max = string_max_length;
     cmd_type = produce_cmd_types;
     darray_init(&needed_cmd_type_producer, 100, sizeof(data_producer*));
 

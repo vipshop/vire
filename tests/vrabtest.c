@@ -23,6 +23,7 @@
 #define CONFIG_DEFAULT_CHECK_INTERVAL               3600
 #define CONFIG_DEFAULT_KEY_LENGTH_RANGE_BEGIN       0
 #define CONFIG_DEFAULT_KEY_LENGTH_RANGE_END         100
+#define CONFIG_DEFAULT_STRING_MAX_LENGTH            512
 #define CONFIG_DEFAULT_TEST_TARGET                  ""
 #define CONFIG_DEFAULT_PRODUCE_THREADS_COUNT        1
 #define CONFIG_DEFAULT_CACHED_KEYS_COUNT            10000
@@ -38,6 +39,7 @@ struct config {
     long long check_interval;
     int key_length_range_begin;
     int key_length_range_end;
+    int string_max_length;
     int cmd_type;
     char *test_targets; 
     int produce_data_threads;
@@ -68,6 +70,7 @@ static struct option long_options[] = {
     { "checker",                required_argument,  NULL,   'C' },
     { "check-interval",         required_argument,  NULL,   'i' },
     { "key-length-range",       required_argument,  NULL,   'k' },
+    { "string-max-length",      required_argument,  NULL,   's' },
     { "command-types",          required_argument,  NULL,   'T' },
     { "test-targets",           required_argument,  NULL,   't' },
     { "produce-data-threads",   required_argument,  NULL,   'p' },
@@ -78,7 +81,7 @@ static struct option long_options[] = {
     { NULL,                     0,                  NULL,    0  }
 };
 
-static char short_options[] = "hVDP:C:i:k:T:t:p:K:H:d:c:";
+static char short_options[] = "hVDEP:C:i:k:s:T:t:p:K:H:d:c:";
 
 static void
 vrt_show_usage(void)
@@ -96,7 +99,8 @@ vrt_show_usage(void)
         "  -P, --pid-file               : pid file" CRLF
         "  -C, --checker                : the checker to check data consistency" CRLF
         "  -i, --check-interval         : the interval for checking data consistency" CRLF
-        "  -k, --key-length-range       : the key length to generate for test, like 0-100" CRLF
+        "  -k, --key-length-range       : the key length range to generate for test, like 0-100" CRLF
+        "  -s, --string-max-length      : the max string length to generate for test, string is for STRING/LIST... value element" CRLF
         "  -T, --command-types          : the command types to generate for test" CRLF
         "  -t, --test-targets           : the test targets for test, like vire[127.0.0.1:12301]-redis[127.0.0.1:12311]" CRLF
         "  -p, --produce-data-threads   : the threads count to produce test data" CRLF
@@ -115,6 +119,7 @@ vrt_set_default_options(void)
     config.check_interval = CONFIG_DEFAULT_CHECK_INTERVAL;
     config.key_length_range_begin = CONFIG_DEFAULT_KEY_LENGTH_RANGE_BEGIN;
     config.key_length_range_end = CONFIG_DEFAULT_KEY_LENGTH_RANGE_END;
+    config.string_max_length = CONFIG_DEFAULT_STRING_MAX_LENGTH;
     config.cmd_type = TEST_CMD_TYPE_STRING|TEST_CMD_TYPE_LIST|
         TEST_CMD_TYPE_SET|TEST_CMD_TYPE_ZSET|TEST_CMD_TYPE_HASH|
         TEST_CMD_TYPE_SERVER|TEST_CMD_TYPE_KEY;
@@ -189,6 +194,14 @@ vrt_get_options(int argc, char **argv)
             free(range);
             
             break;
+
+        case 's':
+            if (string2l(optarg,strlen(optarg),&lvalue) != 1) {
+                test_log_error("vireabtest: option -s requires a number");
+                return VRT_ERROR;
+            }
+            config.string_max_length = (int)lvalue;
+            break;
             
         case 'T':
             //config.cmd_type = optarg;
@@ -261,7 +274,8 @@ vrt_get_options(int argc, char **argv)
             case 'p':
             case 'd':
             case 'c':
-                test_log_error("vire: option -%c requires string",
+            case 's':
+                test_log_error("vire: option -%c requires number",
                            optopt);
                 break;
                 
@@ -579,8 +593,10 @@ main(int argc, char **argv)
     }
     
     ret = vrt_produce_data_init(config.key_length_range_begin,
-        config.key_length_range_end,config.cmd_type, 
-        config.produce_data_threads, config.cached_keys_per_produce_thread, 
+        config.key_length_range_end,
+        config.string_max_length,
+        config.cmd_type,config.produce_data_threads,
+        config.cached_keys_per_produce_thread, 
         config.hit_ratio);
     if (ret != VRT_OK) {
         test_log_error("Init data producer failed");
