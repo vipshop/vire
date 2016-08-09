@@ -21,6 +21,8 @@ typedef struct abtest_group {
     
 } abtest_group;
 
+extern int expire_enabled;
+
 darray *abtest_groups_create(char *groups_string);
 void abtest_groups_destroy(darray *abgs);
 

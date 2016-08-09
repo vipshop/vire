@@ -14,6 +14,7 @@
 
 #include <vrt_util.h>
 #include <vrt_public.h>
+#include <vrabtest.h>
 #include <vrt_produce_data.h>
 
 typedef struct produce_scheme {
@@ -82,7 +83,8 @@ static sds get_random_key(void)
     unsigned int i, len;
     sds str = sdsempty();
     
-    len = get_random_num()%key_length_range_gap+key_length_min;
+    len = key_length_range_gap==0?key_length_min:
+        (get_random_num()%key_length_range_gap+key_length_min);
     if (len == 0) len ++;
     str = sdsMakeRoomFor(str,(size_t)len);
     sdsIncrLen(str, (int)len);
@@ -141,10 +143,10 @@ data_producer redis_data_producer_table[] = {
     /* Key */
     {"del",del_cmd_producer,-2,"w",0,NULL,1,-1,1,TEST_CMD_TYPE_KEY},
     {"exists",exists_cmd_producer,-2,"rF",0,NULL,1,-1,1,TEST_CMD_TYPE_KEY},
-    {"ttl",ttl_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_KEY},
-    {"pttl",pttl_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_KEY},
-    {"expire",expire_cmd_producer,3,"wF",0,NULL,1,1,1,TEST_CMD_TYPE_KEY},
-    {"expireat",expireat_cmd_producer,3,"wF",0,NULL,1,1,1,TEST_CMD_TYPE_KEY},
+    {"ttl",ttl_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE},
+    {"pttl",pttl_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE},
+    {"expire",expire_cmd_producer,3,"wF",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE},
+    {"expireat",expireat_cmd_producer,3,"wF",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE},
     /* String */
     {"get",get_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
     {"set",set_cmd_producer,-3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING}
@@ -396,13 +398,6 @@ static void *vrt_produce_thread_run(void *args)
         idx = rand()%needed_cmd_type_producer_count;
         dp = darray_get(&needed_cmd_type_producer,idx);
         du = (*dp)->proc(*dp,pt->ps);
-        
-        ret = data_dispatch(du);
-        if (ret == -1) {
-            data_unit_put(du);
-        } else if (ret == 1) {
-            usleep(10000);
-        }
 
         /* Cache this key if needed. */
         if ((*dp)->flags&PRO_ADD) {
@@ -424,6 +419,13 @@ static void *vrt_produce_thread_run(void *args)
             if (ps->ckeys_write_idx >= ps->max_ckeys_count)
                 ps->ckeys_write_idx = 0;
         }
+        
+        ret = data_dispatch(du);
+        if (ret == -1) {
+            data_unit_put(du);
+        } else if (ret == 1) {
+            usleep(10000);
+        }
     }
     
     return NULL;
@@ -437,7 +439,7 @@ int vrt_produce_data_init(int key_length_range_min, int key_length_range_max,
     
     key_length_min = key_length_range_min;
     key_length_max = key_length_range_max;
-    if (key_length_max <= key_length_min) return VRT_ERROR;
+    if (key_length_max < key_length_min) return VRT_ERROR;
     key_length_range_gap = key_length_max-key_length_min;
     field_length_max = 128;
     string_length_max = 128;
@@ -471,6 +473,12 @@ int vrt_produce_data_init(int key_length_range_min, int key_length_range_max,
         }
 
         if (dp->cmd_type&cmd_type) {
+            data_producer **dp_elem = darray_push(
+                &needed_cmd_type_producer);
+            *dp_elem = dp;
+            needed_cmd_type_producer_count ++;
+        }
+        if (dp->cmd_type&TEST_CMD_TYPE_EXPIRE && expire_enabled) {
             data_producer **dp_elem = darray_push(
                 &needed_cmd_type_producer);
             *dp_elem = dp;

@@ -21,6 +21,7 @@
 #define TEST_CMD_TYPE_HASH      (1<<4)
 #define TEST_CMD_TYPE_SERVER    (1<<5)
 #define TEST_CMD_TYPE_KEY       (1<<6)
+#define TEST_CMD_TYPE_EXPIRE    (1<<7)
 
 typedef struct vire_instance {
     sds host;

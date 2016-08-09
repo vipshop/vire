@@ -520,3 +520,56 @@ int get_pid_from_reply(redisContext *redisctx, char *host, int port)
 
     return pid;
 }
+
+/* Range is like 0-100 or just 10. 
+  * So the count must be 1 or 2. */
+long long *get_range_from_string(char *str, size_t len, int *count)
+{
+    int elem_count;
+    sds *elems;
+    long long value;
+    long long *range;
+    
+    elems = sdssplitlen(optarg,strlen(optarg),"-",1,&elem_count);
+    if (elems == NULL) {
+        goto error;
+    } else if (elem_count <= 0 || elem_count >= 3) {
+        sdsfreesplitres(elems,elem_count);
+        goto error;
+    }
+
+    if (elem_count == 1) {
+        if (string2ll(elems[0],sdslen(elems[0]),&value) != 1) {
+            sdsfreesplitres(elems,elem_count);
+            goto error;
+        }
+
+        range = malloc(1*sizeof(*range));
+        range[0] = value;
+        *count = 1;
+    } else if (elem_count == 2) {
+        if (string2ll(elems[0],sdslen(elems[0]),&value) != 1) {
+            sdsfreesplitres(elems,elem_count);
+            goto error;
+        }
+        
+        range = malloc(2*sizeof(*range));
+        range[0] = value;
+
+        if (string2ll(elems[1],sdslen(elems[1]),&value) != 1) {
+            sdsfreesplitres(elems,elem_count);
+            free(range);
+            goto error;
+        }
+
+        range[1] = value;
+        *count = 2;
+    }
+
+    return range;
+
+error:
+
+    *count = -1;
+    return NULL;
+}

@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <signal.h>
+#include <assert.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
 
@@ -53,10 +54,17 @@ static int show_help;
 static int show_version;
 static int daemonize;
 
+/* 0 or 1
+  * 1: used the expire,expireat,pexpire and pexpireat commands
+  * 0 is the opposite. */
+int expire_enabled;
+
 static struct option long_options[] = {
     { "help",                   no_argument,        NULL,   'h' },
     { "version",                no_argument,        NULL,   'V' },
     { "daemonize",              no_argument,        NULL,   'D' },
+    { "enable-expire",          no_argument,        NULL,   'E' },
+    { "pid-file",               required_argument,  NULL,   'P' },
     { "checker",                required_argument,  NULL,   'C' },
     { "check-interval",         required_argument,  NULL,   'i' },
     { "key-length-range",       required_argument,  NULL,   'k' },
@@ -67,7 +75,6 @@ static struct option long_options[] = {
     { "hit-ratio",              required_argument,  NULL,   'H' },
     { "dispatch-data-threads",  required_argument,  NULL,   'd' },
     { "clients",                required_argument,  NULL,   'c' },
-    { "pid-file",               required_argument,  NULL,   'P' },
     { NULL,                     0,                  NULL,    0  }
 };
 
@@ -77,18 +84,19 @@ static void
 vrt_show_usage(void)
 {
     printf(
-        "Usage: vireabtest [-?hVD]" CRLF
+        "Usage: vireabtest [-?hVDE]" CRLF
         "" CRLF);
     printf(
         "Options:" CRLF
         "  -h, --help                   : this help" CRLF
         "  -V, --version                : show version and exit" CRLF
-        "  -D, --daemonize              : run as a daemon" CRLF);
+        "  -D, --daemonize              : run as a daemon" CRLF
+        "  -E, --enable-expire          : enable the expire" CRLF);
     printf(
         "  -P, --pid-file               : pid file" CRLF
         "  -C, --checker                : the checker to check data consistency" CRLF
         "  -i, --check-interval         : the interval for checking data consistency" CRLF
-        "  -k, --key-length-range       : the key length to generate for test" CRLF
+        "  -k, --key-length-range       : the key length to generate for test, like 0-100" CRLF
         "  -T, --command-types          : the command types to generate for test" CRLF
         "  -t, --test-targets           : the test targets for test, like vire[127.0.0.1:12301]-redis[127.0.0.1:12311]" CRLF
         "  -p, --produce-data-threads   : the threads count to produce test data" CRLF
@@ -116,6 +124,7 @@ vrt_set_default_options(void)
     config.hit_ratio = CONFIG_DEFAULT_HIT_RATIO;
     config.dispatch_data_threads = CONFIG_DEFAULT_DISPATCH_THREADS_COUNT;
     config.clients_per_dispatch_thread = CONFIG_DEFAULT_CLIENTS_PER_DISPATCH_THREAD;
+    expire_enabled = 0;
 }
 
 static int
@@ -124,6 +133,8 @@ vrt_get_options(int argc, char **argv)
     int c;
     long lvalue;
     long long llvalue;
+    long long *range;
+    int range_count;
 
     opterr = 0;
 
@@ -148,6 +159,10 @@ vrt_get_options(int argc, char **argv)
             daemonize = 1;
             break;
 
+        case 'E':
+            expire_enabled = 1;
+            break;
+            
         case 'C':
             config.checker = optarg;
             break;
@@ -161,9 +176,20 @@ vrt_get_options(int argc, char **argv)
             break;
             
         case 'k':
-            config.pid_filename = optarg;
-            break;
+            range = get_range_from_string(optarg,strlen(optarg),&range_count);
+            if (range == NULL) {
+                test_log_error("vireabtest: option -k is invalid, you need input a range like 0-100");
+                return VRT_ERROR;
+            }
+            config.key_length_range_begin = (int)range[0];
+            if (range_count == 1) config.key_length_range_end = (int)range[0];
+            else if (range_count == 2) config.key_length_range_end = (int)range[1];
+            else assert(0);
 
+            free(range);
+            
+            break;
+            
         case 'T':
             //config.cmd_type = optarg;
             break;
@@ -486,14 +512,14 @@ darray *abtest_groups_create(char *groups_string)
     group_strings = sdssplitlen(groups_string,strlen(groups_string),"-",1,&group_count);
     if (group_strings == NULL) {
         return NULL;
-    } else if (group_count <= 1) {
-        sdsfreesplitres(groups_string,group_count);
+    } else if (group_count < 1) {
+        sdsfreesplitres(group_strings,group_count);
         return NULL;
     }
 
     abgs = darray_create(2, sizeof(abtest_group));
     if (abgs == NULL) {
-        sdsfreesplitres(groups_string,group_count);
+        sdsfreesplitres(group_strings,group_count);
         return NULL;
     }
     
@@ -505,7 +531,7 @@ darray *abtest_groups_create(char *groups_string)
 
         abg = darray_push(abgs);
         if (abtest_group_init(abg,group_string) != VRT_OK) {
-            sdsfreesplitres(groups_string,group_count);
+            sdsfreesplitres(group_strings,group_count);
             abtest_groups_destroy(abgs);
             return NULL;
         }

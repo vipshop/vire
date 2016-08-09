@@ -72,4 +72,6 @@ int destroy_dir(char *dir);
 
 int get_pid_from_reply(struct redisContext *redisctx, char *host, int port);
 
+long long *get_range_from_string(char *str, size_t len, int *count);
+
 #endif
