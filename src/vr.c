@@ -466,6 +466,11 @@ vr_pre_run(struct instance *nci)
 static void
 vr_post_run(struct instance *nci)
 {
+    /* deinit the threads */
+    workers_deinit();
+    backends_deinit();
+    master_deinit();
+    
     if (nci->pidfile) {
         vr_remove_pidfile(nci);
     }
@@ -491,12 +496,11 @@ vr_run(struct instance *nci)
     /* run the threads */
     master_run();
     workers_run();
+    backends_run();
 
-    /* wait for the worker finish */
+    /* wait for the threads finish */
     workers_wait();
-
-    /* deinit the workers */
-    workers_deinit();
+    backends_wait();
 }
 
 int

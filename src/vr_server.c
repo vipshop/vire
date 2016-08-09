@@ -398,6 +398,12 @@ init_server(struct instance *nci)
         return VR_ERROR;
     }
 
+    ret = backends_init(1);
+    if (ret != VR_OK) {
+        log_error("Init backend threads failed");
+        return VR_ERROR;
+    }
+
     log_debug(LOG_NOTICE, "memory alloc lock type: %s", malloc_lock_type());
     log_debug(LOG_NOTICE, "malloc lib: %s", VR_MALLOC_LIB);
 
@@ -898,7 +904,6 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
     /* Stats */
     if (allsections || defsections || !strcasecmp(section,"stats")) {
         uint32_t idx;
-        vr_worker *worker;
         vr_stats *stats;
         long long stat_numconnections=0, stat_numcommands=0;
         long long stat_net_input_bytes=0, stat_net_output_bytes=0;
@@ -911,7 +916,7 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
 
         for (idx = 0; idx < array_n(&workers); idx ++) {
             long long stats_value;
-            worker = array_get(&workers, idx);
+            vr_worker *worker = array_get(&workers, idx);
             stats = worker->vel.stats;
 
             update_stats_get(stats, numcommands, &stats_value);
@@ -934,6 +939,14 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
             stat_numcommands_ops += getInstantaneousMetric(stats, STATS_METRIC_COMMAND);
             stat_net_input_bytes_ops += (float)getInstantaneousMetric(stats, STATS_METRIC_NET_INPUT)/1024;
             stat_net_output_bytes_ops += (float)getInstantaneousMetric(stats, STATS_METRIC_NET_OUTPUT)/1024;
+        }
+        for (idx = 0; idx < array_n(&backends); idx ++) {
+            long long stats_value;
+            vr_backend *backend = array_get(&backends, idx);
+            stats = backend->vel.stats;
+
+            update_stats_get(stats, expiredkeys, &stats_value);
+            stat_expiredkeys += stats_value;
         }
         update_stats_get(master.vel.stats, rejected_conn, &stat_rejected_conn);
         

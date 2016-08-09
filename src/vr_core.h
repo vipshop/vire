@@ -115,6 +115,7 @@ struct vr_worker;
 #include <vr_eventloop.h>
 #include <vr_master.h>
 #include <vr_worker.h>
+#include <vr_backend.h>
 
 #include <vr_db.h>
 #include <vr_multi.h>

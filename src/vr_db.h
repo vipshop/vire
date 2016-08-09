@@ -104,8 +104,8 @@ int fetchInternalDbById(struct client *c, int idx);
 
 void tryResizeHashTablesForDb(int dbid);
 int incrementallyRehashForDb(int dbid);
-void activeExpireCycle(vr_worker *worker, int type);
+void activeExpireCycle(vr_backend *backend, int type);
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now);
-void databasesCron(vr_worker *worker);
+void databasesCron(vr_backend *backend);
 
 #endif

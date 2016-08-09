@@ -1433,7 +1433,7 @@ int incrementallyRehashForDb(int dbid) {
  * executed, where the time limit is a percentage of the REDIS_HZ period
  * as specified by the REDIS_EXPIRELOOKUPS_TIME_PERC define. */
 
-void activeExpireCycle(vr_worker *worker, int type) {
+void activeExpireCycle(vr_backend *backend, int type) {
     int j, iteration = 0;
     int dbs_per_call = CRON_DBS_PER_CALL;
     long long start = vr_usec_now(), timelimit;
@@ -1443,9 +1443,9 @@ void activeExpireCycle(vr_worker *worker, int type) {
         /* Don't start a fast cycle if the previous cycle did not exited
          * for time limt. Also don't repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
-        if (!worker->timelimit_exit) return;
-        if (start < worker->last_fast_cycle + ACTIVE_EXPIRE_CYCLE_FAST_DURATION*2) return;
-        worker->last_fast_cycle = start;
+        if (!backend->timelimit_exit) return;
+        if (start < backend->last_fast_cycle + ACTIVE_EXPIRE_CYCLE_FAST_DURATION*2) return;
+        backend->last_fast_cycle = start;
     }
 
     /* We usually should test CRON_DBS_PER_CALL per iteration, with
@@ -1455,7 +1455,7 @@ void activeExpireCycle(vr_worker *worker, int type) {
      * 2) If last time we hit the time limit, we want to scan all DBs
      * in this iteration, as there is work to do in some DB and we don't want
      * expired keys to use memory for too much time. */
-    if (dbs_per_call > server.dbnum || worker->timelimit_exit)
+    if (dbs_per_call > server.dbnum || backend->timelimit_exit)
         dbs_per_call = server.dbnum;
 
     /* We can use at max ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC percentage of CPU time
@@ -1463,7 +1463,7 @@ void activeExpireCycle(vr_worker *worker, int type) {
      * server.hz times per second, the following is the max amount of
      * microseconds we can spend in this function. */
     timelimit = 1000000*ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC/server.hz/100;
-    worker->timelimit_exit = 0;
+    backend->timelimit_exit = 0;
     if (timelimit <= 0) timelimit = 1;
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST)
@@ -1471,12 +1471,12 @@ void activeExpireCycle(vr_worker *worker, int type) {
 
     for (j = 0; j < dbs_per_call; j++) {
         int expired;
-        redisDb *db = array_get(&server.dbs, worker->current_db%server.dbnum);
+        redisDb *db = array_get(&server.dbs, backend->current_db%server.dbnum);
 
         /* Increment the DB now so we are sure if we run out of time
          * in the current DB we'll restart from the next. This allows to
          * distribute the time evenly across DBs. */
-        worker->current_db++;
+        backend->current_db++;
         
         lockDbWrite(db);
         /* Continue to expire if at the end of the cycle more than 25%
@@ -1543,13 +1543,13 @@ void activeExpireCycle(vr_worker *worker, int type) {
                 long long elapsed = vr_usec_now()-start;
 
                 //latencyAddSampleIfNeeded("expire-cycle",elapsed/1000);
-                if (elapsed > timelimit) worker->timelimit_exit = 1;
+                if (elapsed > timelimit) backend->timelimit_exit = 1;
             }
-            if (worker->timelimit_exit) {
+            if (backend->timelimit_exit) {
                 unlockDb(db);
 
                 if (expired_total > 0) {
-                    update_stats_add(worker->vel.stats, expiredkeys, expired_total);
+                    update_stats_add(backend->vel.stats, expiredkeys, expired_total);
                 }
                 return;
             }
@@ -1560,7 +1560,7 @@ void activeExpireCycle(vr_worker *worker, int type) {
     }
 
     if (expired_total > 0) {
-        update_stats_add(worker->vel.stats, expiredkeys, expired_total);
+        update_stats_add(backend->vel.stats, expiredkeys, expired_total);
     }
 }
 
@@ -1580,11 +1580,11 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
 /* This function handles 'background' operations we are required to do
  * incrementally in Redis databases, such as active key expiring, resizing,
  * rehashing. */
-void databasesCron(vr_worker *worker) {
+void databasesCron(vr_backend *backend) {
     /* Expire keys by random sampling. Not required for slaves
      * as master will synthesize DELs for us. */
     if (repl.masterhost == NULL)
-        activeExpireCycle(worker, ACTIVE_EXPIRE_CYCLE_SLOW);
+        activeExpireCycle(backend, ACTIVE_EXPIRE_CYCLE_SLOW);
 
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
@@ -1598,15 +1598,15 @@ void databasesCron(vr_worker *worker) {
 
         /* Resize */
         for (j = 0; j < dbs_per_call; j++) {
-            tryResizeHashTablesForDb(worker->resize_db%server.dbnum);
-            worker->resize_db++;
+            tryResizeHashTablesForDb(backend->resize_db%server.dbnum);
+            backend->resize_db++;
         }
 
         /* Rehash */
         if (server.activerehashing) {
             for (j = 0; j < dbs_per_call; j++) {
-                int work_done = incrementallyRehashForDb(worker->rehash_db%server.dbnum);
-                worker->rehash_db++;
+                int work_done = incrementallyRehashForDb(backend->rehash_db%server.dbnum);
+                backend->rehash_db++;
                 if (work_done) {
                     /* If the function did some work, stop here, we'll do
                      * more at the next cron loop. */

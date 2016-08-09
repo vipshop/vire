@@ -75,6 +75,7 @@ vire_SOURCES =                          \
     vr_t_zset.c vr_t_zset.h             \
     vr_util.c vr_util.h                 \
     vr_worker.c vr_worker.h             \
+    vr_backend.c vr_backend.h           \
     vr_ziplist.c vr_ziplist.h           \
     vr_zipmap.c vr_zipmap.h             \
     vr_bitops.c vr_bitops.h             \
