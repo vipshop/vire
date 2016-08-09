@@ -564,7 +564,15 @@ long long *get_range_from_string(char *str, size_t len, int *count)
 
         range[1] = value;
         *count = 2;
+
+        if (range[0] > range[1]) {
+            sdsfreesplitres(elems,elem_count);
+            free(range);
+            goto error;
+        }
     }
+
+    sdsfreesplitres(elems,elem_count);
 
     return range;
 
