@@ -447,7 +447,7 @@ int data_dispatch(data_unit *du)
     if (length <= 0) {
         test_log_error("Data unit push to dispatch thread %d failed", ddt->id);
         return -1;
-    } else if (length > 20000) {
+    } else if (length > 2000) {
         return 1;
     }
 
