@@ -1036,7 +1036,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
     if (now <= when) return 0;
 
     /* Delete the key */
-    propagateExpire(db,key);
+    //propagateExpire(db,key);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,
         "expired",key,db->id);
     return dbDelete(db,key);
