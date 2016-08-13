@@ -77,6 +77,8 @@ typedef struct data_unit {
     unsigned int hashvalue;
 } data_unit;
 
+extern data_producer *delete_data_producer;
+
 data_unit *data_unit_get(void);
 void data_unit_put(data_unit *du);
 

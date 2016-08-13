@@ -306,3 +306,41 @@ void show_test_result(int result,char *test_content,char *errmsg)
             (errmsg==NULL||strlen(errmsg)==0)?"unknown":errmsg);
     }
 }
+
+long long get_longlong_from_info_reply(redisReply *reply, char *name)
+{
+    sds *lines;
+    size_t line_len, len;
+    int count, j;
+    long long value = -1;
+
+    len = strlen(name);
+    
+    if (reply->type != REDIS_REPLY_STRING) {
+        test_log_error("Reply for 'info' command from vire type %d is error",
+            reply->type);
+        return -1;
+    }
+
+    lines = sdssplitlen(reply->str,reply->len,"\r\n",2,&count);
+    if (lines == NULL) {
+        test_log_error("Reply for 'info server' command from vire is error");
+        return -1;
+    }
+
+    for (j = 0; j < count; j ++) {
+        line_len = sdslen(lines[j]);
+        if (line_len > len+1 && !strncmp(name, lines[j], len)) {
+            if (string2ll(lines[j]+len+1,line_len-len-1,&value) == 0) {
+                test_log_error("Convert pid string %.*s to long failed",
+                    line_len-len-1,lines[j]+len+1);
+                sdsfreesplitres(lines,count);
+                return -1;
+            }
+            break;
+        }
+    }
+
+    sdsfreesplitres(lines,count);
+    return value;
+}

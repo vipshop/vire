@@ -9,11 +9,6 @@ struct dmtlist;
 struct data_unit;
 struct aeEventLoop;
 
-typedef struct dispatch_conn_context {
-    struct redisContext *ctx;
-    struct redisAsyncContext *actx;    
-} dispatch_conn_context;
-
 typedef struct dispatch_data_thread {
     int id;
     pthread_t thread_id;

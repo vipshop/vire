@@ -154,7 +154,7 @@ static void reply_callback(redisAsyncContext *c, void *r, void *privdata) {
     }
 }
 
-static int thread_send_data(dispatch_data_thread *ddt)
+static int dispatch_thread_send_data(dispatch_data_thread *ddt)
 {
     int count_per_time = 10000;
     data_unit *du;
@@ -181,9 +181,9 @@ static int thread_send_data(dispatch_data_thread *ddt)
             cbd->idx = j;
             abtest_group *abg = darray_get(ddt->abgs, j);
             abtest_server *abs = darray_get(&abg->abtest_servers, 0);
-            dispatch_conn_context *dcc = darray_get(abs->conn_contexts, 
+            conn_context *cc = darray_get(abs->conn_contexts, 
                 du->hashvalue%darray_n(abs->conn_contexts));
-            actx = dcc->actx;
+            actx = cc->actx;
             redisAsyncCommandArgv(actx, reply_callback, cbd, du->argc, du->argv, argvlen);
         }
         free(argvlen);
@@ -200,7 +200,7 @@ static int dispatch_data_thread_cron(aeEventLoop *eventLoop, long long id, void 
     ASSERT(eventLoop == ddt->el);
     
     if (!dmtlist_empty(ddt->datas)) {
-        thread_send_data(ddt);
+        dispatch_thread_send_data(ddt);
     }
     
     ddt->cronloops ++;
@@ -230,29 +230,29 @@ static void disconnect_callback(const redisAsyncContext *c, int status) {
     //aeStop(loop);
 }
 
-static int dispatch_conn_context_init(dispatch_conn_context *dcc, char *host, int port)
+static int dispatch_conn_context_init(conn_context *cc, char *host, int port)
 {
-    dcc->ctx = NULL;
-    dcc->actx = NULL;
+    cc->ctx = NULL;
+    cc->actx = NULL;
 
-    dcc->actx = redisAsyncConnect(host, port);
-    if (dcc->actx == NULL) {
+    cc->actx = redisAsyncConnect(host, port);
+    if (cc->actx == NULL) {
         return VRT_ERROR;
     }
     
     return VRT_OK;
 }
 
-static void dispatch_conn_context_deinit(dispatch_conn_context *dcc)
+static void dispatch_conn_context_deinit(conn_context *cc)
 {
-    if (dcc->ctx) {
-        redisFree(dcc->ctx);
-        dcc->ctx == NULL;
+    if (cc->ctx) {
+        redisFree(cc->ctx);
+        cc->ctx == NULL;
     }
 
-    if (dcc->actx) {
-        redisAsyncFree(dcc->actx);
-        dcc->actx == NULL;
+    if (cc->actx) {
+        redisAsyncFree(cc->actx);
+        cc->actx == NULL;
     }
 }
 
@@ -298,16 +298,16 @@ static int dispatch_data_thread_init(dispatch_data_thread *ddt, char *test_targe
         abtest_group *abg = darray_get(ddt->abgs, i);
         for (j = 0; j < darray_n(&abg->abtest_servers); j ++) {
             abtest_server *abs = darray_get(&abg->abtest_servers, j);
-            abs->conn_contexts = darray_create(connections, sizeof(dispatch_conn_context));
+            abs->conn_contexts = darray_create(connections, sizeof(conn_context));
             for (k = 0; k < connections; k ++) {
-                dispatch_conn_context *dcc = darray_push(abs->conn_contexts);
-                if (dispatch_conn_context_init(dcc,abs->host,abs->port) != VRT_OK) {
+                conn_context *cc = darray_push(abs->conn_contexts);
+                if (dispatch_conn_context_init(cc,abs->host,abs->port) != VRT_OK) {
                     return VRT_ERROR;
                 }
-                dcc->actx->data = ddt;
-                redisAeAttach(ddt->el, dcc->actx);
-                redisAsyncSetConnectCallback(dcc->actx,connect_callback);
-                redisAsyncSetDisconnectCallback(dcc->actx,disconnect_callback);
+                cc->actx->data = ddt;
+                redisAeAttach(ddt->el, cc->actx);
+                redisAsyncSetConnectCallback(cc->actx,connect_callback);
+                redisAsyncSetDisconnectCallback(cc->actx,disconnect_callback);
             }
         }
     }
@@ -339,8 +339,8 @@ static void dispatch_data_thread_deinit(dispatch_data_thread *ddt)
             for (j = 0; j < darray_n(&abg->abtest_servers); j ++) {
                 abtest_server *abs = darray_get(&abg->abtest_servers, j);
                 while (darray_n(abs->conn_contexts) > 0) {
-                    dispatch_conn_context *dcc = darray_pop(abs->conn_contexts);
-                    dispatch_conn_context_deinit(dcc);
+                    conn_context *cc = darray_pop(abs->conn_contexts);
+                    dispatch_conn_context_deinit(cc);
                 }
             }
         }

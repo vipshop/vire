@@ -16,6 +16,7 @@
 #include <vrt_produce_data.h>
 #include <vrt_dispatch_data.h>
 #include <vrt_check_data.h>
+#include <vrt_backend.h>
 #include <vrabtest.h>
 
 #define CONFIG_DEFAULT_PIDFILE                      NULL
@@ -419,6 +420,7 @@ static int abtest_server_init(abtest_server *abs, char *address)
     abs->host = NULL;
     abs->port = 0;
     abs->conn_contexts = NULL;
+    abs->data = NULL;
 
     host_port = sdssplitlen(address,strlen(address),":",1,&count);
     if (host_port == NULL) {
@@ -622,14 +624,24 @@ main(int argc, char **argv)
         test_log_error("Init data dispatcher failed");
         return VRT_ERROR;
     }
+    ret = vrt_backend_init(config.dispatch_data_threads, 
+        config.test_targets);
+    if (ret != VRT_OK) {
+        test_log_error("Init backend thread failed");
+        return VRT_ERROR;
+    }
 
     vrt_start_produce_data();
     vrt_start_dispatch_data();
+    vrt_start_backend();
 
     vrt_wait_produce_data();
     vrt_wait_dispatch_data();
+    vrt_wait_backend();
 
     vrt_dispatch_data_deinit();
     vrt_produce_data_deinit();
+    vrt_backend_deinit();
+    
     return VRT_OK;
 }

@@ -54,6 +54,7 @@ vireabtest_SOURCES =                        \
     vrt_produce_data.c vrt_produce_data.h   \
     vrt_dispatch_data.c vrt_dispatch_data.h \
     vrt_check_data.c vrt_check_data.h       \
+    vrt_backend.c vrt_backend.h             \
     vrabtest.c vrabtest.h
     
 vireabtest_LDADD = $(top_builddir)/dep/ae/libae.a

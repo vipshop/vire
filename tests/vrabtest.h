@@ -6,12 +6,18 @@
 struct redisContext;
 struct redisAsyncContext;
 
+typedef struct conn_context {
+    struct redisContext *ctx;
+    struct redisAsyncContext *actx;    
+} conn_context;
+
 typedef struct abtest_server {
     sds host;
     int port;
 
-    darray *conn_contexts;
-    
+    darray *conn_contexts;  /* connection context */
+
+    void *data;
 } abtest_server;
 
 typedef struct abtest_group {

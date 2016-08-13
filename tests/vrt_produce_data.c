@@ -35,6 +35,8 @@ typedef struct produce_thread {
     produce_scheme *ps;
 } produce_thread;
 
+data_producer *delete_data_producer = NULL;
+
 static unsigned int key_length_min;
 static unsigned int key_length_max;
 static unsigned int key_length_range_gap;
@@ -485,6 +487,14 @@ int vrt_produce_data_init(int key_length_range_min,int key_length_range_max,
             *dp_elem = dp;
             needed_cmd_type_producer_count ++;
         }
+
+        if (!strcmp(dp->name,"del")) {
+            delete_data_producer = dp;
+        }
+    }
+
+    if (delete_data_producer == NULL) {
+        return VRT_ERROR;
     }
 
     if (needed_cmd_type_producer_count == 0) {
