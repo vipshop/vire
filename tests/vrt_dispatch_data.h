@@ -23,7 +23,13 @@ typedef struct dispatch_data_thread {
                                         that has not received from abtest groups completely */
 
     darray *abgs; /* type is abtest_group */
+
+    int pause;
 } dispatch_data_thread;
+
+extern int dispatch_data_threads_count;
+
+extern int dispatch_threads_pause_finished_count;
 
 int vrt_dispatch_data_init(int threads_count, char *test_target_groups, int connections);
 void vrt_dispatch_data_deinit(void);

@@ -79,6 +79,10 @@ typedef struct data_unit {
 
 extern data_producer *delete_data_producer;
 
+extern int produce_data_threads_count;
+
+extern int produce_threads_pause_finished_count;
+
 data_unit *data_unit_get(void);
 void data_unit_put(data_unit *du);
 

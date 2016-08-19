@@ -33,6 +33,9 @@ typedef struct produce_thread {
     pthread_t thread_id;
 
     produce_scheme *ps;
+
+    int pause;
+    long long looptimes;
 } produce_thread;
 
 data_producer *delete_data_producer = NULL;
@@ -48,7 +51,10 @@ static int cmd_type;
 static darray needed_cmd_type_producer;  /* type:  data_producer*/
 static unsigned int needed_cmd_type_producer_count;
 
+int produce_data_threads_count;
 static darray produce_threads;
+
+int produce_threads_pause_finished_count;
 
 static sds get_random_cached_key(produce_scheme *ps)
 {
@@ -363,11 +369,14 @@ static int vrt_produce_threads_init(unsigned int produce_threads_count,
 {
     unsigned int idx;
     darray_init(&produce_threads, produce_threads_count, sizeof(produce_thread));
+    produce_data_threads_count = produce_threads_count;
     for (idx = 0; idx < produce_threads_count; idx ++) {
         produce_thread *pt = darray_push(&produce_threads);
         pt->id = idx;
         pt->thread_id = 0;
         pt->ps = produce_scheme_create(cached_keys, hit_ratio);
+        pt->pause = 0;
+        pt->looptimes = 0;
     }
     
     return VRT_OK;
@@ -397,6 +406,22 @@ static void *vrt_produce_thread_run(void *args)
     srand(vrt_usec_now()^(int)pthread_self());
 
     while (1) {
+        /* At begin of this loop */
+        if (pt->pause) {
+            usleep(1000000);    /* sleep 1 second */
+            if (!test_if_need_pause()) {
+                pt->pause = 0;
+            } else {
+                continue;
+            }
+        } else if (pt->looptimes%10000 == 0) {
+            if (test_if_need_pause()) {
+                pt->pause = 1;
+                one_produce_thread_paused();
+                continue;
+            }
+        }
+        
         idx = rand()%needed_cmd_type_producer_count;
         dp = darray_get(&needed_cmd_type_producer,idx);
         du = (*dp)->proc(*dp,pt->ps);
@@ -421,13 +446,16 @@ static void *vrt_produce_thread_run(void *args)
             if (ps->ckeys_write_idx >= ps->max_ckeys_count)
                 ps->ckeys_write_idx = 0;
         }
-        
+
+        /* Dispatch the test data */
         ret = data_dispatch(du);
         if (ret == -1) {
             data_unit_put(du);
         } else if (ret == 1) {
             usleep(10000);
         }
+
+        pt->looptimes ++;
     }
     
     return NULL;
@@ -526,6 +554,7 @@ int vrt_start_produce_data(void)
             &attr, vrt_produce_thread_run, pt);
     }
     
+    last_test_begin_time = vrt_sec_now();
     return VRT_OK;
 }
 

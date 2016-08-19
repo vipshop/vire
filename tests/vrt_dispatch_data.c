@@ -22,8 +22,10 @@
 #include <vrt_dispatch_data.h>
 #include <vrt_produce_data.h>
 
-static int dispatch_data_threads_count;
+int dispatch_data_threads_count;
 static darray *dispatch_data_threads = NULL;
+
+int dispatch_threads_pause_finished_count;
 
 typedef struct reply_unit {
     int total_count;
@@ -31,70 +33,6 @@ typedef struct reply_unit {
     redisReply **replys;
     data_unit *du;
 } reply_unit;
-
-static redisReply *steal_hiredis_redisreply(redisReply *r)
-{
-    redisReply *reply;
-
-    reply = calloc(1,sizeof(*reply));
-    if (reply == NULL) {
-        return NULL;
-    }
-
-    reply->type = r->type;
-    reply->integer = r->integer;
-    reply->len = r->len;
-    reply->str = r->str;
-    reply->elements = r->elements;
-    reply->element = r->element;
-
-    r->len = 0;
-    r->str = NULL;
-    r->elements = 0;
-    r->element = NULL;
-
-    return reply;
-}
-
-static int check_two_replys_if_same(redisReply *reply1, redisReply *reply2)
-{
-    if (reply1 == NULL || reply2 == NULL) {
-        return 1;
-    }
-    
-    if (reply1->type != reply2->type) {
-        return 1;
-    }
-
-    if (reply1->type == REDIS_REPLY_STRING || 
-        reply1->type == REDIS_REPLY_STATUS ||
-        reply1->type == REDIS_REPLY_ERROR) {
-        if (reply1->len != reply2->len) {
-            return reply1->len-reply2->len;
-        }
-        
-        return memcmp(reply1->str, reply2->str, reply1->len);
-    } else if (reply1->type == REDIS_REPLY_ARRAY) {
-        size_t j;
-        if (reply1->elements != reply2->elements) {
-            return (reply1->elements-reply2->elements);
-        }
-
-        for (j = 0; j < reply1->elements; j ++) {
-            int ret = check_two_replys_if_same(reply1->element[j], reply2->element[j]);
-            if (ret != 0) return ret;
-        }
-        return 0;
-    } else if (reply1->type == REDIS_REPLY_INTEGER) {
-        return (reply1->integer-reply2->integer);
-    } else if (reply1->type == REDIS_REPLY_NIL) {
-        return 0;
-    } else {
-        test_log_error("reply type %d is error", reply1->type);
-    }
-
-    return 0;
-}
 
 static int check_replys_if_same(reply_unit *ru)
 {
@@ -174,13 +112,26 @@ static int dispatch_thread_send_data(dispatch_data_thread *ddt)
         }
         for (j = 0; j < darray_n(ddt->abgs); j ++) {
             struct callback_data *cbd;
+            int *keyindex, numkeys;
+            abtest_server *abs;
 
             cbd = malloc(sizeof(struct callback_data));
             cbd->ddt = ddt;
             cbd->ru = ru;
             cbd->idx = j;
             abtest_group *abg = darray_get(ddt->abgs, j);
-            abtest_server *abs = darray_get(&abg->abtest_servers, 0);
+
+            keyindex = get_keys_from_data_producer(du->dp, du->argv, du->argc, &numkeys);
+            if (numkeys == 0) {
+                unsigned int idx;
+                idx = (unsigned int)rand()%darray_n(&abg->abtest_servers);
+                abs = darray_get(&abg->abtest_servers,idx);
+            } else {
+                sds key = du->argv[keyindex[0]];
+                abs = abg->get_backend_server(abg,key,sdslen(key));
+            }
+            free(keyindex);
+            
             conn_context *cc = darray_get(abs->conn_contexts, 
                 du->hashvalue%darray_n(abs->conn_contexts));
             actx = cc->actx;
@@ -198,11 +149,30 @@ static int dispatch_data_thread_cron(aeEventLoop *eventLoop, long long id, void 
     dispatch_data_thread *ddt = clientData;
 
     ASSERT(eventLoop == ddt->el);
+
+    /* At the begin of this loop */
+    if (ddt->pause) {
+        if (!test_if_need_pause()) {
+            ddt->pause = 0;
+        } else {
+            ddt->cronloops ++;
+            return 1000;
+        }
+    }
     
     if (!dmtlist_empty(ddt->datas)) {
         dispatch_thread_send_data(ddt);
     }
-    
+
+    /* At the end of this loop */
+    if (test_if_need_pause() && dmtlist_empty(ddt->datas) &&
+        dlistLength(ddt->rdatas) == 0 && 
+        all_produce_threads_paused() && 
+        all_dispatch_threads_paused()) {
+        ddt->pause = 1;
+        one_dispatch_thread_paused();
+    }
+
     ddt->cronloops ++;
     return 1000/ddt->hz;
 }
@@ -215,7 +185,7 @@ static void connect_callback(const redisAsyncContext *c, int status) {
         return;
     }
 
-    test_log_out("Connected...\n");
+    //test_log_out("Connected...\n");
 }
 
 static void disconnect_callback(const redisAsyncContext *c, int status) {
@@ -226,7 +196,7 @@ static void disconnect_callback(const redisAsyncContext *c, int status) {
         return;
     }
 
-    test_log_out("Disconnected...\n");
+    //test_log_out("Disconnected...\n");
     //aeStop(loop);
 }
 
@@ -268,6 +238,7 @@ static int dispatch_data_thread_init(dispatch_data_thread *ddt, char *test_targe
     ddt->datas = NULL;
     ddt->rdatas = NULL;
     ddt->abgs = NULL;
+    ddt->pause = 0;
 
     ddt->el = aeCreateEventLoop(200);
     if (ddt->el == NULL) {
@@ -437,7 +408,7 @@ int data_dispatch(data_unit *du)
         du->hashvalue = (unsigned int)rand();
     } else {
         sds key = du->argv[keyindex[0]];
-        du->hashvalue = (unsigned int)hash_crc32a(key, sdslen(key));;
+        du->hashvalue = (unsigned int)hash_crc32a(key, sdslen(key));
     }
     free(keyindex);
     

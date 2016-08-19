@@ -32,8 +32,10 @@ typedef struct task_data {
     long long cursor;   /* scan cursor */
 } task_data;
 
-static int backend_threads_count;
+int backend_threads_count;
 static darray *backend_threads = NULL;
+
+int backend_threads_pause_finished_count;
 
 static int task_data_create(void)
 {
@@ -89,7 +91,7 @@ static void connect_callback(const redisAsyncContext *c, int status) {
         return;
     }
 
-    test_log_out("Connected...\n");
+    //test_log_out("Connected...\n");
 }
 
 static void disconnect_callback(const redisAsyncContext *c, int status) {
@@ -100,7 +102,7 @@ static void disconnect_callback(const redisAsyncContext *c, int status) {
         return;
     }
 
-    test_log_out("Disconnected...\n");
+    //test_log_out("Disconnected...\n");
     //aeStop(loop);
 }
 
@@ -221,9 +223,10 @@ static void update_memory_info(darray *abgs)
     }
 }
 
-static void check_memory_enough(darray *abgs)
+static void check_memory_enough(backend_thread *bt)
 {
     long long i, j;
+    darray *abgs = bt->abgs;
     
     for (i = 0; i < darray_n(abgs); i ++) {
         abtest_group *abg = darray_get(abgs, i);
@@ -246,9 +249,11 @@ static void check_memory_enough(darray *abgs)
                             redisAsyncCommand(cc->actx, scan_for_delete_callback, 
                                 abs, "scan %lld count 1000", td->cursor);
                             td->deleting = 1;
+                            bt->deleting ++;
                         }
                     } else if (td->deleting) {
                         td->deleting = 0;
+                        bt->deleting --;
                     }
                 }
             }
@@ -260,11 +265,26 @@ static int backend_thread_cron(aeEventLoop *eventLoop, long long id, void *clien
 {
     backend_thread *bt = clientData;
     
-
     ASSERT(eventLoop == bt->el);
 
+    /* At the begin of this loop */
+    if (bt->pause) {
+        if (!test_if_need_pause()) {
+            bt->pause = 0;
+        } else {
+            bt->cronloops ++;
+            return 1000;
+        }
+    }
+
     update_memory_info(bt->abgs);
-    check_memory_enough(bt->abgs);
+    check_memory_enough(bt);
+
+    /* At the end of this loop */
+    if (!bt->pause && test_if_need_pause() && !bt->deleting) {
+        bt->pause = 1;
+        one_backend_thread_paused();
+    }
     
     bt->cronloops ++;
     return 1000/bt->hz;
@@ -279,6 +299,8 @@ static int backend_thread_init(backend_thread *bt, char *test_target_groups)
     bt->el = NULL;
     bt->hz = 10;
     bt->cronloops = 0;
+    bt->deleting = 0;
+    bt->pause = 0;
     
     bt->el = aeCreateEventLoop(1);
     if (bt->el == NULL) {

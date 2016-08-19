@@ -344,3 +344,67 @@ long long get_longlong_from_info_reply(redisReply *reply, char *name)
     sdsfreesplitres(lines,count);
     return value;
 }
+
+redisReply *steal_hiredis_redisreply(redisReply *r)
+{
+    redisReply *reply;
+
+    reply = calloc(1,sizeof(*reply));
+    if (reply == NULL) {
+        return NULL;
+    }
+
+    reply->type = r->type;
+    reply->integer = r->integer;
+    reply->len = r->len;
+    reply->str = r->str;
+    reply->elements = r->elements;
+    reply->element = r->element;
+
+    r->len = 0;
+    r->str = NULL;
+    r->elements = 0;
+    r->element = NULL;
+
+    return reply;
+}
+
+int check_two_replys_if_same(redisReply *reply1, redisReply *reply2)
+{
+    if (reply1 == NULL || reply2 == NULL) {
+        return 1;
+    }
+    
+    if (reply1->type != reply2->type) {
+        return 1;
+    }
+
+    if (reply1->type == REDIS_REPLY_STRING || 
+        reply1->type == REDIS_REPLY_STATUS ||
+        reply1->type == REDIS_REPLY_ERROR) {
+        if (reply1->len != reply2->len) {
+            return reply1->len-reply2->len;
+        }
+        
+        return memcmp(reply1->str, reply2->str, reply1->len);
+    } else if (reply1->type == REDIS_REPLY_ARRAY) {
+        size_t j;
+        if (reply1->elements != reply2->elements) {
+            return (reply1->elements-reply2->elements);
+        }
+
+        for (j = 0; j < reply1->elements; j ++) {
+            int ret = check_two_replys_if_same(reply1->element[j], reply2->element[j]);
+            if (ret != 0) return ret;
+        }
+        return 0;
+    } else if (reply1->type == REDIS_REPLY_INTEGER) {
+        return (reply1->integer-reply2->integer);
+    } else if (reply1->type == REDIS_REPLY_NIL) {
+        return 0;
+    } else {
+        test_log_error("reply type %d is error", reply1->type);
+    }
+
+    return 0;
+}

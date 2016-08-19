@@ -21,7 +21,7 @@
 
 #define CONFIG_DEFAULT_PIDFILE                      NULL
 #define CONFIG_DEFAULT_CHECKER                      "myself"
-#define CONFIG_DEFAULT_CHECK_INTERVAL               3600
+#define CONFIG_DEFAULT_TEST_INTERVAL                3600
 #define CONFIG_DEFAULT_KEY_LENGTH_RANGE_BEGIN       0
 #define CONFIG_DEFAULT_KEY_LENGTH_RANGE_END         100
 #define CONFIG_DEFAULT_STRING_MAX_LENGTH            512
@@ -38,7 +38,7 @@
 
 struct config {
     char *checker;
-    long long check_interval;
+    long long test_interval;
     int key_length_range_begin;
     int key_length_range_end;
     int string_max_length;
@@ -60,9 +60,17 @@ static int show_version;
 static int daemonize;
 
 /* 0 or 1
-  * 1: used the expire,expireat,pexpire and pexpireat commands
-  * 0 is the opposite. */
+ * 1: used the expire,expireat,pexpire and pexpireat commands
+ * 0 is the opposite. */
 int expire_enabled;
+
+/* Interval time for test data dispatched to test targets. 
+ * Unit is second */
+long long test_interval;
+
+/* Last begin time to test the data.
+ * Unit is second */
+long long last_test_begin_time;
 
 static struct option long_options[] = {
     { "help",                   no_argument,        NULL,   'h' },
@@ -71,7 +79,7 @@ static struct option long_options[] = {
     { "enable-expire",          no_argument,        NULL,   'E' },
     { "pid-file",               required_argument,  NULL,   'P' },
     { "checker",                required_argument,  NULL,   'C' },
-    { "check-interval",         required_argument,  NULL,   'i' },
+    { "test-interval",          required_argument,  NULL,   'i' },
     { "key-length-range",       required_argument,  NULL,   'k' },
     { "string-max-length",      required_argument,  NULL,   's' },
     { "fields-max-count",       required_argument,  NULL,   'f' },
@@ -102,7 +110,7 @@ vrt_show_usage(void)
     printf(
         "  -P, --pid-file               : pid file" CRLF
         "  -C, --checker                : the checker to check data consistency" CRLF
-        "  -i, --check-interval         : the interval for checking data consistency" CRLF
+        "  -i, --test-interval          : the interval for checking data consistency, unit is second" CRLF
         "  -k, --key-length-range       : the key length range to generate for test, like 0-100" CRLF
         "  -s, --string-max-length      : the max string length to generate for test, string is for STRING/LIST... value element" CRLF
         "  -f, --fields-max-count       : the max fields count to generate for test, field is the LIST/HASH...'s element" CRLF
@@ -121,7 +129,7 @@ vrt_set_default_options(void)
 {
     config.pid_filename = CONFIG_DEFAULT_PIDFILE;
     config.checker = CONFIG_DEFAULT_CHECKER;
-    config.check_interval = CONFIG_DEFAULT_CHECK_INTERVAL;
+    config.test_interval = CONFIG_DEFAULT_TEST_INTERVAL;
     config.key_length_range_begin = CONFIG_DEFAULT_KEY_LENGTH_RANGE_BEGIN;
     config.key_length_range_end = CONFIG_DEFAULT_KEY_LENGTH_RANGE_END;
     config.string_max_length = CONFIG_DEFAULT_STRING_MAX_LENGTH;
@@ -184,7 +192,7 @@ vrt_get_options(int argc, char **argv)
                 test_log_error("vireabtest: option -i requires a number");
                 return VRT_ERROR;
             }
-            config.check_interval = llvalue;
+            config.test_interval = llvalue;
             break;
             
         case 'k':
@@ -460,6 +468,31 @@ static void abtest_server_deinit(abtest_server *abs)
     }
 }
 
+unsigned int get_backend_server_idx(abtest_group *abg, char *key, size_t keylen)
+{
+    unsigned int hashvalue, servers_count;
+
+    servers_count = darray_n(&abg->abtest_servers);
+    if (servers_count == 1) {
+        return 0;
+    }
+
+    hashvalue = (unsigned int)hash_crc32a(key, keylen);
+    
+    return hashvalue%servers_count;
+}
+
+abtest_server *get_backend_server(abtest_group *abg, char *key, size_t keylen)
+{
+    abtest_server *abs;
+    unsigned int idx;
+
+    idx = abg->get_backend_server_idx(abg,key,keylen);
+    abs = darray_get(&abg->abtest_servers, idx);
+
+    return abs;
+}
+
 static int abtest_group_init(abtest_group *abg, char *group_string)
 {
     sds *type_addrs, *addrs;
@@ -515,6 +548,9 @@ static int abtest_group_init(abtest_group *abg, char *group_string)
 
     sdsfreesplitres(addrs,addrs_count);
     sdsfreesplitres(type_addrs,type_addrs_count);
+
+    abg->get_backend_server_idx = get_backend_server_idx;
+    abg->get_backend_server = get_backend_server;
 
     return VRT_OK;
 }
@@ -607,6 +643,8 @@ main(int argc, char **argv)
             return VRT_ERROR;
         }
     }
+
+    test_interval = config.test_interval;
     
     ret = vrt_produce_data_init(config.key_length_range_begin,
         config.key_length_range_end,
@@ -630,18 +668,26 @@ main(int argc, char **argv)
         test_log_error("Init backend thread failed");
         return VRT_ERROR;
     }
+    ret = vrt_data_checker_init(config.checker, config.test_targets);
+    if (ret != VRT_OK) {
+        test_log_error("Init check data thread failed");
+        return VRT_ERROR;
+    }
 
     vrt_start_produce_data();
     vrt_start_dispatch_data();
     vrt_start_backend();
+    vrt_start_data_checker();
 
     vrt_wait_produce_data();
     vrt_wait_dispatch_data();
     vrt_wait_backend();
+    vrt_wait_data_checker();
 
+    vrt_data_checker_deinit();
+    vrt_backend_deinit();
     vrt_dispatch_data_deinit();
     vrt_produce_data_deinit();
-    vrt_backend_deinit();
     
     return VRT_OK;
 }

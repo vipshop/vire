@@ -18,7 +18,14 @@ typedef struct backend_thread {
     int cronloops;          /* Number of times the cron function run */
 
     darray *abgs; /* type is abtest_group */
+
+    int deleting;
+    int pause;
 } backend_thread;
+
+extern int backend_threads_count;
+
+extern int backend_threads_pause_finished_count;
 
 int vrt_backend_init(int threads_count, char *test_target_groups);
 void vrt_backend_deinit(void);

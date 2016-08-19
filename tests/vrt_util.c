@@ -140,6 +140,15 @@ vrt_msec_now(void)
     return vrt_usec_now() / 1000LL;
 }
 
+/*
+ * Return the current time in seconds since Epoch
+ */
+int64_t
+vrt_sec_now(void)
+{
+    return vrt_usec_now() / 1000000LL;
+}
+
 /* Given the filename, return the absolute path as an SDS string, or NULL
  * if it fails for some reason. Note that "filename" may be an absolute path
  * already, this will be detected and handled correctly.
@@ -580,4 +589,35 @@ error:
 
     *count = -1;
     return NULL;
+}
+
+sds get_host_port_from_address_string(char *address, int *port)
+{
+    sds *host_port;
+    int count = 0;
+    sds host;
+    long value;
+
+    *port = 0;
+    
+    host_port = sdssplitlen(address,strlen(address),":",1,&count);
+    if (host_port == NULL) {
+        return NULL;
+    } else if (count != 2) {
+        sdsfreesplitres(host_port,count);
+        return NULL;
+    }
+
+    if (string2l(host_port[1],sdslen(host_port[1]),&value) != 1 || 
+        value <= 0 || value >= 65535) {
+        sdsfreesplitres(host_port,count);
+        return NULL;
+    }
+
+    *port = (int)value;
+    host = host_port[0];
+    host_port[0] = NULL;
+    sdsfreesplitres(host_port,count);
+    
+    return host;
 }

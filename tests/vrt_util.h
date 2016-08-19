@@ -59,6 +59,7 @@ int vrt_scnprintf(char *buf, size_t size, const char *fmt, ...);
 
 int64_t vrt_usec_now(void);
 int64_t vrt_msec_now(void);
+int64_t vrt_sec_now(void);
 
 sds getAbsolutePath(char *filename);
 
@@ -73,5 +74,7 @@ int destroy_dir(char *dir);
 int get_pid_from_reply(struct redisContext *redisctx, char *host, int port);
 
 long long *get_range_from_string(char *str, size_t len, int *count);
+
+sds get_host_port_from_address_string(char *address, int *port);
 
 #endif
