@@ -33,6 +33,7 @@
 #define CONFIG_DEFAULT_HIT_RATIO                    75
 #define CONFIG_DEFAULT_DISPATCH_THREADS_COUNT       1
 #define CONFIG_DEFAULT_CLIENTS_PER_DISPATCH_THREAD  10
+#define CONFIG_DEFAULT_LOGFILE                      NULL
 
 #define VRABTEST_GROUP_TYPE_REDIS   0
 #define VRABTEST_GROUP_TYPE_VIRE    1
@@ -52,6 +53,7 @@ struct config {
     int dispatch_data_threads;
     int clients_per_dispatch_thread;
     char *pid_filename;
+    char *log_filename;
 };
 
 static struct config config;
@@ -91,10 +93,11 @@ static struct option long_options[] = {
     { "hit-ratio",              required_argument,  NULL,   'H' },
     { "dispatch-data-threads",  required_argument,  NULL,   'd' },
     { "clients",                required_argument,  NULL,   'c' },
+    { "log-file",               required_argument,  NULL,   'o' },
     { NULL,                     0,                  NULL,    0  }
 };
 
-static char short_options[] = "hVDEP:C:i:k:s:f:T:t:p:K:H:d:c:";
+static char short_options[] = "hVDEP:C:i:k:s:f:T:t:p:K:H:d:c:o:";
 
 static void
 vrt_show_usage(void)
@@ -122,7 +125,9 @@ vrt_show_usage(void)
         "  -H, --hit-ratio              : the hit ratio for readonly commands, between 0 and 100" CRLF
         "  -d, --dispatch-data-threads  : the threads count to dispatch test data to target groups" CRLF
         "  -c, --clients                : the clients count for every dispatch data thread" CRLF
-        "" CRLF);
+        "  -o, --log-file               : set logging file (default: %s)" CRLF
+        "", 
+        CONFIG_DEFAULT_LOGFILE != NULL ? CONFIG_DEFAULT_LOGFILE : "stderr");
 }
 
 static void
@@ -144,6 +149,7 @@ vrt_set_default_options(void)
     config.hit_ratio = CONFIG_DEFAULT_HIT_RATIO;
     config.dispatch_data_threads = CONFIG_DEFAULT_DISPATCH_THREADS_COUNT;
     config.clients_per_dispatch_thread = CONFIG_DEFAULT_CLIENTS_PER_DISPATCH_THREAD;
+    config.log_filename = CONFIG_DEFAULT_LOGFILE;
     
     expire_enabled = 0;
 }
@@ -282,6 +288,10 @@ vrt_get_options(int argc, char **argv)
         case 'P':
             config.pid_filename = optarg;
             break;
+
+        case 'o':
+            config.log_filename = optarg;
+            break;
             
         case '?':
             switch (optopt) {
@@ -290,6 +300,7 @@ vrt_get_options(int argc, char **argv)
             case 'T':
             case 't':
             case 'P':
+            case 'o':
                 log_stderr("vire: option -%c requires string",
                            optopt);
                 break;
@@ -638,7 +649,7 @@ main(int argc, char **argv)
         exit(0);
     }
 
-    ret = log_init(LOG_INFO, NULL);
+    ret = log_init(LOG_INFO, config.log_filename);
     if (ret < 0) {
         exit(1);
     }
