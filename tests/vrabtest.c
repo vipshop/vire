@@ -10,6 +10,7 @@
 
 #include <hiredis.h>
 #include <darray.h>
+#include <dlog.h>
 
 #include <vrt_util.h>
 #include <vrt_public.h>
@@ -189,7 +190,7 @@ vrt_get_options(int argc, char **argv)
 
         case 'i':
             if (string2ll(optarg,strlen(optarg),&llvalue) != 1) {
-                test_log_error("vireabtest: option -i requires a number");
+                log_stderr("vireabtest: option -i requires a number");
                 return VRT_ERROR;
             }
             config.test_interval = llvalue;
@@ -198,7 +199,7 @@ vrt_get_options(int argc, char **argv)
         case 'k':
             range = get_range_from_string(optarg,strlen(optarg),&range_count);
             if (range == NULL) {
-                test_log_error("vireabtest: option -k is invalid, you need input a range like 0-100");
+                log_stderr("vireabtest: option -k is invalid, you need input a range like 0-100");
                 return VRT_ERROR;
             }
             config.key_length_range_begin = (int)range[0];
@@ -212,7 +213,7 @@ vrt_get_options(int argc, char **argv)
 
         case 's':
             if (string2l(optarg,strlen(optarg),&lvalue) != 1) {
-                test_log_error("vireabtest: option -s requires a number");
+                log_stderr("vireabtest: option -s requires a number");
                 return VRT_ERROR;
             }
             config.string_max_length = (int)lvalue;
@@ -220,7 +221,7 @@ vrt_get_options(int argc, char **argv)
 
         case 'f':
             if (string2l(optarg,strlen(optarg),&lvalue) != 1) {
-                test_log_error("vireabtest: option -f requires a number");
+                log_stderr("vireabtest: option -f requires a number");
                 return VRT_ERROR;
             }
             config.fields_max_count = (int)lvalue;
@@ -236,7 +237,7 @@ vrt_get_options(int argc, char **argv)
 
         case 'p':
             if (string2l(optarg,strlen(optarg),&lvalue) != 1) {
-                test_log_error("vireabtest: option -p requires a number");
+                log_stderr("vireabtest: option -p requires a number");
                 return VRT_ERROR;
             }
             config.produce_data_threads = (int)lvalue;
@@ -244,7 +245,7 @@ vrt_get_options(int argc, char **argv)
 
         case 'K':
             if (string2ll(optarg,strlen(optarg),&llvalue) != 1) {
-                test_log_error("vireabtest: option -K requires a number");
+                log_stderr("vireabtest: option -K requires a number");
                 return VRT_ERROR;
             }
             config.cached_keys_per_produce_thread = llvalue;
@@ -252,11 +253,11 @@ vrt_get_options(int argc, char **argv)
 
         case 'H':
             if (string2l(optarg,strlen(optarg),&lvalue) != 1) {
-                test_log_error("vireabtest: option -H requires a number");
+                log_stderr("vireabtest: option -H requires a number");
                 return VRT_ERROR;
             }
             if (lvalue < 0 || lvalue > 100) {
-                test_log_error("vireabtest: option hit-ratio need between 0 and 100");
+                log_stderr("vireabtest: option hit-ratio need between 0 and 100");
                 return VRT_ERROR;
             }
             config.hit_ratio = (int)lvalue;
@@ -264,7 +265,7 @@ vrt_get_options(int argc, char **argv)
 
         case 'd':
             if (string2l(optarg,strlen(optarg),&lvalue) != 1) {
-                test_log_error("vireabtest: option -d requires a number");
+                log_stderr("vireabtest: option -d requires a number");
                 return VRT_ERROR;
             }
             config.dispatch_data_threads = (int)lvalue;
@@ -272,7 +273,7 @@ vrt_get_options(int argc, char **argv)
 
         case 'c':
             if (string2l(optarg,strlen(optarg),&lvalue) != 1) {
-                test_log_error("vireabtest: option -c requires a number");
+                log_stderr("vireabtest: option -c requires a number");
                 return VRT_ERROR;
             }
             config.clients_per_dispatch_thread = (int)lvalue;
@@ -289,7 +290,7 @@ vrt_get_options(int argc, char **argv)
             case 'T':
             case 't':
             case 'P':
-                test_log_error("vire: option -%c requires string",
+                log_stderr("vire: option -%c requires string",
                            optopt);
                 break;
 
@@ -298,18 +299,18 @@ vrt_get_options(int argc, char **argv)
             case 'd':
             case 'c':
             case 's':
-                test_log_error("vire: option -%c requires number",
+                log_stderr("vire: option -%c requires number",
                            optopt);
                 break;
                 
             default:
-                test_log_error("vire: invalid option -- '%c'", optopt);
+                log_stderr("vire: invalid option -- '%c'", optopt);
                 break;
             }
             return VRT_ERROR;
 
         default:
-            test_log_error("vire: invalid option -- '%c'", optopt);
+            log_stderr("vire: invalid option -- '%c'", optopt);
             return VRT_ERROR;
 
         }
@@ -327,7 +328,7 @@ static int vrt_daemonize(int dump_core)
     pid = fork();
     switch (pid) {
     case -1:
-        test_log_error("fork() failed: %s", strerror(errno));
+        log_error("fork() failed: %s", strerror(errno));
         return VRT_ERROR;
 
     case 0:
@@ -342,19 +343,19 @@ static int vrt_daemonize(int dump_core)
 
     sid = setsid();
     if (sid < 0) {
-        test_log_error("setsid() failed: %s", strerror(errno));
+        log_error("setsid() failed: %s", strerror(errno));
         return VRT_ERROR;
     }
 
     if (signal(SIGHUP, SIG_IGN) == SIG_ERR) {
-        test_log_error("signal(SIGHUP, SIG_IGN) failed: %s", strerror(errno));
+        log_error("signal(SIGHUP, SIG_IGN) failed: %s", strerror(errno));
         return VRT_ERROR;
     }
 
     pid = fork();
     switch (pid) {
     case -1:
-        test_log_error("fork() failed: %s", strerror(errno));
+        log_error("fork() failed: %s", strerror(errno));
         return VRT_ERROR;
 
     case 0:
@@ -371,7 +372,7 @@ static int vrt_daemonize(int dump_core)
     if (dump_core == 0) {
         ret = chdir("/");
         if (ret < 0) {
-            test_log_error("chdir(\"/\") failed: %s", strerror(errno));
+            log_error("chdir(\"/\") failed: %s", strerror(errno));
             return VRT_ERROR;
         }
     }
@@ -383,27 +384,27 @@ static int vrt_daemonize(int dump_core)
 
     fd = open("/dev/null", O_RDWR);
     if (fd < 0) {
-        test_log_error("open(\"/dev/null\") failed: %s", strerror(errno));
+        log_error("open(\"/dev/null\") failed: %s", strerror(errno));
         return VRT_ERROR;
     }
 
     ret = dup2(fd, STDIN_FILENO);
     if (ret < 0) {
-        test_log_error("dup2(%d, STDIN) failed: %s", fd, strerror(errno));
+        log_error("dup2(%d, STDIN) failed: %s", fd, strerror(errno));
         close(fd);
         return VRT_ERROR;
     }
 
     ret = dup2(fd, STDOUT_FILENO);
     if (ret < 0) {
-        test_log_error("dup2(%d, STDOUT) failed: %s", fd, strerror(errno));
+        log_error("dup2(%d, STDOUT) failed: %s", fd, strerror(errno));
         close(fd);
         return VRT_ERROR;
     }
 
     ret = dup2(fd, STDERR_FILENO);
     if (ret < 0) {
-        test_log_error("dup2(%d, STDERR) failed: %s", fd, strerror(errno));
+        log_error("dup2(%d, STDERR) failed: %s", fd, strerror(errno));
         close(fd);
         return VRT_ERROR;
     }
@@ -411,7 +412,7 @@ static int vrt_daemonize(int dump_core)
     if (fd > STDERR_FILENO) {
         ret = close(fd);
         if (ret < 0) {
-            test_log_error("close(%d) failed: %s", fd, strerror(errno));
+            log_error("close(%d) failed: %s", fd, strerror(errno));
             return VRT_ERROR;
         }
     }
@@ -630,17 +631,22 @@ main(int argc, char **argv)
     }
 
     if (show_version) {
-        test_log_out("This is vireabtest-%s", VR_VERSION_STRING);
+        log_stdout("This is vireabtest-%s", VR_VERSION_STRING);
         if (show_help) {
             vrt_show_usage();
         }
         exit(0);
     }
 
+    ret = log_init(LOG_INFO, NULL);
+    if (ret < 0) {
+        exit(1);
+    }
+
     if (daemonize) {
         ret = vrt_daemonize(1);
         if (ret != VRT_OK) {
-            return VRT_ERROR;
+            exit(1);
         }
     }
 
@@ -653,25 +659,25 @@ main(int argc, char **argv)
         config.cached_keys_per_produce_thread, 
         config.hit_ratio);
     if (ret != VRT_OK) {
-        test_log_error("Init data producer failed");
-        return VRT_ERROR;
+        log_error("Init data producer failed");
+        exit(1);
     }
     ret = vrt_dispatch_data_init(config.dispatch_data_threads, 
         config.test_targets, config.clients_per_dispatch_thread);
     if (ret != VRT_OK) {
-        test_log_error("Init data dispatcher failed");
-        return VRT_ERROR;
+        log_error("Init data dispatcher failed");
+        exit(1);
     }
     ret = vrt_backend_init(config.dispatch_data_threads, 
         config.test_targets);
     if (ret != VRT_OK) {
-        test_log_error("Init backend thread failed");
-        return VRT_ERROR;
+        log_error("Init backend thread failed");
+        exit(1);
     }
     ret = vrt_data_checker_init(config.checker, config.test_targets);
     if (ret != VRT_OK) {
-        test_log_error("Init check data thread failed");
-        return VRT_ERROR;
+        log_error("Init check data thread failed");
+        exit(1);
     }
 
     vrt_start_produce_data();
@@ -688,6 +694,8 @@ main(int argc, char **argv)
     vrt_backend_deinit();
     vrt_dispatch_data_deinit();
     vrt_produce_data_deinit();
+
+    log_deinit();
     
     return VRT_OK;
 }

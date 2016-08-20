@@ -16,6 +16,7 @@
 #include <vr_hashkit.h>
 #include <dlist.h>
 #include <dmtlist.h>
+#include <dlog.h>
 
 #include <vrt_util.h>
 #include <vrt_public.h>
@@ -601,7 +602,7 @@ error:
 
     check_unit_destroy(cunit);
 
-    test_log_out("ERROR: %s", errmeg);
+    log_error("%s", errmeg);
 }
 
 static int start_check_data(char *key, size_t keylen, check_data_thread *cdt)
@@ -997,10 +998,12 @@ static int data_checker_cron(aeEventLoop *eventLoop, long long id, void *clientD
         test_need_to_pause();
         last_check_begin_time = vrt_sec_now();
         begin_check_data();
+        log_notice("Start checking the data...");
     }
 
     if (checking_data_or_not() && all_check_data_threads_finished()) {
         check_data_finished();
+        log_notice("Finished checking the data");
     }
 
     if (test_if_need_pause() && !checking_data_or_not()) {

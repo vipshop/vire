@@ -6,6 +6,7 @@ AM_CPPFLAGS += -D_GNU_SOURCE
 endif
 AM_CPPFLAGS += -I $(top_srcdir)/dep/hashkit
 AM_CPPFLAGS += -I $(top_srcdir)/dep/ae
+AM_CPPFLAGS += -I $(top_srcdir)/dep/util
 AM_CPPFLAGS += -I $(top_srcdir)/dep/jemalloc-4.2.0/include
 AM_CPPFLAGS += -I $(top_srcdir)/dep/hiredis-0.13.3
 
@@ -48,7 +49,6 @@ vire_SOURCES =                          \
     vr_intset.c vr_intset.h             \
     vr_list.c vr_list.h                 \
     vr_listen.c vr_listen.h             \
-    vr_log.c vr_log.h                   \
     vr_lzf.h vr_lzfP.h                  \
     vr_lzf_c.c vr_lzf_d.c               \
     vr_master.c vr_master.h             \
@@ -82,6 +82,7 @@ vire_SOURCES =                          \
     vr_hyperloglog.c vr_hyperloglog.h   \
     vr.c
     
-vire_LDADD = $(top_builddir)/dep/ae/libae.a
+vire_LDADD = $(top_builddir)/dep/util/libdutil.a
+vire_LDADD += $(top_builddir)/dep/ae/libae.a
 vire_LDADD += $(top_builddir)/dep/hashkit/libhashkit.a
 vire_LDADD += $(top_builddir)/dep/jemalloc-4.2.0/lib/libjemalloc.a

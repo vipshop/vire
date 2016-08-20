@@ -7,18 +7,6 @@
 
 #include <vr_specialconfig.h>
 
-#ifdef HAVE_DEBUG_LOG
-# define VR_DEBUG_LOG 1
-#endif
-
-#ifdef HAVE_ASSERT_PANIC
-# define VR_ASSERT_PANIC 1
-#endif
-
-#ifdef HAVE_ASSERT_LOG
-# define VR_ASSERT_LOG 1
-#endif
-
 #ifdef HAVE_STATS
 # define VR_STATS 1
 #else
@@ -82,6 +70,8 @@ struct vr_worker;
 #include <netinet/in.h>
 
 #include <ae.h>
+#include <dutil.h>
+#include <dlog.h>
 
 #include <vr_util.h>
 #include <vr_signal.h>
@@ -107,7 +97,6 @@ struct vr_worker;
 
 #include <vr_hashkit.h>
 
-#include <vr_log.h>
 #include <vr_stats.h>
 #include <vr_conf.h>
 

@@ -315,8 +315,8 @@ extern dictType hashDictType;
 extern dictType setDictType;
 extern dictType zsetDictType;
 
-#define serverPanic(_e) _log(__FILE__, __LINE__, 1, "assert faild: %s", #_e)
-#define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_log(__FILE__, __LINE__, 1, "assert faild: %s", #_e)))
+#define serverPanic(_e) _log(__FILE__, __LINE__, LOG_EMERG, 1, "assert faild: %s", #_e)
+#define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_log(__FILE__, __LINE__, LOG_EMERG, 1, "assert faild: %s", #_e)))
 
 unsigned int dictStrHash(const void *key);
 unsigned int dictStrCaseHash(const void *key);

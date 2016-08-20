@@ -184,7 +184,7 @@ vr_print_run(struct instance *nci)
             status < 0 ? " ":name.sysname,
             status < 0 ? " ":name.release,
             status < 0 ? " ":name.machine);
-        write_to_log(buf, strlen(buf));
+        log_write_len(buf, strlen(buf));
         vr_free(buf);
     }else {
         char buf[256];
@@ -194,7 +194,7 @@ vr_print_run(struct instance *nci)
             status < 0 ? " ":name.sysname,
             status < 0 ? " ":name.release,
             status < 0 ? " ":name.machine);
-        write_to_log(buf, strlen(buf));
+        log_write_len(buf, strlen(buf));
     }
 }
 
@@ -247,7 +247,7 @@ vr_create_pidfile(struct instance *nci)
     }
     nci->pidfile = 1;
 
-    pid_len = vr_snprintf(pid, VR_UINTMAX_MAXLEN, "%d", nci->pid);
+    pid_len = dsnprintf(pid, VR_UINTMAX_MAXLEN, "%d", nci->pid);
 
     n = vr_write(fd, pid, pid_len);
     if (n < 0) {
@@ -286,7 +286,7 @@ vr_set_default_options(struct instance *nci)
     status = vr_gethostname(nci->hostname, VR_MAXHOSTNAMELEN);
     if (status < 0) {
         log_warn("gethostname failed, ignored: %s", strerror(errno));
-        vr_snprintf(nci->hostname, VR_MAXHOSTNAMELEN, "unknown");
+        dsnprintf(nci->hostname, VR_MAXHOSTNAMELEN, "unknown");
     }
     nci->hostname[VR_MAXHOSTNAMELEN - 1] = '\0';
 
@@ -415,14 +415,14 @@ vr_test_conf(struct instance *nci, int test)
     return true;
 }
 
-static rstatus_t
+static int
 vr_pre_run(struct instance *nci)
 {
-    rstatus_t status;
+    int ret;
 
-    status = log_init(nci->log_level, nci->log_filename);
-    if (status != VR_OK) {
-        return status;
+    ret = log_init(nci->log_level, nci->log_filename);
+    if (ret != VR_OK) {
+        return ret;
     }
 
     log_debug(LOG_VERB, "Vire used logfile: %s", nci->conf_filename);
@@ -433,28 +433,28 @@ vr_pre_run(struct instance *nci)
     }
 
     if (daemonize) {
-        status = vr_daemonize(1);
-        if (status != VR_OK) {
-            return status;
+        ret = vr_daemonize(1);
+        if (ret != VR_OK) {
+            return ret;
         }
     }
 
     nci->pid = getpid();
 
-    status = signal_init();
-    if (status != VR_OK) {
-        return status;
+    ret = signal_init();
+    if (ret != VR_OK) {
+        return ret;
     }
 
     if (nci->pid_filename) {
-        status = vr_create_pidfile(nci);
-        if (status != VR_OK) {
+        ret = vr_create_pidfile(nci);
+        if (ret != VR_OK) {
             return VR_ERROR;
         }
     }
 
-    status = init_server(nci);
-    if (status != VR_OK) {
+    ret = init_server(nci);
+    if (ret != VR_OK) {
         return VR_ERROR;
     }
 

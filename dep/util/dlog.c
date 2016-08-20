@@ -1,11 +1,14 @@
 #include <stdlib.h>
 #include <stdarg.h>
+#include <unistd.h>
 #include <ctype.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <errno.h>
 
-#include <vr_core.h>
+#include <dutil.h>
+#include <dlog.h>
 
 static struct logger logger;
 
@@ -96,7 +99,7 @@ log_stacktrace(void)
     if (l->fd < 0) {
         return;
     }
-    vr_stacktrace_fd(l->fd);
+    dstacktrace_fd(l->fd);
 }
 
 int
@@ -112,7 +115,7 @@ log_loggable(int level)
 }
 
 void
-_log(const char *file, int line, int panic, const char *fmt, ...)
+_log(const char *file, int line, int level, int panic, const char *fmt, ...)
 {
     struct logger *l = &logger;
     int len, size, errno_save;
@@ -131,17 +134,17 @@ _log(const char *file, int line, int panic, const char *fmt, ...)
 
     gettimeofday(&tv, NULL);
     buf[len++] = '[';
-    len += vr_strftime(buf + len, size - len, "%Y-%m-%d %H:%M:%S.", localtime(&tv.tv_sec));
-    len += vr_scnprintf(buf + len, size - len, "%03ld", tv.tv_usec/1000);
-    len += vr_scnprintf(buf + len, size - len, "] %s:%d ", file, line);
+    len += dstrftime(buf + len, size - len, "%Y-%m-%d %H:%M:%S.", localtime(&tv.tv_sec));
+    len += dscnprintf(buf + len, size - len, "%03ld", tv.tv_usec/1000);
+    len += dscnprintf(buf + len, size - len, "] %s:%d ", file, line);
 
     va_start(args, fmt);
-    len += vr_vscnprintf(buf + len, size - len, fmt, args);
+    len += dvscnprintf(buf + len, size - len, fmt, args);
     va_end(args);
 
     buf[len++] = '\n';
 
-    n = vr_write(l->fd, buf, len);
+    n = write(l->fd, buf, len);
     if (n < 0) {
         l->nerror++;
     }
@@ -167,12 +170,39 @@ _log_stderr(const char *fmt, ...)
     size = 4 * LOG_MAX_LEN; /* size of output buffer */
 
     va_start(args, fmt);
-    len += vr_vscnprintf(buf, size, fmt, args);
+    len += dvscnprintf(buf, size, fmt, args);
     va_end(args);
 
     buf[len++] = '\n';
 
-    n = vr_write(STDERR_FILENO, buf, len);
+    n = write(STDERR_FILENO, buf, len);
+    if (n < 0) {
+        l->nerror++;
+    }
+
+    errno = errno_save;
+}
+
+void
+_log_stdout(const char *fmt, ...)
+{
+    struct logger *l = &logger;
+    int len, size, errno_save;
+    char buf[4 * LOG_MAX_LEN];
+    va_list args;
+    ssize_t n;
+
+    errno_save = errno;
+    len = 0;                /* length of output buffer */
+    size = 4 * LOG_MAX_LEN; /* size of output buffer */
+
+    va_start(args, fmt);
+    len += dvscnprintf(buf, size, fmt, args);
+    va_end(args);
+
+    buf[len++] = '\n';
+
+    n = write(STDOUT_FILENO, buf, len);
     if (n < 0) {
         l->nerror++;
     }
@@ -208,7 +238,7 @@ _log_hexdump(const char *file, int line, char *data, int datalen,
         unsigned char c;
         int savelen;
 
-        len += vr_scnprintf(buf + len, size - len, "%08x  ", off);
+        len += dscnprintf(buf + len, size - len, "%08x  ", off);
 
         save = data;
         savelen = datalen;
@@ -216,34 +246,34 @@ _log_hexdump(const char *file, int line, char *data, int datalen,
         for (i = 0; datalen != 0 && i < 16; data++, datalen--, i++) {
             c = (unsigned char)(*data);
             str = (i == 7) ? "  " : " ";
-            len += vr_scnprintf(buf + len, size - len, "%02x%s", c, str);
+            len += dscnprintf(buf + len, size - len, "%02x%s", c, str);
         }
         for ( ; i < 16; i++) {
             str = (i == 7) ? "  " : " ";
-            len += vr_scnprintf(buf + len, size - len, "  %s", str);
+            len += dscnprintf(buf + len, size - len, "  %s", str);
         }
 
         data = save;
         datalen = savelen;
 
-        len += vr_scnprintf(buf + len, size - len, "  |");
+        len += dscnprintf(buf + len, size - len, "  |");
 
         for (i = 0; datalen != 0 && i < 16; data++, datalen--, i++) {
             c = (unsigned char)(isprint(*data) ? *data : '.');
-            len += vr_scnprintf(buf + len, size - len, "%c", c);
+            len += dscnprintf(buf + len, size - len, "%c", c);
         }
-        len += vr_scnprintf(buf + len, size - len, "|\n");
+        len += dscnprintf(buf + len, size - len, "|\n");
 
         off += 16;
     }
 
-    n = vr_write(l->fd, buf, len);
+    n = write(l->fd, buf, len);
     if (n < 0) {
         l->nerror++;
     }
 
     if (len >= size - 1) {
-        n = vr_write(l->fd, "\n", 1);
+        n = write(l->fd, "\n", 1);
         if (n < 0) {
             l->nerror++;
         }
@@ -269,15 +299,15 @@ _log_safe(const char *fmt, ...)
     len = 0;            /* length of output buffer */
     size = LOG_MAX_LEN; /* size of output buffer */
 
-    len += vr_safe_snprintf(buf + len, size - len, "[.......................] ");
+    len += dsafe_snprintf(buf + len, size - len, "[.......................] ");
 
     va_start(args, fmt);
-    len += vr_safe_vsnprintf(buf + len, size - len, fmt, args);
+    len += dsafe_vsnprintf(buf + len, size - len, fmt, args);
     va_end(args);
 
     buf[len++] = '\n';
 
-    n = vr_write(l->fd, buf, len);
+    n = write(l->fd, buf, len);
     if (n < 0) {
         l->nerror++;
     }
@@ -298,15 +328,15 @@ _log_stderr_safe(const char *fmt, ...)
     len = 0;            /* length of output buffer */
     size = LOG_MAX_LEN; /* size of output buffer */
 
-    len += vr_safe_snprintf(buf + len, size - len, "[.......................] ");
+    len += dsafe_snprintf(buf + len, size - len, "[.......................] ");
 
     va_start(args, fmt);
-    len += vr_safe_vsnprintf(buf + len, size - len, fmt, args);
+    len += dsafe_vsnprintf(buf + len, size - len, fmt, args);
     va_end(args);
 
     buf[len++] = '\n';
 
-    n = vr_write(STDERR_FILENO, buf, len);
+    n = write(STDERR_FILENO, buf, len);
     if (n < 0) {
         l->nerror++;
     }
@@ -314,7 +344,7 @@ _log_stderr_safe(const char *fmt, ...)
     errno = errno_save;
 }
 
-void write_to_log(char * str, size_t len)
+void log_write_len(char *str, size_t len)
 {
     struct logger *l = &logger;
     int errno_save;
@@ -325,7 +355,7 @@ void write_to_log(char * str, size_t len)
     }
 
     errno_save = errno;
-    n = vr_write(l->fd, str, len);
+    n = write(l->fd, str, len);
     if (n < 0) {
         l->nerror++;
     }

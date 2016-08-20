@@ -11,6 +11,7 @@ AM_CPPFLAGS += -I $(top_srcdir)/dep/hiredis-0.13.3
 AM_CPPFLAGS += -I $(top_srcdir)/dep/hashkit
 AM_CPPFLAGS += -I $(top_srcdir)/dep/dlist
 AM_CPPFLAGS += -I $(top_srcdir)/dep/darray
+AM_CPPFLAGS += -I $(top_srcdir)/dep/util
 
 AM_CFLAGS = 
 AM_CFLAGS += -fno-strict-aliasing
@@ -63,3 +64,4 @@ vireabtest_LDADD += $(top_builddir)/dep/hiredis-0.13.3/libhiredis.a
 vireabtest_LDADD += $(top_builddir)/dep/hashkit/libhashkit.a
 vireabtest_LDADD += $(top_builddir)/dep/dlist/libdlist.a
 vireabtest_LDADD += $(top_builddir)/dep/darray/libdarray.a
+vireabtest_LDADD += $(top_builddir)/dep/util/libdutil.a

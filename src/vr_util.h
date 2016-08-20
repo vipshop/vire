@@ -14,22 +14,6 @@
 #define __xstr(s) __str(s)
 #define __str(s) #s
 
-#define UNUSED(x) (void)(x)
-
-#define LF                  (uint8_t) 10
-#define CR                  (uint8_t) 13
-#define CRLF                "\x0d\x0a"
-#define CRLF_LEN            (sizeof("\x0d\x0a") - 1)
-
-#define NELEMS(a)           ((sizeof(a)) / sizeof((a)[0]))
-
-#define MIN(a, b)           ((a) < (b) ? (a) : (b))
-#define MAX(a, b)           ((a) > (b) ? (a) : (b))
-
-#define SQUARE(d)           ((d) * (d))
-#define VAR(s, s2, n)       (((n) < 2) ? 0.0 : ((s2) - SQUARE(s)/(n)) / ((n) - 1))
-#define STDDEV(s, s2, n)    (((n) < 2) ? 0.0 : sqrt(VAR((s), (s2), (n))))
-
 #define VR_INET4_ADDRSTRLEN (sizeof("255.255.255.255") - 1)
 #define VR_INET6_ADDRSTRLEN \
     (sizeof("ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255") - 1)
@@ -185,45 +169,6 @@ size_t vr_alloc_used_memory(void);
 ssize_t _vr_sendn(int sd, const void *vptr, size_t n);
 ssize_t _vr_recvn(int sd, void *vptr, size_t n);
 
-/*
- * Wrappers for defining custom assert based on whether macro
- * VR_ASSERT_PANIC or VR_ASSERT_LOG was defined at the moment
- * ASSERT was called.
- */
-#ifdef VR_ASSERT_PANIC
-
-#define ASSERT(_x) do {                         \
-    if (!(_x)) {                                \
-        vr_assert(#_x, __FILE__, __LINE__, 1);  \
-    }                                           \
-} while (0)
-
-#define NOT_REACHED() ASSERT(0)
-
-#elif VR_ASSERT_LOG
-
-#define ASSERT(_x) do {                         \
-    if (!(_x)) {                                \
-        vr_assert(#_x, __FILE__, __LINE__, 0);  \
-    }                                           \
-} while (0)
-
-#define NOT_REACHED() ASSERT(0)
-
-#else
-
-#define ASSERT(_x)
-
-#define NOT_REACHED()
-
-#endif
-
-void vr_assert(const char *cond, const char *file, int line, int panic);
-void vr_stacktrace(int skip_count);
-void vr_stacktrace_fd(int fd);
-
-int _scnprintf(char *buf, size_t size, const char *fmt, ...);
-int _vscnprintf(char *buf, size_t size, const char *fmt, va_list args);
 int64_t vr_usec_now(void);
 int64_t vr_msec_now(void);
 
@@ -244,55 +189,6 @@ struct sockinfo {
 
 int vr_resolve(sds name, int port, struct sockinfo *si);
 int vr_net_format_peer(int fd, char *buf, size_t buf_len);
-
-/*
- * A (very) limited version of snprintf
- * @param   to   Destination buffer
- * @param   n    Size of destination buffer
- * @param   fmt  printf() style format string
- * @returns Number of bytes written, including terminating '\0'
- * Supports 'd' 'i' 'u' 'x' 'p' 's' conversion
- * Supports 'l' and 'll' modifiers for integral types
- * Does not support any width/precision
- * Implemented with simplicity, and async-signal-safety in mind
- */
-int _safe_vsnprintf(char *to, size_t size, const char *format, va_list ap);
-int _safe_snprintf(char *to, size_t n, const char *fmt, ...);
-
-#define vr_safe_snprintf(_s, _n, ...)       \
-    _safe_snprintf((char *)(_s), (size_t)(_n), __VA_ARGS__)
-
-#define vr_safe_vsnprintf(_s, _n, _f, _a)   \
-    _safe_vsnprintf((char *)(_s), (size_t)(_n), _f, _a)
-
-/*
- * snprintf(s, n, ...) will write at most n - 1 of the characters printed into
- * the output string; the nth character then gets the terminating `\0'; if
- * the return value is greater than or equal to the n argument, the string
- * was too short and some of the printed characters were discarded; the output
- * is always null-terminated.
- *
- * Note that, the return value of snprintf() is always the number of characters
- * that would be printed into the output string, assuming n were limited not
- * including the trailing `\0' used to end output.
- *
- * scnprintf(s, n, ...) is same as snprintf() except, it returns the number
- * of characters printed into the output string not including the trailing '\0'
- */
-#define vr_snprintf(_s, _n, ...)        \
-    snprintf((char *)(_s), (size_t)(_n), __VA_ARGS__)
-
-#define vr_scnprintf(_s, _n, ...)       \
-    _scnprintf((char *)(_s), (size_t)(_n), __VA_ARGS__)
-
-#define vr_vsnprintf(_s, _n, _f, _a)    \
-    vsnprintf((char *)(_s), (size_t)(_n), _f, _a)
-
-#define vr_vscnprintf(_s, _n, _f, _a)   \
-    _vscnprintf((char *)(_s), (size_t)(_n), _f, _a)
-
-#define vr_strftime(_s, _n, fmt, tm)        \
-    (int)strftime((char *)(_s), (size_t)(_n), fmt, tm)
 
 void get_random_hex_chars(char *p, unsigned int len);
 

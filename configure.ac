@@ -233,6 +233,7 @@ AC_CONFIG_COMMANDS_PRE([cd ../..])
 # Define Makefiles
 AC_CONFIG_FILES([Makefile
                  dep/Makefile
+                 dep/util/Makefile
                  dep/hashkit/Makefile
                  dep/ae/Makefile
                  dep/dlist/Makefile
