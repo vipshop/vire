@@ -412,6 +412,27 @@ static data_unit *rpush_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+static data_unit *lpush_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+    unsigned int j, field_length;
+
+    field_length = get_random_field_len();
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 2+field_length;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key();
+
+    for (j = 0; j < field_length; j ++) {
+        du->argv[2+j] = get_random_string();
+    }
+    
+    return du;
+}
+
 static int producers_count;
 data_producer redis_data_producer_table[] = {
     /* Key */
@@ -434,7 +455,8 @@ data_producer redis_data_producer_table[] = {
     {"append",append_cmd_producer,3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
     {"strlen",strlen_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
     /* List */
-    {"rpush",rpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST}
+    {"rpush",rpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST},
+    {"lpush",lpush_cmd_producer,-3,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_LIST}
 };
 
 data_unit *data_unit_get(void)
