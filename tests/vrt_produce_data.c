@@ -313,6 +313,20 @@ static data_unit *incr_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+static data_unit *decr_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 2;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key();
+    
+    return du;
+}
+
 static int producers_count;
 data_producer redis_data_producer_table[] = {
     /* Key */
@@ -328,7 +342,8 @@ data_producer redis_data_producer_table[] = {
     {"setnx",setnx_cmd_producer,3,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
     {"setex",setex_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE},
     {"psetex",psetex_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE},
-    {"incr",incr_cmd_producer,2,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING}
+    {"incr",incr_cmd_producer,2,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
+    {"decr",decr_cmd_producer,2,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING}
 };
 
 data_unit *data_unit_get(void)
