@@ -431,7 +431,7 @@ void incrDecrCommand(client *c, long long incr) {
     lockDbWrite(c->db);
     o = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (o != NULL && checkType(c,o,OBJ_STRING)) goto end;
-    if (getLongLongFromObjectOrReply(c,o,&value,&expired) != VR_OK) goto end;
+    if (getLongLongFromObjectOrReply(c,o,&value,NULL) != VR_OK) goto end;
 
     oldvalue = value;
     if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
