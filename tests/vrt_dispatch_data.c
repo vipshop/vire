@@ -15,6 +15,7 @@
 #include <vr_hashkit.h>
 #include <dlist.h>
 #include <dmtlist.h>
+#include <dlog.h>
 
 #include <vrt_util.h>
 #include <vrt_public.h>
@@ -45,7 +46,7 @@ static int check_replys_if_same(reply_unit *ru)
     for (j = 1; j < ru->total_count ; j ++) {
         reply = replys[j];
         if (check_two_replys_if_same(replyb, reply)) {
-            test_log_out("%s command replys are inconsistency", 
+            log_error("%s command replys are inconsistency", 
                 ru->du->dp->name);
             return VRT_ERROR;
         }
@@ -180,7 +181,7 @@ static int dispatch_data_thread_cron(aeEventLoop *eventLoop, long long id, void 
 static void connect_callback(const redisAsyncContext *c, int status) {
     dispatch_data_thread *ddt = c->data;
     if (status != REDIS_OK) {
-        test_log_out("Error: %s\n", c->errstr);
+        log_error("Error: %s\n", c->errstr);
         //aeStop(loop);
         return;
     }
@@ -191,7 +192,7 @@ static void connect_callback(const redisAsyncContext *c, int status) {
 static void disconnect_callback(const redisAsyncContext *c, int status) {
     dispatch_data_thread *ddt = c->data;
     if (status != REDIS_OK) {
-        test_log_out("Error: %s\n", c->errstr);
+        log_error("Error: %s\n", c->errstr);
         //aeStop(loop);
         return;
     }

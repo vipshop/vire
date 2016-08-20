@@ -1003,7 +1003,7 @@ static int data_checker_cron(aeEventLoop *eventLoop, long long id, void *clientD
 
     if (checking_data_or_not() && all_check_data_threads_finished()) {
         check_data_finished();
-        log_notice("Finished checking the data");
+        log_notice("Finished checking the data\n");
     }
 
     if (test_if_need_pause() && !checking_data_or_not()) {
