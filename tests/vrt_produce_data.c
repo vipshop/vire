@@ -181,6 +181,22 @@ static data_unit *setnx_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+static data_unit *setex_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 4;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key();
+    du->argv[2] = sdsfromlonglong(rand()%10000);
+    du->argv[3] = get_random_string();
+    
+    return du;
+}
+
 static data_unit *del_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
@@ -279,7 +295,8 @@ data_producer redis_data_producer_table[] = {
     /* String */
     {"get",get_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
     {"set",set_cmd_producer,-3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
-    {"setnx",setnx_cmd_producer,3,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING}
+    {"setnx",setnx_cmd_producer,3,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
+    {"setex",setex_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE}
 };
 
 data_unit *data_unit_get(void)
