@@ -9,6 +9,7 @@
 
 #include <hiredis.h>
 
+#include <darray.h>
 #include <dlog.h>
 
 #include <vrt_util.h>
@@ -452,4 +453,32 @@ int parse_command_types(char *command_types_str)
     sdsfreesplitres(types_strs,types_count);
 
     return types;
+}
+
+/* command list string is like 'get,set,lrange,zrange' */
+darray *parse_command_list(char *command_list_str)
+{
+    darray *commands;
+    sds *command_elem;
+    sds *command_strs;
+    int command_count, j;
+
+    command_strs = sdssplitlen(command_list_str,strlen(command_list_str),",",1,&command_count);
+    if (command_strs == NULL) {
+        return -1;
+    } else if (command_count <= 0) {
+        sdsfreesplitres(command_strs,command_count);
+        return -1;
+    }
+
+    commands = darray_create(command_count, sizeof(sds));
+    for (j = 0; j < command_count; j ++) {
+        command_elem = darray_push(commands);
+        *command_elem = command_strs[j];
+        command_strs[j] = NULL;
+    }
+
+    sdsfreesplitres(command_strs,command_count);
+
+    return commands;
 }

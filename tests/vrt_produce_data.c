@@ -649,10 +649,11 @@ static void *vrt_produce_thread_run(void *args)
 
 int vrt_produce_data_init(int key_length_range_min,int key_length_range_max, 
     int string_max_length,int fields_max_count,
-    int produce_cmd_types,unsigned int produce_threads_count,long long cached_keys,
+    int produce_cmd_types,darray *produce_cmd_blacklist,
+    unsigned int produce_threads_count,long long cached_keys,
     int hit_ratio)
 {
-    int j;
+    int j, k;
     
     key_length_min = key_length_range_min;
     key_length_max = key_length_range_max;
@@ -689,6 +690,28 @@ int vrt_produce_data_init(int key_length_range_min,int key_length_range_max,
             f++;
         }
 
+        if (delete_data_producer == NULL && 
+            !strcmp(dp->name,"del")) {
+            delete_data_producer = dp;
+        }
+
+        /* Check if this is in the blacklist */
+        if (produce_cmd_blacklist != NULL) {
+            int is_in_blacklist = 0;
+            for (k = 0; k < darray_n(produce_cmd_blacklist); k ++) {
+                sds *cmdname = darray_get(produce_cmd_blacklist, k);
+                if (!strcasecmp(dp->name,*cmdname)) {
+                    is_in_blacklist = 1;
+                    break;
+                }
+            }
+            
+            if (is_in_blacklist) {
+                continue;
+            }
+        }
+
+        /* Add the needed command producer */
         if (dp->cmd_type&cmd_type) {
             data_producer **dp_elem = darray_push(
                 &needed_cmd_type_producer);
@@ -700,10 +723,6 @@ int vrt_produce_data_init(int key_length_range_min,int key_length_range_max,
                 &needed_cmd_type_producer);
             *dp_elem = dp;
             needed_cmd_type_producer_count ++;
-        }
-
-        if (!strcmp(dp->name,"del")) {
-            delete_data_producer = dp;
         }
     }
 

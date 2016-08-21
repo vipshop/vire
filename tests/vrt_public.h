@@ -11,6 +11,8 @@
 
 #include <hiredis.h>
 
+struct darray;
+
 #define VRT_TEST_OK     0
 #define VRT_TEST_ERR    1
 
@@ -58,5 +60,6 @@ redisReply *steal_hiredis_redisreply(redisReply *r);
 int check_two_replys_if_same(redisReply *reply1, redisReply *reply2);
 
 int parse_command_types(char *command_types_str);
+struct darray *parse_command_list(char *command_list_str);
 
 #endif

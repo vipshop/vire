@@ -46,6 +46,7 @@ struct config {
     int string_max_length;
     int fields_max_count;
     int cmd_type;
+    darray *cmd_blacklist;
     char *test_targets; 
     int produce_data_threads;
     long long cached_keys_per_produce_thread;
@@ -87,6 +88,7 @@ static struct option long_options[] = {
     { "string-max-length",      required_argument,  NULL,   's' },
     { "fields-max-count",       required_argument,  NULL,   'f' },
     { "command-types",          required_argument,  NULL,   'T' },
+    { "command-black-list",     required_argument,  NULL,   'B' },
     { "test-targets",           required_argument,  NULL,   't' },
     { "produce-data-threads",   required_argument,  NULL,   'p' },
     { "cached-keys",            required_argument,  NULL,   'K' },
@@ -97,7 +99,7 @@ static struct option long_options[] = {
     { NULL,                     0,                  NULL,    0  }
 };
 
-static char short_options[] = "hVDEP:C:i:k:s:f:T:t:p:K:H:d:c:o:";
+static char short_options[] = "hVDEP:C:i:k:s:f:T:B:t:p:K:H:d:c:o:";
 
 static void
 vrt_show_usage(void)
@@ -119,6 +121,7 @@ vrt_show_usage(void)
         "  -s, --string-max-length      : the max string length to generate for test, string is for STRING/LIST... value element" CRLF
         "  -f, --fields-max-count       : the max fields count to generate for test, field is the LIST/HASH...'s element" CRLF
         "  -T, --command-types          : the command types to generate for test, like string,hash,key" CRLF
+        "  -B, --command-black-list     : the commands not want to test, like del,lrange,mget" CRLF
         "  -t, --test-targets           : the test targets for test, like vire[127.0.0.1:12301]-redis[127.0.0.1:12311]" CRLF
         "  -p, --produce-data-threads   : the threads count to produce test data" CRLF
         "  -K, --cached-keys            : the cached keys count for every produce data thread" CRLF
@@ -143,6 +146,7 @@ vrt_set_default_options(void)
     config.cmd_type = TEST_CMD_TYPE_STRING|TEST_CMD_TYPE_LIST|
         TEST_CMD_TYPE_SET|TEST_CMD_TYPE_ZSET|TEST_CMD_TYPE_HASH|
         TEST_CMD_TYPE_SERVER|TEST_CMD_TYPE_KEY;
+    config.cmd_blacklist = NULL;
     config.test_targets = CONFIG_DEFAULT_TEST_TARGET; 
     config.produce_data_threads = CONFIG_DEFAULT_PRODUCE_THREADS_COUNT;
     config.cached_keys_per_produce_thread = CONFIG_DEFAULT_CACHED_KEYS_COUNT;
@@ -152,6 +156,20 @@ vrt_set_default_options(void)
     config.log_filename = CONFIG_DEFAULT_LOGFILE;
     
     expire_enabled = 0;
+}
+
+static void
+vrt_clean_options(void)
+{
+    if (config.cmd_blacklist != NULL) {
+        sds *command;
+        while (darray_n(config.cmd_blacklist) > 0) {
+            command = darray_pop(config.cmd_blacklist);
+            sdsfree(command);
+        }
+        darray_destroy(config.cmd_blacklist);
+        config.cmd_blacklist = NULL;
+    }
 }
 
 static int
@@ -241,6 +259,14 @@ vrt_get_options(int argc, char **argv)
             }
             break;
 
+        case 'B':
+            config.cmd_blacklist = parse_command_list(optarg);
+            if (config.cmd_type <= 0) {
+                log_stderr("vireabtest: option -B requires the correct command list");
+                return VRT_ERROR;
+            }
+            break;
+            
         case 't':
             config.test_targets = optarg;
             break;
@@ -302,6 +328,7 @@ vrt_get_options(int argc, char **argv)
             case 'C':
             case 'k':
             case 'T':
+            case 'B':
             case 't':
             case 'P':
             case 'o':
@@ -670,7 +697,8 @@ main(int argc, char **argv)
     ret = vrt_produce_data_init(config.key_length_range_begin,
         config.key_length_range_end,
         config.string_max_length,config.fields_max_count,
-        config.cmd_type,config.produce_data_threads,
+        config.cmd_type,config.cmd_blacklist,
+        config.produce_data_threads,
         config.cached_keys_per_produce_thread, 
         config.hit_ratio);
     if (ret != VRT_OK) {
@@ -711,6 +739,7 @@ main(int argc, char **argv)
     vrt_produce_data_deinit();
 
     log_deinit();
+    vrt_clean_options();
     
     return VRT_OK;
 }
