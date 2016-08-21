@@ -11,6 +11,8 @@
 
 #include <hiredis.h>
 #include <darray.h>
+#include <dutil.h>
+#include <dlog.h>
 
 #include <vrt_util.h>
 #include <vrt_public.h>
@@ -456,7 +458,7 @@ data_producer redis_data_producer_table[] = {
     {"strlen",strlen_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
     /* List */
     {"rpush",rpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST},
-    {"lpush",lpush_cmd_producer,-3,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_LIST}
+    {"lpush",lpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST}
 };
 
 data_unit *data_unit_get(void)
@@ -495,7 +497,7 @@ static produce_scheme *produce_scheme_create(long long max_cached_keys, int hit_
     ps->ckeys = malloc(ps->max_ckeys_count*sizeof(sds));
     for (idx = 0; idx < ps->max_ckeys_count; idx ++) {
         ps->ckeys[idx] = sdsempty();
-        sdsMakeRoomFor(ps->ckeys[idx],key_length_max);
+        ps->ckeys[idx] = sdsMakeRoomFor(ps->ckeys[idx],key_length_max+1);
     }
 
     /* Generate the hit ratio. */
@@ -619,7 +621,7 @@ static void *vrt_produce_thread_run(void *args)
 
             keyindex = get_keys_from_data_producer((*dp),du->argv,du->argc,&numkeys);
             if (numkeys <= 0) {
-                assert(0);
+                NOT_REACHED();
                 return NULL;
             }
 
@@ -636,7 +638,7 @@ static void *vrt_produce_thread_run(void *args)
         if (ret == -1) {
             data_unit_put(du);
         } else if (ret == 1) {
-            usleep(10000);
+            usleep(100000);
         }
 
         pt->looptimes ++;
@@ -708,9 +710,14 @@ int vrt_produce_data_init(int key_length_range_min,int key_length_range_max,
     if (delete_data_producer == NULL) {
         return VRT_ERROR;
     }
-
+    
     if (needed_cmd_type_producer_count == 0) {
         return VRT_ERROR;
+    }
+
+    for (j = 0; j < needed_cmd_type_producer_count; j ++) {
+        data_producer **dp_elem = darray_get(&needed_cmd_type_producer,j);
+        log_debug(LOG_INFO, "needed test command[%d]: %s", j, (*dp_elem)->name);
     }
 
     vrt_produce_threads_init(produce_threads_count, cached_keys, hit_ratio);

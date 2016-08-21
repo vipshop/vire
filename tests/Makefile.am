@@ -46,6 +46,7 @@ viretest_SOURCES =                      \
 viretest_LDADD = $(top_builddir)/dep/ae/libae.a
 viretest_LDADD += $(top_builddir)/dep/jemalloc-4.2.0/lib/libjemalloc.a
 viretest_LDADD += $(top_builddir)/dep/hiredis-0.13.3/libhiredis.a
+viretest_LDADD += $(top_builddir)/dep/util/libdutil.a
 
 noinst_PROGRAMS += vireabtest
 

@@ -57,4 +57,6 @@ long long get_longlong_from_info_reply(redisReply *reply, char *name);
 redisReply *steal_hiredis_redisreply(redisReply *r);
 int check_two_replys_if_same(redisReply *reply1, redisReply *reply2);
 
+int parse_command_types(char *command_types_str);
+
 #endif

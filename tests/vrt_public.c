@@ -9,6 +9,8 @@
 
 #include <hiredis.h>
 
+#include <dlog.h>
+
 #include <vrt_util.h>
 #include <vrt_public.h>
 
@@ -407,4 +409,47 @@ int check_two_replys_if_same(redisReply *reply1, redisReply *reply2)
     }
 
     return 0;
+}
+
+/* command types string is like 'string,list,set,zset,hash,server,key,expire' */
+int parse_command_types(char *command_types_str)
+{
+    int types = 0;
+    sds *types_strs;
+    int types_count, j;
+
+    types_strs = sdssplitlen(command_types_str,strlen(command_types_str),",",1,&types_count);
+    if (types_strs == NULL) {
+        return -1;
+    } else if (types_count <= 0) {
+        sdsfreesplitres(types_strs,types_count);
+        return -1;
+    }
+    
+    for (j = 0; j < types_count; j ++) {
+        if (!strcasecmp(types_strs[j],"string")) {
+            types |= TEST_CMD_TYPE_STRING;
+        } else if (!strcasecmp(types_strs[j],"list")) {
+            types |= TEST_CMD_TYPE_LIST;
+        } else if (!strcasecmp(types_strs[j],"set")) {
+            types |= TEST_CMD_TYPE_SET;
+        } else if (!strcasecmp(types_strs[j],"zset")) {
+            types |= TEST_CMD_TYPE_ZSET;
+        } else if (!strcasecmp(types_strs[j],"hash")) {
+            types |= TEST_CMD_TYPE_HASH;
+        } else if (!strcasecmp(types_strs[j],"server")) {
+            types |= TEST_CMD_TYPE_SERVER;
+        } else if (!strcasecmp(types_strs[j],"key")) {
+            types |= TEST_CMD_TYPE_KEY;
+        } else if (!strcasecmp(types_strs[j],"expire")) {
+            types |= TEST_CMD_TYPE_EXPIRE;
+        } else {
+            sdsfreesplitres(types_strs,types_count);
+            return -1;
+        } 
+    }
+
+    sdsfreesplitres(types_strs,types_count);
+
+    return types;
 }

@@ -26,7 +26,7 @@
 #define CONFIG_DEFAULT_KEY_LENGTH_RANGE_BEGIN       0
 #define CONFIG_DEFAULT_KEY_LENGTH_RANGE_END         100
 #define CONFIG_DEFAULT_STRING_MAX_LENGTH            512
-#define CONFIG_DEFAULT_FIELDS_MAX_COUNT             512
+#define CONFIG_DEFAULT_FIELDS_MAX_COUNT             16
 #define CONFIG_DEFAULT_TEST_TARGET                  ""
 #define CONFIG_DEFAULT_PRODUCE_THREADS_COUNT        1
 #define CONFIG_DEFAULT_CACHED_KEYS_COUNT            10000
@@ -118,7 +118,7 @@ vrt_show_usage(void)
         "  -k, --key-length-range       : the key length range to generate for test, like 0-100" CRLF
         "  -s, --string-max-length      : the max string length to generate for test, string is for STRING/LIST... value element" CRLF
         "  -f, --fields-max-count       : the max fields count to generate for test, field is the LIST/HASH...'s element" CRLF
-        "  -T, --command-types          : the command types to generate for test" CRLF
+        "  -T, --command-types          : the command types to generate for test, like string,hash,key" CRLF
         "  -t, --test-targets           : the test targets for test, like vire[127.0.0.1:12301]-redis[127.0.0.1:12311]" CRLF
         "  -p, --produce-data-threads   : the threads count to produce test data" CRLF
         "  -K, --cached-keys            : the cached keys count for every produce data thread" CRLF
@@ -234,7 +234,11 @@ vrt_get_options(int argc, char **argv)
             break;
             
         case 'T':
-            //config.cmd_type = optarg;
+            config.cmd_type = parse_command_types(optarg);
+            if (config.cmd_type <= 0) {
+                log_stderr("vireabtest: option -T requires the correct command types");
+                return VRT_ERROR;
+            }
             break;
 
         case 't':
@@ -539,7 +543,7 @@ static int abtest_group_init(abtest_group *abg, char *group_string)
 
     sdsrange(type_addrs[1],0,-2);
 
-    addrs = sdssplitlen(type_addrs[1],sdslen(type_addrs[1]),"|",1,&addrs_count);
+    addrs = sdssplitlen(type_addrs[1],sdslen(type_addrs[1]),",",1,&addrs_count);
     if (addrs == NULL) {
         sdsfreesplitres(type_addrs,type_addrs_count);
         return VRT_ERROR;
@@ -580,7 +584,7 @@ static void abtest_group_deinit(abtest_group *abg)
     darray_deinit(&abg->abtest_servers);
 }
 
-/* groups_string is like "vire[127.0.0.1:12301|127.0.0.1:12302]-redis[127.0.0.1:12311|127.0.0.1:12312]" */
+/* groups_string is like "vire[127.0.0.1:12301,127.0.0.1:12302]-redis[127.0.0.1:12311,127.0.0.1:12312]" */
 darray *abtest_groups_create(char *groups_string)
 {
     darray *abgs;
