@@ -647,9 +647,19 @@ static void *vrt_produce_thread_run(void *args)
     return NULL;
 }
 
+static int add_to_needed_cmd_type_producer(data_producer *dp)
+{
+    data_producer **dp_elem = darray_push(&needed_cmd_type_producer);
+
+    *dp_elem = dp;
+    needed_cmd_type_producer_count ++;
+    
+    return VRT_OK;
+}
+
 int vrt_produce_data_init(int key_length_range_min,int key_length_range_max, 
     int string_max_length,int fields_max_count,
-    int produce_cmd_types,darray *produce_cmd_blacklist,
+    int produce_cmd_types,darray *produce_cmd_blacklist,darray *produce_cmd_whitelist,
     unsigned int produce_threads_count,long long cached_keys,
     int hit_ratio)
 {
@@ -695,6 +705,17 @@ int vrt_produce_data_init(int key_length_range_min,int key_length_range_max,
             delete_data_producer = dp;
         }
 
+        if (produce_cmd_whitelist != NULL) {
+            for (k = 0; k < darray_n(produce_cmd_whitelist); k ++) {
+                sds *cmdname = darray_get(produce_cmd_whitelist, k);
+                if (!strcasecmp(dp->name,*cmdname)) {
+                    add_to_needed_cmd_type_producer(dp);
+                    break;
+                }
+            }
+            continue;
+        }
+
         /* Check if this is in the blacklist */
         if (produce_cmd_blacklist != NULL) {
             int is_in_blacklist = 0;
@@ -713,17 +734,16 @@ int vrt_produce_data_init(int key_length_range_min,int key_length_range_max,
 
         /* Add the needed command producer */
         if (dp->cmd_type&cmd_type) {
-            data_producer **dp_elem = darray_push(
-                &needed_cmd_type_producer);
-            *dp_elem = dp;
-            needed_cmd_type_producer_count ++;
+            add_to_needed_cmd_type_producer(dp);
         }
         if (dp->cmd_type&TEST_CMD_TYPE_EXPIRE && expire_enabled) {
-            data_producer **dp_elem = darray_push(
-                &needed_cmd_type_producer);
-            *dp_elem = dp;
-            needed_cmd_type_producer_count ++;
+            add_to_needed_cmd_type_producer(dp);
         }
+    }
+
+    if (darray_n(&needed_cmd_type_producer) == 0) {
+        log_error("No command need to test");
+        return VRT_ERROR;
     }
 
     if (delete_data_producer == NULL) {

@@ -47,6 +47,7 @@ struct config {
     int fields_max_count;
     int cmd_type;
     darray *cmd_blacklist;
+    darray *cmd_whitelist;
     char *test_targets; 
     int produce_data_threads;
     long long cached_keys_per_produce_thread;
@@ -89,6 +90,7 @@ static struct option long_options[] = {
     { "fields-max-count",       required_argument,  NULL,   'f' },
     { "command-types",          required_argument,  NULL,   'T' },
     { "command-black-list",     required_argument,  NULL,   'B' },
+    { "command-white-list",     required_argument,  NULL,   'W' },
     { "test-targets",           required_argument,  NULL,   't' },
     { "produce-data-threads",   required_argument,  NULL,   'p' },
     { "cached-keys",            required_argument,  NULL,   'K' },
@@ -99,7 +101,7 @@ static struct option long_options[] = {
     { NULL,                     0,                  NULL,    0  }
 };
 
-static char short_options[] = "hVDEP:C:i:k:s:f:T:B:t:p:K:H:d:c:o:";
+static char short_options[] = "hVDEP:C:i:k:s:f:T:B:W:t:p:K:H:d:c:o:";
 
 static void
 vrt_show_usage(void)
@@ -122,6 +124,7 @@ vrt_show_usage(void)
         "  -f, --fields-max-count       : the max fields count to generate for test, field is the LIST/HASH...'s element" CRLF
         "  -T, --command-types          : the command types to generate for test, like string,hash,key" CRLF
         "  -B, --command-black-list     : the commands not want to test, like del,lrange,mget" CRLF
+        "  -W, --command-white-list     : the commands only allows to test, like del,lrange,mget" CRLF
         "  -t, --test-targets           : the test targets for test, like vire[127.0.0.1:12301]-redis[127.0.0.1:12311]" CRLF
         "  -p, --produce-data-threads   : the threads count to produce test data" CRLF
         "  -K, --cached-keys            : the cached keys count for every produce data thread" CRLF
@@ -147,6 +150,7 @@ vrt_set_default_options(void)
         TEST_CMD_TYPE_SET|TEST_CMD_TYPE_ZSET|TEST_CMD_TYPE_HASH|
         TEST_CMD_TYPE_SERVER|TEST_CMD_TYPE_KEY;
     config.cmd_blacklist = NULL;
+    config.cmd_whitelist = NULL;
     config.test_targets = CONFIG_DEFAULT_TEST_TARGET; 
     config.produce_data_threads = CONFIG_DEFAULT_PRODUCE_THREADS_COUNT;
     config.cached_keys_per_produce_thread = CONFIG_DEFAULT_CACHED_KEYS_COUNT;
@@ -169,6 +173,16 @@ vrt_clean_options(void)
         }
         darray_destroy(config.cmd_blacklist);
         config.cmd_blacklist = NULL;
+    }
+
+    if (config.cmd_whitelist != NULL) {
+        sds *command;
+        while (darray_n(config.cmd_whitelist) > 0) {
+            command = darray_pop(config.cmd_whitelist);
+            sdsfree(command);
+        }
+        darray_destroy(config.cmd_whitelist);
+        config.cmd_whitelist = NULL;
     }
 }
 
@@ -261,8 +275,16 @@ vrt_get_options(int argc, char **argv)
 
         case 'B':
             config.cmd_blacklist = parse_command_list(optarg);
-            if (config.cmd_type <= 0) {
+            if (config.cmd_blacklist == NULL) {
                 log_stderr("vireabtest: option -B requires the correct command list");
+                return VRT_ERROR;
+            }
+            break;
+
+        case 'W':
+            config.cmd_whitelist = parse_command_list(optarg);
+            if (config.cmd_whitelist == NULL) {
+                log_stderr("vireabtest: option -W requires the correct command list");
                 return VRT_ERROR;
             }
             break;
@@ -329,6 +351,7 @@ vrt_get_options(int argc, char **argv)
             case 'k':
             case 'T':
             case 'B':
+            case 'W':
             case 't':
             case 'P':
             case 'o':
@@ -697,7 +720,7 @@ main(int argc, char **argv)
     ret = vrt_produce_data_init(config.key_length_range_begin,
         config.key_length_range_end,
         config.string_max_length,config.fields_max_count,
-        config.cmd_type,config.cmd_blacklist,
+        config.cmd_type,config.cmd_blacklist,config.cmd_whitelist,
         config.produce_data_threads,
         config.cached_keys_per_produce_thread, 
         config.hit_ratio);
