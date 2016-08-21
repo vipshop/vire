@@ -17,6 +17,7 @@ void one_backend_thread_paused(void);
 
 int all_produce_threads_paused(void);
 int all_dispatch_threads_paused(void);
+int all_backend_threads_paused(void);
 int all_threads_paused(void);
 
 #endif

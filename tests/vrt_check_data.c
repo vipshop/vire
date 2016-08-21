@@ -984,7 +984,7 @@ static int begin_check_data(void)
     return VRT_OK;
 }
 
-static void check_data_finished(void)
+static void end_check_data(void)
 {
     update_state_set(check_data_threads_finished_count,0);
     update_state_set(checking_data,0);
@@ -996,17 +996,20 @@ static int data_checker_cron(aeEventLoop *eventLoop, long long id, void *clientD
 
     if (!test_if_need_pause() && vrt_sec_now()-last_test_begin_time > test_interval) {
         test_need_to_pause();
+        log_notice("Start pause the test...");
+    }
+
+    if (!checking_data_or_not() && test_if_need_pause() && 
+        all_threads_paused()) {
+        log_notice("Finished pause the test");
         last_check_begin_time = vrt_sec_now();
         begin_check_data();
         log_notice("Start checking the data...");
     }
 
     if (checking_data_or_not() && all_check_data_threads_finished()) {
-        check_data_finished();
+        end_check_data();
         log_notice("Finished checking the data\n");
-    }
-
-    if (test_if_need_pause() && !checking_data_or_not()) {
         test_can_continue();
         last_test_begin_time = vrt_sec_now();
     }
@@ -1172,6 +1175,18 @@ int all_dispatch_threads_paused(void)
 
     update_state_get(dispatch_threads_pause_finished_count,&paused_threads);
     if (paused_threads < dispatch_data_threads_count) {
+        return 0;
+    }
+
+    return 1;
+}
+
+int all_backend_threads_paused(void)
+{
+    int paused_threads;
+
+    update_state_get(backend_threads_pause_finished_count,&paused_threads);
+    if (paused_threads < backend_threads_count) {
         return 0;
     }
 

@@ -169,7 +169,7 @@ static int dispatch_data_thread_cron(aeEventLoop *eventLoop, long long id, void 
     if (test_if_need_pause() && dmtlist_empty(ddt->datas) &&
         dlistLength(ddt->rdatas) == 0 && 
         all_produce_threads_paused() && 
-        all_dispatch_threads_paused()) {
+        all_backend_threads_paused()) {
         ddt->pause = 1;
         one_dispatch_thread_paused();
     }
