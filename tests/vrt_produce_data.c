@@ -702,6 +702,21 @@ static data_unit *zrank_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+static data_unit *zrevrank_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+    
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 3;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[2] = get_random_string();
+        
+    return du;
+}
+
 static int producers_count;
 data_producer redis_data_producer_table[] = {
     /* Key */
@@ -736,7 +751,8 @@ data_producer redis_data_producer_table[] = {
     {"zcount",zcount_cmd_producer,4,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
     {"zrangebyscore",zrangebyscore_cmd_producer,-4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
     {"zrevrangebyscore",zrevrangebyscore_cmd_producer,-4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zrank",zrank_cmd_producer,3,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET}
+    {"zrank",zrank_cmd_producer,3,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
+    {"zrevrank",zrevrank_cmd_producer,3,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET}
 };
 
 data_unit *data_unit_get(void)
