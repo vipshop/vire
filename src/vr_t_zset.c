@@ -433,14 +433,12 @@ int zslParseLexRangeItem(robj *item, robj **dest, int *ex) {
     case '+':
         if (c[1] != '\0') return VR_ERROR;
         *ex = 0;
-        *dest = shared.maxstring;
-        incrRefCount(shared.maxstring);
+        *dest = dupStringObjectUnconstant(shared.maxstring);
         return VR_OK;
     case '-':
         if (c[1] != '\0') return VR_ERROR;
         *ex = 0;
-        *dest = shared.minstring;
-        incrRefCount(shared.minstring);
+        *dest = dupStringObjectUnconstant(shared.minstring);
         return VR_OK;
     case '(':
         *ex = 1;
@@ -469,8 +467,8 @@ static int zslParseLexRange(robj *min, robj *max, zlexrangespec *spec) {
     spec->min = spec->max = NULL;
     if (zslParseLexRangeItem(min, &spec->min, &spec->minex) == VR_ERROR ||
         zslParseLexRangeItem(max, &spec->max, &spec->maxex) == VR_ERROR) {
-        if (spec->min) decrRefCount(spec->min);
-        if (spec->max) decrRefCount(spec->max);
+        if (spec->min) freeObject(spec->min);
+        if (spec->max) freeObject(spec->max);
         return VR_ERROR;
     } else {
         return VR_OK;
@@ -480,8 +478,8 @@ static int zslParseLexRange(robj *min, robj *max, zlexrangespec *spec) {
 /* Free a lex range structure, must be called only after zelParseLexRange()
  * populated the structure with success (VR_OK returned). */
 void zslFreeLexRange(zlexrangespec *spec) {
-    decrRefCount(spec->min);
-    decrRefCount(spec->max);
+    freeObject(spec->min);
+    freeObject(spec->max);
 }
 
 /* This is just a wrapper to compareStringObjects() that is able to
@@ -772,14 +770,14 @@ unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range) {
 static int zzlLexValueGteMin(unsigned char *p, zlexrangespec *spec) {
     robj *value = ziplistGetObject(p);
     int res = zslLexValueGteMin(value,spec);
-    decrRefCount(value);
+    freeObject(value);
     return res;
 }
 
 static int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec) {
     robj *value = ziplistGetObject(p);
     int res = zslLexValueLteMax(value,spec);
-    decrRefCount(value);
+    freeObject(value);
     return res;
 }
 
