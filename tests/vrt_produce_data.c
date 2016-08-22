@@ -78,7 +78,16 @@ static sds get_random_cached_key(produce_scheme *ps)
     return ps->ckeys[idx];
 }
 
-static unsigned int get_random_num(void)
+static int get_random_int(void)
+{
+    if (rand()%2 == 1) {
+        return 0 - (int)rand();
+    } else {
+        return (int)rand();
+    }
+}
+
+static unsigned int get_random_unsigned_int(void)
 {
     return (unsigned int)rand();
 }
@@ -94,7 +103,7 @@ static sds get_random_key(void)
     sds str = sdsempty();
     
     len = key_length_range_gap==0?key_length_min:
-        (get_random_num()%key_length_range_gap+key_length_min);
+        (get_random_unsigned_int()%key_length_range_gap+key_length_min);
     if (len == 0) len ++;
     str = sdsMakeRoomFor(str,(size_t)len);
     sdsIncrLen(str, (int)len);
@@ -111,7 +120,7 @@ static sds get_random_string(void)
     unsigned int i, len;
     sds str = sdsempty();
     
-    len = get_random_num()%string_length_max;
+    len = get_random_unsigned_int()%string_length_max;
     str = sdsMakeRoomFor(str,(size_t)len);
     sdsIncrLen(str, (int)len);
 
@@ -122,9 +131,35 @@ static sds get_random_string(void)
     return str;
 }
 
+static sds get_random_score_str(void)
+{
+    unsigned int decimal_len;
+    sds str;
+
+    if (rand()%2 == 1) {
+        str = sdsnew("-");
+    } else {
+        str = sdsempty();
+    }
+
+    if (rand()%2 == 1) {
+        str = sdscatfmt(str,"%u.%u",
+            get_random_unsigned_int(),
+            get_random_unsigned_int());
+    } else {
+        str = sdscatfmt(str,"%u",
+            get_random_unsigned_int());
+    }
+
+    //sdsfree(str);
+    //str = sdsfromlonglong(10);
+
+    return str;
+}
+
 static unsigned int get_random_field_len(void)
 {
-    return get_random_num()%field_length_max + 1;
+    return get_random_unsigned_int()%field_length_max + 1;
 }
 
 static sds get_random_key_with_hit_ratio(produce_scheme *ps)
@@ -435,6 +470,28 @@ static data_unit *lpush_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+static data_unit *zadd_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+    unsigned int j, field_length;
+
+    field_length = get_random_field_len();
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 2+field_length*2;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key();
+
+    for (j = 2; j < 2+field_length*2; j += 2) {
+        du->argv[j] = get_random_score_str();
+        du->argv[j+1] = get_random_string();
+    }
+    
+    return du;
+}
+
 static int producers_count;
 data_producer redis_data_producer_table[] = {
     /* Key */
@@ -458,7 +515,9 @@ data_producer redis_data_producer_table[] = {
     {"strlen",strlen_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
     /* List */
     {"rpush",rpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST},
-    {"lpush",lpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST}
+    {"lpush",lpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST},
+    /* SortedSet */
+    {"zadd",zadd_cmd_producer,-4,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET}
 };
 
 data_unit *data_unit_get(void)

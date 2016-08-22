@@ -600,6 +600,7 @@ next_step:
     
 error:
 
+    log_hexdump(LOG_NOTICE,cunit->key,sdslen(cunit->key),"key");
     check_unit_destroy(cunit);
 
     log_error("%s", errmeg);
@@ -947,8 +948,6 @@ static void *check_data_thread_run(void *args)
     check_data_thread *cdt = args;
     
     srand(vrt_usec_now()^(int)pthread_self());
-
-    
 
     aeMain(cdt->el);
     
