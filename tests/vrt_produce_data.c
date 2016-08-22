@@ -531,6 +531,31 @@ static data_unit *zrange_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+static data_unit *zrevrange_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+    unsigned int j, field_length;
+    int withscores;
+
+    if (rand()%2 == 1) {
+        withscores = 1;
+    } else {
+        withscores = 0;
+    }
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = withscores?5:4;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[2] = sdsfromlonglong(0);;
+    du->argv[3] = sdsfromlonglong(get_random_int()%10000);
+    if (withscores) du->argv[4] = sdsnew("withscores");
+    
+    return du;
+}
+
 static int producers_count;
 data_producer redis_data_producer_table[] = {
     /* Key */
@@ -558,7 +583,8 @@ data_producer redis_data_producer_table[] = {
     /* SortedSet */
     {"zadd",zadd_cmd_producer,-4,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
     {"zincrby",zincrby_cmd_producer,4,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zrange",zrange_cmd_producer,-4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET}
+    {"zrange",zrange_cmd_producer,-4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
+    {"zrevrange",zrevrange_cmd_producer,-4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET}
 };
 
 data_unit *data_unit_get(void)
