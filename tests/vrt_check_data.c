@@ -26,13 +26,6 @@
 #include <vrt_backend.h>
 #include <vrt_check_data.h>
 
-/* key types */
-#define REDIS_STRING    0
-#define REDIS_LIST      1
-#define REDIS_SET       2
-#define REDIS_ZSET      3
-#define REDIS_HASH      4
-
 #define CHECK_DATA_FLAG_NONE        (1<<0)
 #define CHECK_DATA_FLAG_MASTER      (1<<1)
 #define CHECK_DATA_FLAG_SLAVE       (1<<2)
@@ -51,13 +44,14 @@ typedef struct check_data_thread {
     int cronloops;  /* Number of times the cron function run */
 
     darray *abgs;   /* Type is abtest_group */
-    int scan_group; /* The group idx to scan keys */
+    int scan_group_idx; /* The group idx to scan keys */
     darray *scan_servers;   /* The servers in the scan group, type is abtest_server */
     int scan_finished_count;
     long long cursor;   /* scan cursor */
     dlist *check_units;
 
     long long check_begin_time; /* Unit is second */
+    long long scan_keys_count;
 } check_data_thread;
 
 typedef struct check_unit {
@@ -104,57 +98,6 @@ static data_checker dc;
 static long long last_check_begin_time;
 
 static darray *cdts = NULL;
-
-/* Check state control API */
-/* GCC version >= 4.7 */
-#if defined(__ATOMIC_RELAXED) && defined(STATS_ATOMIC_FIRST)
-#define update_state_add(_value, _n) __atomic_add_fetch(&_value, (_n), __ATOMIC_RELAXED)
-#define update_state_sub(_value, _n) __atomic_sub_fetch(&_value, (_n), __ATOMIC_RELAXED)
-#define update_state_set(_value, _n) __atomic_store_n(&_value, (_n), __ATOMIC_RELAXED)
-#define update_state_get(_value, _v) do {         \
-    __atomic_load(&_value, _v, __ATOMIC_RELAXED); \
-} while(0)
-
-#define TEST_STATE_LOCK_TYPE "__ATOMIC_RELAXED"
-/* GCC version >= 4.1 */
-#elif defined(HAVE_ATOMIC) && defined(STATS_ATOMIC_FIRST)
-#define update_state_add(_value, _n) __sync_add_and_fetch(&_value, (_n))
-#define update_state_sub(_value, _n) __sync_sub_and_fetch(&_value, (_n))
-#define update_state_set(_value, _n) __sync_lock_test_and_set(&_value, (_n))
-#define update_state_get(_value, _v) do {         \
-    (*_v) = __sync_add_and_fetch(&_value, 0);     \
-} while(0)
-
-#define TEST_STATE_LOCK_TYPE "HAVE_ATOMIC"
-#else
-static pthread_mutex_t state_locker = PTHREAD_MUTEX_INITIALIZER;
-
-#define update_state_add(_value, _n) do {   \
-    pthread_mutex_lock(&state_locker);      \
-    _value += (_n);                         \
-    pthread_mutex_unlock(&state_locker);    \
-} while(0)
-
-#define update_state_sub(_value, _n) do {   \
-    pthread_mutex_lock(&state_locker);      \
-    _value -= (_n);                         \
-    pthread_mutex_unlock(&state_locker);    \
-} while(0)
-
-#define update_state_set(_value, _n) do {   \
-    pthread_mutex_lock(&state_locker);      \
-    _value = (_n);                          \
-    pthread_mutex_unlock(&state_locker);    \
-} while(0)
-
-#define update_state_get(_value, _v) do {   \
-    pthread_mutex_lock(&state_locker);      \
-    (*_v) = _value;                         \
-    pthread_mutex_unlock(&state_locker);    \
-} while(0)
-
-#define TEST_STATE_LOCK_TYPE "pthread_mutex_lock"
-#endif
 
 static check_unit *check_unit_create(void)
 {
@@ -288,14 +231,14 @@ static void check_data_callback(redisAsyncContext *c, void *r, void *privdata) {
     check_data_thread *cdt = cunit->cdt;
     conn_context *cc;
     long long value;
-    char *errmeg;
+    char *errmsg;
     int j;
     
     if (reply == NULL) return;
 
     if (cunit->state == CHECK_UNIT_STATE_GET_EXPIRE) {
         if (reply->type != REDIS_REPLY_INTEGER) {
-            errmeg = "ttl command reply type is not integer";
+            errmsg = "ttl command reply type is not integer";
             goto error;
         }
 
@@ -318,7 +261,7 @@ static void check_data_callback(redisAsyncContext *c, void *r, void *privdata) {
                 cunit->not_exist_count ++;
                 min = max = 0;
             } else if (reply_elem->integer < -2) {
-                errmeg = "ttl command reply integer is less than -2";
+                errmsg = "ttl command reply integer is less than -2";
                 goto error;
             } else {
                 min = max =  reply_elem->integer;
@@ -328,20 +271,20 @@ static void check_data_callback(redisAsyncContext *c, void *r, void *privdata) {
                 elem = darray_get(&cunit->replys, j);
                 reply_elem = *elem;
                 if (persist && reply_elem->integer != -1) {
-                    errmeg = "key in some server is persist, but others are not";
+                    errmsg = "key in some server is persist, but others are not";
                     goto error;
                 }
                 
                 if (reply_elem->integer == -1) {
                     if (persist != 1) {
-                        errmeg = "key in some server is persist, but others are not";
+                        errmsg = "key in some server is persist, but others are not";
                         goto error;
                     }
                 } else if (reply_elem->integer == -2) {
                     cunit->not_exist_count ++;
                     if (min > 0) min = 0;
                 } else if (reply_elem->integer < -2) {
-                    errmeg = "ttl command reply integer is less than -2";
+                    errmsg = "ttl command reply integer is less than -2";
                     goto error;
                 } else {
                     if (reply_elem->integer < min) min = reply_elem->integer;
@@ -360,7 +303,7 @@ static void check_data_callback(redisAsyncContext *c, void *r, void *privdata) {
                 cunit->min_ttl = min;
                 cunit->max_ttl_gap = max-min;
                 if (cunit->max_ttl_gap > TTL_MISTAKE_CAN_BE_ACCEPT) {
-                    errmeg = "ttl mistake is too big between groups";
+                    errmsg = "ttl mistake is too big between groups";
                     goto error;
                 }
             }
@@ -387,7 +330,7 @@ static void check_data_callback(redisAsyncContext *c, void *r, void *privdata) {
 
     if (cunit->state == CHECK_UNIT_STATE_GET_TYPE) {        
         if (reply->type != REDIS_REPLY_STATUS) {
-            errmeg = "type command reply type is not status";
+            errmsg = "type command reply type is not status";
             goto error;
         }
 
@@ -410,12 +353,12 @@ static void check_data_callback(redisAsyncContext *c, void *r, void *privdata) {
             size_t *argvlen;
 
             if (cunit->not_exist_count > 0 && cunit->key_persist) {
-                errmeg = "key is persist, but not exist in some servers";
+                errmsg = "key is persist, but not exist in some servers";
                 goto error;
             }
             
             if (check_replys_if_same(cunit) != 1) {
-                errmeg = "type command replys are not same";
+                errmsg = "type command replys are not same";
                 goto error;
             }
 
@@ -484,7 +427,7 @@ static void check_data_callback(redisAsyncContext *c, void *r, void *privdata) {
                 argv[1] = cunit->key;
                 argvlen[1] = sdslen(cunit->key);
             } else {
-                errmeg = "not supported key type";
+                errmsg = "not supported key type";
                 goto error;
             }
 
@@ -512,12 +455,12 @@ static void check_data_callback(redisAsyncContext *c, void *r, void *privdata) {
             if (reply->type == REDIS_REPLY_NIL) {
                 not_exist = 1;
             } else if (reply->type != REDIS_REPLY_STRING) {
-                errmeg = "get command reply type is not string";
+                errmsg = "get command reply type is not string";
                 goto error;
             }
         } else if (cunit->key_type == REDIS_LIST) {
             if (reply->type != REDIS_REPLY_ARRAY) {
-                errmeg = "lrange command reply type is not array";
+                errmsg = "lrange command reply type is not array";
                 goto error;
             }
             if (reply->elements == 0) {
@@ -525,7 +468,7 @@ static void check_data_callback(redisAsyncContext *c, void *r, void *privdata) {
             }
         } else if (cunit->key_type == REDIS_SET) {
             if (reply->type != REDIS_REPLY_ARRAY) {
-                errmeg = "smembers command reply type is not array";
+                errmsg = "smembers command reply type is not array";
                 goto error;
             }
             if (reply->elements == 0) {
@@ -533,7 +476,7 @@ static void check_data_callback(redisAsyncContext *c, void *r, void *privdata) {
             }
         } else if (cunit->key_type == REDIS_ZSET) {
             if (reply->type != REDIS_REPLY_ARRAY) {
-                errmeg = "zrange command reply type is not array";
+                errmsg = "zrange command reply type is not array";
                 goto error;
             }
             if (reply->elements == 0) {
@@ -541,14 +484,14 @@ static void check_data_callback(redisAsyncContext *c, void *r, void *privdata) {
             }
         } else if (cunit->key_type == REDIS_HASH) {
             if (reply->type != REDIS_REPLY_ARRAY) {
-                errmeg = "hgetall command reply type is not array";
+                errmsg = "hgetall command reply type is not array";
                 goto error;
             }
             if (reply->elements == 0) {
                 not_exist = 1;
             }
         } else {
-            errmeg = "not supported key type";
+            errmsg = "not supported key type";
             goto error;
         }
 
@@ -566,12 +509,12 @@ static void check_data_callback(redisAsyncContext *c, void *r, void *privdata) {
             goto done;
         } else if (cunit->replys_count >= (cunit->servers_count-cunit->not_exist_count)) {
             if (cunit->not_exist_count > 0 && cunit->key_persist) {
-                errmeg = "key is persist, but not exist in some servers";
+                errmsg = "key is persist, but not exist in some servers";
                 goto error;
             }
         
             if (check_replys_if_same(cunit) != 1) {
-                errmeg = "values for reply are not same";
+                errmsg = "values for reply are not same";
                 goto error;
             }
             
@@ -600,10 +543,13 @@ next_step:
     
 error:
 
-    log_hexdump(LOG_NOTICE,cunit->key,sdslen(cunit->key),"key");
+    log_hexdump(LOG_ERR,cunit->key,sdslen(cunit->key),
+        "%s, scan group id: %d, key(len:%zu, type: %s): ", 
+        errmsg, 
+        cdt->scan_group_idx, 
+        sdslen(cunit->key),get_key_type_string(cunit->key_type));
+    
     check_unit_destroy(cunit);
-
-    log_error("%s", errmeg);
 }
 
 static int start_check_data(char *key, size_t keylen, check_data_thread *cdt)
@@ -681,6 +627,8 @@ static void scan_for_check_callback(redisAsyncContext *c, void *r, void *privdat
         start_check_data(reply_elem->str,reply_elem->len,cdt);
     }
 
+    cdt->scan_keys_count += reply_sub->elements;
+
     if (cdt->cursor == 0) {
         cdt->scan_finished_count ++;
     }
@@ -714,15 +662,17 @@ static int check_data_thread_cron(aeEventLoop *eventLoop, long long id, void *cl
         if (dlistLength(cdt->check_units) == 0) {
             aeStop(cdt->el);
             one_check_data_thread_finished();
+            log_debug(LOG_NOTICE, "One check thread finished,scaned %lld keys",
+                cdt->scan_keys_count);
             return 1;
         }
-    } else if (dlistLength(cdt->check_units) < 2000) {
+    } else if (dlistLength(cdt->check_units) < 3000) {
         abtest_group *abg;
         abtest_server **abs;
         int *idx;
         conn_context *cc;
         
-        abg = darray_get(cdt->abgs,cdt->scan_group);
+        abg = darray_get(cdt->abgs,cdt->scan_group_idx);
         abs = darray_get(cdt->scan_servers, cdt->scan_finished_count);
         cc = darray_get((*abs)->conn_contexts,0);
 
@@ -741,15 +691,18 @@ static int check_data_thread_init(check_data_thread *cdt, char *test_target_grou
     cdt->id = 0;
     cdt->thread_id = 0;
     cdt->el = NULL;
-    cdt->hz = 10;
+    cdt->hz = 200;
     cdt->cronloops = 0;
     
     cdt->abgs = NULL;
-    cdt->scan_group = 0;
+    cdt->scan_group_idx = 0;
     cdt->scan_servers = NULL;
     cdt->scan_finished_count = 0;
     cdt->cursor = 0;
     cdt->check_units = NULL;
+
+    cdt->check_begin_time = 0;
+    cdt->scan_keys_count = 0;
 
     cdt->el = aeCreateEventLoop(200);
     if (cdt->el == NULL) {
@@ -904,7 +857,7 @@ static int create_check_data_threads(void)
             check_data_thread *cdt = darray_push(cdts);
             check_data_thread_init(cdt,dc.test_target_groups);
             cdt->id = check_thread_id++;
-            cdt->scan_group = i;
+            cdt->scan_group_idx = i;
 
             abg = darray_get(cdt->abgs, cdt->id);
             
@@ -1000,7 +953,13 @@ static int data_checker_cron(aeEventLoop *eventLoop, long long id, void *clientD
 
     if (!checking_data_or_not() && test_if_need_pause() && 
         all_threads_paused()) {
-        log_notice("Finished pause the test");
+        
+        log_notice("Finished pause the test. Tested %lld commands, %lld error reply(%.2f%%).", 
+            get_total_tested_commands_count_per_cycle(),
+            get_total_reply_err_count_per_cycle(),
+            (float)get_total_reply_err_count_per_cycle()/(float)get_total_tested_commands_count_per_cycle()*100);
+        reset_total_count_per_cycle();
+        
         last_check_begin_time = vrt_sec_now();
         begin_check_data();
         log_notice("Start checking the data...");

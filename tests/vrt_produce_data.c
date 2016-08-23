@@ -19,10 +19,10 @@
 #include <vrabtest.h>
 #include <vrt_produce_data.h>
 
+struct key_cache_pool;
+
 typedef struct produce_scheme {
-    long long ckeys_write_idx;
-    long long max_ckeys_count;    /* Max keys count that can be cached in the ckeys array. */
-    sds *ckeys;    /* Cached keys that may exist in the target redis/vire servers. */
+    struct key_cache_pool *kcp;
 
     int hit_ratio;   /* Hit ratio for the read commands. [0%,100%] */
     int hit_ratio_idx;   /* [0,hit_ratio_array_len-1] */
@@ -60,22 +60,7 @@ int produce_threads_pause_finished_count;
 
 static sds get_random_cached_key(produce_scheme *ps)
 {
-    int idx;
-    sds key;
-
-    key = ps->ckeys[0];
-    if (sdslen(key) == 0) {
-        return NULL;
-    }
-
-    key = ps->ckeys[ps->max_ckeys_count-1];
-    if (sdslen(key) == 0) {
-        idx = rand()%ps->ckeys_write_idx;
-    } else {
-        idx = rand()%ps->max_ckeys_count;
-    }
-    
-    return ps->ckeys[idx];
+    return key_cache_pool_random(ps->kcp);
 }
 
 static int get_random_int(void)
@@ -162,13 +147,11 @@ static unsigned int get_random_field_len(void)
 static sds get_random_key_with_hit_ratio(produce_scheme *ps)
 {
     sds key;
-    if (ps->hit_ratio_array[ps->hit_ratio_idx++] == 0 || 
-        ps->ckeys[ps->ckeys_write_idx] == NULL) {
+    if (ps->hit_ratio_array[ps->hit_ratio_idx++] == 0) {
         key = get_random_key();
     } else {
         key = get_random_cached_key(ps);
         if (key == NULL) key = get_random_key();
-        else key = sdsdup(key);
     }
     if (ps->hit_ratio_idx >= ps->hit_ratio_array_len) {
         ps->hit_ratio_idx = 0;
@@ -853,13 +836,7 @@ static produce_scheme *produce_scheme_create(long long max_cached_keys, int hit_
     ps = malloc(sizeof(*ps));
     if (ps == NULL) return NULL;
 
-    ps->max_ckeys_count = max_cached_keys;
-    ps->ckeys_write_idx = 0;
-    ps->ckeys = malloc(ps->max_ckeys_count*sizeof(sds));
-    for (idx = 0; idx < ps->max_ckeys_count; idx ++) {
-        ps->ckeys[idx] = sdsempty();
-        ps->ckeys[idx] = sdsMakeRoomFor(ps->ckeys[idx],key_length_max+1);
-    }
+    ps->kcp = key_cache_pool_create(max_cached_keys);
 
     /* Generate the hit ratio. */
     ps->hit_ratio_array_len = 100;
@@ -899,11 +876,8 @@ static produce_scheme *produce_scheme_create(long long max_cached_keys, int hit_
 static void produce_scheme_destroy(produce_scheme *ps)
 {
     int j;
-    if (ps->ckeys) {
-        for (j = 0; j < ps->max_ckeys_count; j ++) {
-            if (ps->ckeys[j]) sdsfree(ps->ckeys[j]);
-        }
-        free(ps->ckeys);
+    if (ps->kcp) {
+        key_cache_pool_destroy(ps->kcp);
     }
     
     free(ps->hit_ratio_array);
@@ -988,10 +962,8 @@ static void *vrt_produce_thread_run(void *args)
 
             key = du->argv[keyindex[0]];
             free(keyindex);
-            sdscpylen(ps->ckeys[ps->ckeys_write_idx],key,sdslen(key));
-            ps->ckeys_write_idx ++;
-            if (ps->ckeys_write_idx >= ps->max_ckeys_count)
-                ps->ckeys_write_idx = 0;
+
+            key_cache_pool_input(ps->kcp,key,sdslen(key));
         }
 
         /* Dispatch the test data */

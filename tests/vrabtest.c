@@ -746,6 +746,8 @@ main(int argc, char **argv)
         exit(1);
     }
 
+    log_debug(LOG_INFO,"State lock type: %s", TEST_STATE_LOCK_TYPE);
+
     vrt_start_produce_data();
     vrt_start_dispatch_data();
     vrt_start_backend();

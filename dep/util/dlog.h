@@ -46,6 +46,12 @@ struct logger {
     }                                                                       \
 } while (0)
 
+#else
+
+#define log_debug(_level, ...)
+
+#endif
+
 #define log_hexdump(_level, _data, _datalen, ...) do {                      \
     if (log_loggable(_level) != 0) {                                        \
         _log(__FILE__, __LINE__, _level, 0, __VA_ARGS__);                   \
@@ -53,13 +59,6 @@ struct logger {
                      __VA_ARGS__);                                          \
     }                                                                       \
 } while (0)
-
-#else
-
-#define log_debug(_level, ...)
-#define log_hexdump(_level, _data, _datalen, ...)
-
-#endif
 
 #define log_stderr(...) do {                                                \
     _log_stderr(__VA_ARGS__);                                               \

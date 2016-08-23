@@ -14,7 +14,7 @@
 
 #include <vr_hashkit.h>
 #include <dlist.h>
-#include <dmtlist.h>
+#include <dmtqueue.h>
 #include <dlog.h>
 
 #include <vrt_util.h>
@@ -28,12 +28,88 @@ static darray *dispatch_data_threads = NULL;
 
 int dispatch_threads_pause_finished_count;
 
+static long long total_tested_commands_count_per_cycle = 0;
+static long long total_reply_err_count_per_cycle = 0;
+static long long total_tested_commands_count = 0;
+static long long total_reply_err_count = 0;
+
+long long get_total_tested_commands_count_per_cycle(void)
+{
+    long long count;
+    update_state_get(total_tested_commands_count_per_cycle,&count);
+    return count;
+}
+
+long long get_total_reply_err_count_per_cycle(void)
+{
+    long long count;
+    update_state_get(total_reply_err_count_per_cycle,&count);
+    return count;
+}
+
+void reset_total_count_per_cycle(void)
+{
+    update_state_set(total_tested_commands_count_per_cycle,0);
+    update_state_set(total_reply_err_count_per_cycle,0);
+}
+
 typedef struct reply_unit {
     int total_count;
     int received_count;
     redisReply **replys;
     data_unit *du;
 } reply_unit;
+
+static void show_replys_inconsistency_msg(data_unit *du, redisReply *reply1, redisReply *reply2)
+{
+    int *keyindex, numkeys;
+    sds key = NULL;
+
+    keyindex = get_keys_from_data_producer(du->dp, du->argv, du->argc, &numkeys);
+    if (numkeys > 0) {
+        key = du->argv[keyindex[0]];
+    }
+    free(keyindex);
+
+    if (key) {
+        log_hexdump(LOG_ERR,key,sdslen(key),
+            "%s command replys are inconsistency, "
+            "reply type: %d %d, "
+            "reply status: %s %s, "
+            "reply error: %s %s, "
+            "reply integer: %lld %lld, "
+            "reply array len: %zu %zu, "
+            "key(len:%zu): ", 
+            du->dp->name, 
+            reply1->type, reply2->type, 
+            reply1->type==REDIS_REPLY_STATUS?reply1->str:"NULL",
+            reply2->type==REDIS_REPLY_STATUS?reply2->str:"NULL",
+            reply1->type==REDIS_REPLY_ERROR?reply1->str:"NULL",
+            reply2->type==REDIS_REPLY_ERROR?reply2->str:"NULL",
+            reply1->type==REDIS_REPLY_INTEGER?reply1->integer:0,
+            reply2->type==REDIS_REPLY_INTEGER?reply2->integer:0,
+            reply1->type==REDIS_REPLY_ARRAY?reply1->elements:0,
+            reply2->type==REDIS_REPLY_ARRAY?reply2->elements:0,
+            sdslen(key));
+    } else {
+        log_error("%s command replys are inconsistency, "
+            "reply type: %d %d, "
+            "reply status: %s %s, "
+            "reply error: %s %s, "
+            "reply integer: %lld %lld, "
+            "reply array len: %zu %zu",
+            du->dp->name,
+            reply1->type, reply2->type, 
+            reply1->type==REDIS_REPLY_STATUS?reply1->str:"NULL",
+            reply2->type==REDIS_REPLY_STATUS?reply2->str:"NULL",
+            reply1->type==REDIS_REPLY_ERROR?reply1->str:"NULL",
+            reply2->type==REDIS_REPLY_ERROR?reply2->str:"NULL",
+            reply1->type==REDIS_REPLY_INTEGER?reply1->integer:0,
+            reply2->type==REDIS_REPLY_INTEGER?reply2->integer:0,
+            reply1->type==REDIS_REPLY_ARRAY?reply1->elements:0,
+            reply2->type==REDIS_REPLY_ARRAY?reply2->elements:0);
+    }
+}
 
 static int check_replys_if_same(reply_unit *ru)
 {
@@ -46,8 +122,7 @@ static int check_replys_if_same(reply_unit *ru)
     for (j = 1; j < ru->total_count ; j ++) {
         reply = replys[j];
         if (check_two_replys_if_same(replyb, reply)) {
-            log_error("%s command replys are inconsistency", 
-                ru->du->dp->name);
+            show_replys_inconsistency_msg(ru->du, replyb, reply);
             return VRT_ERROR;
         }
     }
@@ -62,6 +137,7 @@ struct callback_data {
 };
 
 static void reply_callback(redisAsyncContext *c, void *r, void *privdata) {
+    int ret;
     redisReply *reply;
     struct callback_data *cbd = privdata;
     dispatch_data_thread *ddt = cbd->ddt;
@@ -80,7 +156,13 @@ static void reply_callback(redisAsyncContext *c, void *r, void *privdata) {
 
     if (ru->received_count >= ru->total_count) {
         int j;
-        check_replys_if_same(ru);
+        
+        ret = check_replys_if_same(ru);
+        if (ret == VRT_OK && reply != NULL) {
+            if (reply->type == REDIS_REPLY_ERROR) {
+                ddt->reply_type_err_count_per_cycle++;
+            }
+        }
 
         /* release the reply_unit */
         for (j = 0; j < ru->total_count; j ++) {
@@ -90,6 +172,8 @@ static void reply_callback(redisAsyncContext *c, void *r, void *privdata) {
         free(ru->replys);
         data_unit_put(ru->du);
         free(ru);
+
+        ddt->reply_total_count_per_cycle++;
     }
 }
 
@@ -98,7 +182,7 @@ static int dispatch_thread_send_data(dispatch_data_thread *ddt)
     int count_per_time = 10000;
     data_unit *du;
 
-    while ((du = dmtlist_pop(ddt->datas)) != NULL) {
+    while ((du = dmtqueue_pop(ddt->datas)) != NULL) {
         redisAsyncContext *actx;
         int j;
         
@@ -161,16 +245,30 @@ static int dispatch_data_thread_cron(aeEventLoop *eventLoop, long long id, void 
         }
     }
     
-    if (!dmtlist_empty(ddt->datas)) {
+    if (!dmtqueue_empty(ddt->datas)) {
         dispatch_thread_send_data(ddt);
     }
 
     /* At the end of this loop */
-    if (test_if_need_pause() && dmtlist_empty(ddt->datas) &&
+    if (test_if_need_pause() && dmtqueue_empty(ddt->datas) &&
         dlistLength(ddt->rdatas) == 0 && 
         all_produce_threads_paused() && 
         all_backend_threads_paused()) {
+        
         ddt->pause = 1;
+
+        /* Update the dispatch state */
+        update_state_add(total_tested_commands_count_per_cycle,
+            ddt->reply_total_count_per_cycle);
+        update_state_add(total_tested_commands_count,
+            ddt->reply_total_count_per_cycle);
+        ddt->reply_total_count_per_cycle = 0;
+        update_state_add(total_reply_err_count_per_cycle,
+            ddt->reply_type_err_count_per_cycle);
+        update_state_add(total_reply_err_count,
+            ddt->reply_type_err_count_per_cycle);
+        ddt->reply_type_err_count_per_cycle = 0;
+
         one_dispatch_thread_paused();
     }
 
@@ -240,18 +338,20 @@ static int dispatch_data_thread_init(dispatch_data_thread *ddt, char *test_targe
     ddt->rdatas = NULL;
     ddt->abgs = NULL;
     ddt->pause = 0;
+    ddt->reply_total_count_per_cycle = 0;
+    ddt->reply_type_err_count_per_cycle = 0;
 
     ddt->el = aeCreateEventLoop(200);
     if (ddt->el == NULL) {
         return VRT_ERROR;
     }
 
-    ddt->datas = dmtlist_create();
+    ddt->datas = dmtqueue_create();
     if (ddt->datas == NULL) {
         return VRT_ERROR;
     }
 
-    if (dmtlist_init_with_locklist(ddt->datas) != 0) {
+    if (dmtqueue_init_with_lockqueue(ddt->datas, NULL) != 0) {
         return VRT_ERROR;
     }
 
@@ -299,7 +399,7 @@ static void dispatch_data_thread_deinit(dispatch_data_thread *ddt)
     }
 
     if (ddt->datas) {
-        dmtlist_destroy(ddt->datas);
+        dmtqueue_destroy(ddt->datas);
         ddt->datas = NULL;
     }
 
@@ -415,7 +515,7 @@ int data_dispatch(data_unit *du)
     
     thread_idx = du->hashvalue%dispatch_data_threads_count;
     ddt = darray_get(dispatch_data_threads, thread_idx);
-    length = dmtlist_push(ddt->datas, du);
+    length = dmtqueue_push(ddt->datas, du);
     if (length <= 0) {
         test_log_error("Data unit push to dispatch thread %d failed", ddt->id);
         return -1;

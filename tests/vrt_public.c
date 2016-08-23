@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <signal.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
 
@@ -14,6 +15,14 @@
 
 #include <vrt_util.h>
 #include <vrt_public.h>
+
+/* GCC version >= 4.7 */
+#if defined(__ATOMIC_RELAXED)
+/* GCC version >= 4.1 */
+#elif defined(HAVE_ATOMIC)
+#else
+pthread_mutex_t state_locker = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 #define VIRE_TEST_CONFIG_DEFAULT_EXECUTE_FILE "src/vire"
 
@@ -310,6 +319,95 @@ void show_test_result(int result,char *test_content,char *errmsg)
     }
 }
 
+/************** Key cache pool implement start *************/
+key_cache_pool *key_cache_pool_create(long long max_pool_size)
+{
+    long long idx;
+    key_cache_pool *kcp;
+
+    if (max_pool_size < 10) return NULL;
+
+    kcp = malloc(sizeof(*kcp));
+    if (kcp == NULL) return NULL;
+
+    kcp->cached_keys_count = 0;
+    kcp->ckeys_write_idx = 0;
+    kcp->max_pool_size = max_pool_size;
+    kcp->ckeys = NULL;
+    pthread_mutex_init(&kcp->pmutex,NULL);
+
+    kcp->ckeys = malloc(max_pool_size*sizeof(sds));
+    for (idx = 0; idx < max_pool_size; idx ++) {
+        kcp->ckeys[idx] = sdsempty();
+    }
+
+    return kcp;
+}
+
+void key_cache_pool_destroy(key_cache_pool *kcp)
+{
+    long long idx;
+    
+    if (kcp == NULL) return;
+
+    pthread_mutex_destroy(&kcp->pmutex);
+    
+    if (kcp->ckeys) {
+        for (idx = 0; idx < kcp->max_pool_size; idx ++) {
+            sdsfree(kcp->ckeys[idx]);
+        }
+        free(kcp->ckeys);
+    }
+
+    free(kcp);
+}
+
+int key_cache_pool_input(key_cache_pool *kcp, char *key, size_t keylen)
+{
+    if (kcp == NULL || key == NULL || keylen == 0) return VRT_ERROR;
+
+    pthread_mutex_lock(&kcp->pmutex);
+    kcp->ckeys[kcp->ckeys_write_idx]=sdscpylen(kcp->ckeys[kcp->ckeys_write_idx],key,keylen);
+    kcp->ckeys_write_idx++;
+    if (kcp->ckeys_write_idx >= kcp->max_pool_size) {
+        kcp->ckeys_write_idx = 0;
+    }
+    
+    if (kcp->cached_keys_count < kcp->max_pool_size) {
+        kcp->cached_keys_count++;
+    }
+    pthread_mutex_unlock(&kcp->pmutex);
+    
+    return VRT_OK;
+}
+
+sds key_cache_pool_random(key_cache_pool *kcp)
+{
+    unsigned int idx, randomval;
+    sds key;
+
+    if (kcp == NULL) {
+        return NULL;
+    }
+
+    randomval = (unsigned int)rand();
+    
+    pthread_mutex_lock(&kcp->pmutex);
+    if (kcp->cached_keys_count == 0) {
+        pthread_mutex_unlock(&kcp->pmutex);
+        return NULL;
+    }
+
+    idx = randomval%(unsigned int)kcp->cached_keys_count;
+
+    key = sdsdup(kcp->ckeys[idx]);
+    pthread_mutex_unlock(&kcp->pmutex);
+    
+    return key;
+}
+
+/************** Key cache pool implement end *************/
+
 long long get_longlong_from_info_reply(redisReply *reply, char *name)
 {
     sds *lines;
@@ -482,3 +580,31 @@ darray *parse_command_list(char *command_list_str)
 
     return commands;
 }
+
+char *
+get_key_type_string(int keytype)
+{
+    switch (keytype) {
+    case REDIS_STRING:
+        return "string";
+        break;
+    case REDIS_LIST:
+        return "list";
+        break;
+    case REDIS_SET:
+        return "set";
+        break;
+    case REDIS_ZSET:
+        return "zset";
+        break;
+    case REDIS_HASH:
+        return "hash";
+        break;
+    default:
+        return "unknow";
+        break;
+    }
+
+    return "unknow";
+}
+
