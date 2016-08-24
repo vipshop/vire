@@ -113,18 +113,18 @@ vire_instance *start_one_vire_instance(void);
 
 void show_test_result(int result,char *test_content,char *errmsg);
 
-typedef struct key_cache_pool {
+typedef struct key_cache_array {
     long long cached_keys_count;
     long long ckeys_write_idx;
     long long max_pool_size;    /* Max keys count that can be cached in the ckeys array. */
     sds *ckeys;    /* Cached keys that may exist in the target redis/vire servers. */
     pthread_mutex_t pmutex;
-} key_cache_pool;
+} key_cache_array;
 
-struct key_cache_pool *key_cache_pool_create(long long max_pool_size);
-void key_cache_pool_destroy(struct key_cache_pool *kcp);
-int key_cache_pool_input(struct key_cache_pool *kcp, char *key, size_t keylen);
-sds key_cache_pool_random(struct key_cache_pool *kcp);
+key_cache_array *key_cache_array_create(long long max_pool_size);
+void key_cache_array_destroy(key_cache_array *kca);
+int key_cache_array_input(key_cache_array *kca, char *key, size_t keylen);
+sds key_cache_array_random(key_cache_array *kca);
 
 long long get_longlong_from_info_reply(redisReply *reply, char *name);
 

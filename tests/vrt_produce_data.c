@@ -19,16 +19,7 @@
 #include <vrabtest.h>
 #include <vrt_produce_data.h>
 
-struct key_cache_pool;
-
-typedef struct produce_scheme {
-    struct key_cache_pool *kcp;
-
-    int hit_ratio;   /* Hit ratio for the read commands. [0%,100%] */
-    int hit_ratio_idx;   /* [0,hit_ratio_array_len-1] */
-    int hit_ratio_array_len; /* 100 usually */
-    int *hit_ratio_array;    /* Stored 0 or 1 for every element, 1 means used key in the cached keys array. */
-} produce_scheme;
+#define PRODUCE_KEY_CACHE_POOL_COUNT 5
 
 typedef struct produce_thread {
     int id;
@@ -58,9 +49,10 @@ static darray produce_threads;
 
 int produce_threads_pause_finished_count;
 
-static sds get_random_cached_key(produce_scheme *ps)
+static sds get_random_cached_key(produce_scheme *ps, data_producer *dp)
 {
-    return key_cache_pool_random(ps->kcp);
+    key_cache_array *kcp = kcp_get_from_ps(ps,dp);
+    return key_cache_array_random(kcp);
 }
 
 static int get_random_int(void)
@@ -144,13 +136,13 @@ static unsigned int get_random_field_len(void)
     return get_random_unsigned_int()%field_length_max + 1;
 }
 
-static sds get_random_key_with_hit_ratio(produce_scheme *ps)
+static sds get_random_key_with_hit_ratio(produce_scheme *ps, data_producer *dp)
 {
     sds key;
     if (ps->hit_ratio_array[ps->hit_ratio_idx++] == 0) {
         key = get_random_key();
     } else {
-        key = get_random_cached_key(ps);
+        key = get_random_cached_key(ps,dp);
         if (key == NULL) key = get_random_key();
     }
     if (ps->hit_ratio_idx >= ps->hit_ratio_array_len) {
@@ -168,7 +160,7 @@ static data_unit *get_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 2;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     
     return du;
 }
@@ -188,6 +180,19 @@ static data_unit *set_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+/* Need cache key? */
+static int set_cmd_nck(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type == REDIS_REPLY_STATUS && 
+        !strcmp(reply->str, "OK")) {
+        return 1;
+    }
+
+    return 0;
+}
+
 static data_unit *setnx_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
@@ -197,10 +202,23 @@ static data_unit *setnx_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 3;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = get_random_string();
     
     return du;
+}
+
+/* Need cache key? */
+static int setnx_cmd_nck(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type == REDIS_REPLY_INTEGER && 
+        reply->integer == 1) {
+        return 1;
+    }
+
+    return 0;
 }
 
 static data_unit *setex_cmd_producer(data_producer *dp, produce_scheme *ps)
@@ -219,6 +237,19 @@ static data_unit *setex_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+/* Need cache key? */
+static int setex_cmd_nck(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type == REDIS_REPLY_STATUS && 
+        !strcmp(reply->str, "OK")) {
+        return 1;
+    }
+
+    return 0;
+}
+
 static data_unit *psetex_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
@@ -233,6 +264,19 @@ static data_unit *psetex_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argv[3] = get_random_string();
     
     return du;
+}
+
+/* Need cache key? */
+static int psetex_cmd_nck(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type == REDIS_REPLY_STATUS && 
+        !strcmp(reply->str, "OK")) {
+        return 1;
+    }
+
+    return 0;
 }
 
 static data_unit *del_cmd_producer(data_producer *dp, produce_scheme *ps)
@@ -258,7 +302,7 @@ static data_unit *expire_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 3;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = sdsfromlonglong(rand()%10000);
     
     return du;
@@ -273,7 +317,7 @@ static data_unit *expireat_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 3;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = sdsfromlonglong(vrt_msec_now()/1000LL+rand()%10000);
     
     return du;
@@ -288,7 +332,7 @@ static data_unit *exists_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 2;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     
     return du;
 }
@@ -302,7 +346,7 @@ static data_unit *ttl_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 2;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     
     return du;
 }
@@ -316,7 +360,7 @@ static data_unit *pttl_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 2;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     
     return du;
 }
@@ -394,6 +438,18 @@ static data_unit *append_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+/* Need cache key? */
+static int append_cmd_nck(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type == REDIS_REPLY_INTEGER) {
+        return 1;
+    }
+
+    return 0;
+}
+
 static data_unit *strlen_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
@@ -403,7 +459,7 @@ static data_unit *strlen_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 2;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     
     return du;
 }
@@ -429,6 +485,18 @@ static data_unit *rpush_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+/* Need cache key? */
+static int rpush_cmd_nck(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type == REDIS_REPLY_INTEGER) {
+        return 1;
+    }
+
+    return 0;
+}
+
 static data_unit *lpush_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
@@ -448,6 +516,18 @@ static data_unit *lpush_cmd_producer(data_producer *dp, produce_scheme *ps)
     }
     
     return du;
+}
+
+/* Need cache key? */
+static int lpush_cmd_nck(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type == REDIS_REPLY_INTEGER) {
+        return 1;
+    }
+
+    return 0;
 }
 
 static data_unit *zadd_cmd_producer(data_producer *dp, produce_scheme *ps)
@@ -472,6 +552,18 @@ static data_unit *zadd_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+/* Need cache key? */
+static int zadd_cmd_nck(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type == REDIS_REPLY_INTEGER) {
+        return 1;
+    }
+
+    return 0;
+}
+
 static data_unit *zincrby_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
@@ -482,11 +574,23 @@ static data_unit *zincrby_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 4;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = get_random_score_str();;
     du->argv[3] = get_random_string();
     
     return du;
+}
+
+/* Need cache key? */
+static int zincrby_cmd_nck(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type == REDIS_REPLY_INTEGER) {
+        return 1;
+    }
+
+    return 0;
 }
 
 static data_unit *zrange_cmd_producer(data_producer *dp, produce_scheme *ps)
@@ -506,7 +610,7 @@ static data_unit *zrange_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = withscores?5:4;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = sdsfromlonglong(0);
     du->argv[3] = sdsfromlonglong(get_random_int()%10000);
     if (withscores) du->argv[4] = sdsnew("withscores");
@@ -531,7 +635,7 @@ static data_unit *zrevrange_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = withscores?5:4;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = sdsfromlonglong(0);
     du->argv[3] = sdsfromlonglong(get_random_int()%10000);
     if (withscores) du->argv[4] = sdsnew("withscores");
@@ -551,7 +655,7 @@ static data_unit *zrem_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 2+field_length;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
 
     for (j = 2; j < 2+field_length; j ++) {
         du->argv[j] = get_random_string();
@@ -569,7 +673,7 @@ static data_unit *zcard_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 2;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     
     return du;
 }
@@ -583,7 +687,7 @@ static data_unit *zcount_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 4;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = get_random_score_str();
     du->argv[3] = get_random_score_str();
     
@@ -615,7 +719,7 @@ static data_unit *zrangebyscore_cmd_producer(data_producer *dp, produce_scheme *
     du->argc = arg_count;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[idx++] = sdsnew(dp->name);
-    du->argv[idx++] = get_random_key_with_hit_ratio(ps);
+    du->argv[idx++] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[idx++] = get_random_score_str();
     du->argv[idx++] = get_random_score_str();
     if (withscores) du->argv[idx++] = sdsnew("withscores");
@@ -655,7 +759,7 @@ static data_unit *zrevrangebyscore_cmd_producer(data_producer *dp, produce_schem
     du->argc = arg_count;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[idx++] = sdsnew(dp->name);
-    du->argv[idx++] = get_random_key_with_hit_ratio(ps);
+    du->argv[idx++] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[idx++] = get_random_score_str();
     du->argv[idx++] = get_random_score_str();
     if (withscores) du->argv[idx++] = sdsnew("withscores");
@@ -679,7 +783,7 @@ static data_unit *zrank_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 3;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = get_random_string();
         
     return du;
@@ -694,7 +798,7 @@ static data_unit *zrevrank_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 3;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = get_random_string();
         
     return du;
@@ -709,7 +813,7 @@ static data_unit *zscore_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 3;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = get_random_string();
         
     return du;
@@ -724,7 +828,7 @@ static data_unit *zremrangebyscore_cmd_producer(data_producer *dp, produce_schem
     du->argc = 4;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = get_random_score_str();
     du->argv[3] = get_random_score_str();
     
@@ -740,7 +844,7 @@ static data_unit *zremrangebyrank_cmd_producer(data_producer *dp, produce_scheme
     du->argc = 4;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = sdsfromlonglong(get_random_int());
     du->argv[3] = sdsfromlonglong(get_random_int());
     
@@ -756,7 +860,7 @@ static data_unit *zremrangebylex_cmd_producer(data_producer *dp, produce_scheme 
     du->argc = 4;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key_with_hit_ratio(ps);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = get_random_string();
     du->argv[3] = get_random_string();
     
@@ -766,43 +870,43 @@ static data_unit *zremrangebylex_cmd_producer(data_producer *dp, produce_scheme 
 static int producers_count;
 data_producer redis_data_producer_table[] = {
     /* Key */
-    {"del",del_cmd_producer,-2,"w",0,NULL,1,-1,1,TEST_CMD_TYPE_KEY},
-    {"exists",exists_cmd_producer,-2,"rF",0,NULL,1,-1,1,TEST_CMD_TYPE_KEY},
-    {"ttl",ttl_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE},
-    {"pttl",pttl_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE},
-    {"expire",expire_cmd_producer,3,"wF",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE},
-    {"expireat",expireat_cmd_producer,3,"wF",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE},
+    {"del",del_cmd_producer,-2,"w",0,NULL,1,-1,1,TEST_CMD_TYPE_KEY,NULL},
+    {"exists",exists_cmd_producer,-2,"rF",0,NULL,1,-1,1,TEST_CMD_TYPE_KEY,NULL},
+    {"ttl",ttl_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE,NULL},
+    {"pttl",pttl_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE,NULL},
+    {"expire",expire_cmd_producer,3,"wF",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE,NULL},
+    {"expireat",expireat_cmd_producer,3,"wF",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE,NULL},
     /* String */
-    {"get",get_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
-    {"set",set_cmd_producer,-3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
-    {"setnx",setnx_cmd_producer,3,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
-    {"setex",setex_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE},
-    {"psetex",psetex_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE},
-    {"incr",incr_cmd_producer,2,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
-    {"decr",decr_cmd_producer,2,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
-    {"incrby",incrby_cmd_producer,3,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
-    {"decrby",decrby_cmd_producer,3,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
-    {"append",append_cmd_producer,3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
-    {"strlen",strlen_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING},
+    {"get",get_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
+    {"set",set_cmd_producer,-3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,set_cmd_nck},
+    {"setnx",setnx_cmd_producer,3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,setnx_cmd_nck},
+    {"setex",setex_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE,setex_cmd_nck},
+    {"psetex",psetex_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE,psetex_cmd_nck},
+    {"incr",incr_cmd_producer,2,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
+    {"decr",decr_cmd_producer,2,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
+    {"incrby",incrby_cmd_producer,3,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
+    {"decrby",decrby_cmd_producer,3,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
+    {"append",append_cmd_producer,3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,append_cmd_nck},
+    {"strlen",strlen_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
     /* List */
-    {"rpush",rpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST},
-    {"lpush",lpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST},
+    {"rpush",rpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,rpush_cmd_nck},
+    {"lpush",lpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,lpush_cmd_nck},
     /* SortedSet */
-    {"zadd",zadd_cmd_producer,-4,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zincrby",zincrby_cmd_producer,4,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zrange",zrange_cmd_producer,-4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zrevrange",zrevrange_cmd_producer,-4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zrem",zrem_cmd_producer,-3,"wF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zcard",zcard_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zcount",zcount_cmd_producer,4,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zrangebyscore",zrangebyscore_cmd_producer,-4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zrevrangebyscore",zrevrangebyscore_cmd_producer,-4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zrank",zrank_cmd_producer,3,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zrevrank",zrevrank_cmd_producer,3,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zscore",zscore_cmd_producer,3,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zremrangebyscore",zremrangebyscore_cmd_producer,4,"w",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zremrangebyrank",zremrangebyrank_cmd_producer,4,"w",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET},
-    {"zremrangebylex",zremrangebylex_cmd_producer,4,"w",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET}
+    {"zadd",zadd_cmd_producer,-4,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,zadd_cmd_nck},
+    {"zincrby",zincrby_cmd_producer,4,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,zincrby_cmd_nck},
+    {"zrange",zrange_cmd_producer,-4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
+    {"zrevrange",zrevrange_cmd_producer,-4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
+    {"zrem",zrem_cmd_producer,-3,"wF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
+    {"zcard",zcard_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
+    {"zcount",zcount_cmd_producer,4,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
+    {"zrangebyscore",zrangebyscore_cmd_producer,-4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
+    {"zrevrangebyscore",zrevrangebyscore_cmd_producer,-4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
+    {"zrank",zrank_cmd_producer,3,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
+    {"zrevrank",zrevrank_cmd_producer,3,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
+    {"zscore",zscore_cmd_producer,3,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
+    {"zremrangebyscore",zremrangebyscore_cmd_producer,4,"w",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
+    {"zremrangebyrank",zremrangebyrank_cmd_producer,4,"w",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
+    {"zremrangebylex",zremrangebylex_cmd_producer,4,"w",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL}
 };
 
 data_unit *data_unit_get(void)
@@ -812,6 +916,7 @@ data_unit *data_unit_get(void)
     du->argc = 0;
     du->argv = NULL;
     du->hashvalue = 0;
+    du->data = NULL;
     return du;
 }
 
@@ -835,8 +940,17 @@ static produce_scheme *produce_scheme_create(long long max_cached_keys, int hit_
     
     ps = malloc(sizeof(*ps));
     if (ps == NULL) return NULL;
+    ps->kcps = NULL;
+    ps->hit_ratio_array = NULL;
 
-    ps->kcp = key_cache_pool_create(max_cached_keys);
+    ps->kcps = darray_create(PRODUCE_KEY_CACHE_POOL_COUNT,sizeof(key_cache_array *));
+    for (idx = 0; idx < PRODUCE_KEY_CACHE_POOL_COUNT; idx ++) {
+        key_cache_array **kcp = darray_push(ps->kcps);
+        *kcp = key_cache_array_create(max_cached_keys/PRODUCE_KEY_CACHE_POOL_COUNT);
+        if (*kcp == NULL) {
+            return NULL;
+        }
+    }
 
     /* Generate the hit ratio. */
     ps->hit_ratio_array_len = 100;
@@ -876,13 +990,61 @@ static produce_scheme *produce_scheme_create(long long max_cached_keys, int hit_
 static void produce_scheme_destroy(produce_scheme *ps)
 {
     int j;
-    if (ps->kcp) {
-        key_cache_pool_destroy(ps->kcp);
+    if (ps->kcps) {
+        for (j = 0; j < PRODUCE_KEY_CACHE_POOL_COUNT; j ++) {
+            key_cache_array **kcp = darray_pop(ps->kcps);
+            if (*kcp)key_cache_array_destroy(*kcp);
+        }
+        darray_destroy(ps->kcps);
     }
     
     free(ps->hit_ratio_array);
 
     free(ps);
+}
+
+/* Get a key cache pool from the produce scheme */
+key_cache_array *kcp_get_from_ps(produce_scheme *ps, data_producer *dp)
+{
+    unsigned int idx;
+    key_cache_array **kcp;
+    
+    if (ps == NULL || ps->kcps == NULL || dp == NULL) return NULL;
+
+    switch(dp->cmd_type)
+    {
+    case TEST_CMD_TYPE_STRING:
+        idx = 0;
+        break;
+        
+    case TEST_CMD_TYPE_LIST:
+        idx = 1;
+        break;
+
+    case TEST_CMD_TYPE_SET:
+        idx = 2;
+        break;
+
+    case TEST_CMD_TYPE_ZSET:
+        idx = 3;
+        break;
+
+    case TEST_CMD_TYPE_HASH:
+        idx = 4;
+        break;
+
+    default:
+        idx = -1;
+        break;
+    }
+
+    if (idx >= PRODUCE_KEY_CACHE_POOL_COUNT || idx < 0) {
+        return NULL;
+    }
+
+    kcp = darray_get(ps->kcps, idx);
+
+    return *kcp;
 }
 
 static int vrt_produce_threads_init(unsigned int produce_threads_count, 
@@ -947,23 +1109,9 @@ static void *vrt_produce_thread_run(void *args)
         dp = darray_get(&needed_cmd_type_producer,idx);
         du = (*dp)->proc(*dp,pt->ps);
 
-        /* Cache this key if needed. */
         if ((*dp)->flags&PRO_ADD) {
-            produce_scheme *ps = pt->ps;
-            int numkeys;
-            int *keyindex;
-            sds key;
-
-            keyindex = get_keys_from_data_producer((*dp),du->argv,du->argc,&numkeys);
-            if (numkeys <= 0) {
-                NOT_REACHED();
-                return NULL;
-            }
-
-            key = du->argv[keyindex[0]];
-            free(keyindex);
-
-            key_cache_pool_input(ps->kcp,key,sdslen(key));
+            ASSERT((*dp)->need_cache_key_proc != NULL);
+            du->data = pt->ps;
         }
 
         /* Dispatch the test data */
@@ -1173,4 +1321,22 @@ int *get_keys_from_data_producer(data_producer *dp, sds *argv, int argc, int *nu
     } else {
         return get_keys_using_data_producer_table(dp,argv,argc,numkeys);
     }
+}
+
+sds get_one_key_from_data_unit(data_unit *du)
+{
+    int numkeys;
+    int *keyindex;
+    sds key;
+
+    keyindex = get_keys_from_data_producer(du->dp,du->argv,du->argc,&numkeys);
+    if (numkeys <= 0) {
+        NOT_REACHED();
+        return NULL;
+    }
+
+    key = du->argv[keyindex[0]];
+    free(keyindex);
+
+    return key;
 }

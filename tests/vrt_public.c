@@ -320,88 +320,89 @@ void show_test_result(int result,char *test_content,char *errmsg)
 }
 
 /************** Key cache pool implement start *************/
-key_cache_pool *key_cache_pool_create(long long max_pool_size)
+key_cache_array *key_cache_array_create(long long max_pool_size)
 {
     long long idx;
-    key_cache_pool *kcp;
+    key_cache_array *kca;
 
+    /* It is too small */
     if (max_pool_size < 10) return NULL;
 
-    kcp = malloc(sizeof(*kcp));
-    if (kcp == NULL) return NULL;
+    kca = malloc(sizeof(*kca));
+    if (kca == NULL) return NULL;
 
-    kcp->cached_keys_count = 0;
-    kcp->ckeys_write_idx = 0;
-    kcp->max_pool_size = max_pool_size;
-    kcp->ckeys = NULL;
-    pthread_mutex_init(&kcp->pmutex,NULL);
+    kca->cached_keys_count = 0;
+    kca->ckeys_write_idx = 0;
+    kca->max_pool_size = max_pool_size;
+    kca->ckeys = NULL;
+    pthread_mutex_init(&kca->pmutex,NULL);
 
-    kcp->ckeys = malloc(max_pool_size*sizeof(sds));
+    kca->ckeys = malloc(max_pool_size*sizeof(sds));
     for (idx = 0; idx < max_pool_size; idx ++) {
-        kcp->ckeys[idx] = sdsempty();
+        kca->ckeys[idx] = sdsempty();
     }
 
-    return kcp;
+    return kca;
 }
 
-void key_cache_pool_destroy(key_cache_pool *kcp)
+void key_cache_array_destroy(key_cache_array *kca)
 {
     long long idx;
     
-    if (kcp == NULL) return;
+    if (kca == NULL) return;
 
-    pthread_mutex_destroy(&kcp->pmutex);
+    pthread_mutex_destroy(&kca->pmutex);
     
-    if (kcp->ckeys) {
-        for (idx = 0; idx < kcp->max_pool_size; idx ++) {
-            sdsfree(kcp->ckeys[idx]);
+    if (kca->ckeys) {
+        for (idx = 0; idx < kca->max_pool_size; idx ++) {
+            sdsfree(kca->ckeys[idx]);
         }
-        free(kcp->ckeys);
+        free(kca->ckeys);
     }
 
-    free(kcp);
+    free(kca);
 }
 
-int key_cache_pool_input(key_cache_pool *kcp, char *key, size_t keylen)
+int key_cache_array_input(key_cache_array *kca, char *key, size_t keylen)
 {
-    if (kcp == NULL || key == NULL || keylen == 0) return VRT_ERROR;
+    if (kca == NULL || key == NULL || keylen == 0) return VRT_ERROR;
 
-    pthread_mutex_lock(&kcp->pmutex);
-    kcp->ckeys[kcp->ckeys_write_idx]=sdscpylen(kcp->ckeys[kcp->ckeys_write_idx],key,keylen);
-    kcp->ckeys_write_idx++;
-    if (kcp->ckeys_write_idx >= kcp->max_pool_size) {
-        kcp->ckeys_write_idx = 0;
+    pthread_mutex_lock(&kca->pmutex);
+    kca->ckeys[kca->ckeys_write_idx]=sdscpylen(kca->ckeys[kca->ckeys_write_idx],key,keylen);
+    kca->ckeys_write_idx++;
+    if (kca->ckeys_write_idx >= kca->max_pool_size) {
+        kca->ckeys_write_idx = 0;
     }
     
-    if (kcp->cached_keys_count < kcp->max_pool_size) {
-        kcp->cached_keys_count++;
+    if (kca->cached_keys_count < kca->max_pool_size) {
+        kca->cached_keys_count++;
     }
-    pthread_mutex_unlock(&kcp->pmutex);
+    pthread_mutex_unlock(&kca->pmutex);
     
     return VRT_OK;
 }
 
-sds key_cache_pool_random(key_cache_pool *kcp)
+sds key_cache_array_random(key_cache_array *kca)
 {
     unsigned int idx, randomval;
     sds key;
 
-    if (kcp == NULL) {
+    if (kca == NULL) {
         return NULL;
     }
 
     randomval = (unsigned int)rand();
     
-    pthread_mutex_lock(&kcp->pmutex);
-    if (kcp->cached_keys_count == 0) {
-        pthread_mutex_unlock(&kcp->pmutex);
+    pthread_mutex_lock(&kca->pmutex);
+    if (kca->cached_keys_count == 0) {
+        pthread_mutex_unlock(&kca->pmutex);
         return NULL;
     }
 
-    idx = randomval%(unsigned int)kcp->cached_keys_count;
+    idx = randomval%(unsigned int)kca->cached_keys_count;
 
-    key = sdsdup(kcp->ckeys[idx]);
-    pthread_mutex_unlock(&kcp->pmutex);
+    key = sdsdup(kca->ckeys[idx]);
+    pthread_mutex_unlock(&kca->pmutex);
     
     return key;
 }

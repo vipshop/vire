@@ -49,9 +49,11 @@
 
 struct data_producer;
 struct produce_scheme;
+struct key_cache_array;
 
 typedef struct data_unit *redis_command_proc(struct data_producer *dp, struct produce_scheme *ps);
 typedef int *redis_get_keys_proc(struct data_producer *dp, sds *argv, int argc, int *numkeys);
+typedef int produce_need_cache_key_proc(struct redisReply *reply);
 typedef struct data_producer {
     char *name;     /* Command name */
     redis_command_proc *proc;
@@ -67,6 +69,7 @@ typedef struct data_producer {
     int lastkey;  /* The last argument that's a key */
     int keystep;  /* The step between first and last key */
     int cmd_type;
+    produce_need_cache_key_proc *need_cache_key_proc;
 } data_producer;
 
 typedef struct data_unit {
@@ -75,13 +78,26 @@ typedef struct data_unit {
     sds *argv;    /* Arguments of current command. */
     
     unsigned int hashvalue;
+
+    void *data;
 } data_unit;
+
+typedef struct produce_scheme {
+    darray *kcps;   /* Key cached pools for every type command. */
+
+    int hit_ratio;   /* Hit ratio for the read commands. [0%,100%] */
+    int hit_ratio_idx;   /* [0,hit_ratio_array_len-1] */
+    int hit_ratio_array_len; /* 100 usually */
+    int *hit_ratio_array;    /* Stored 0 or 1 for every element, 1 means used key in the cached keys array. */
+} produce_scheme;
 
 extern data_producer *delete_data_producer;
 
 extern int produce_data_threads_count;
 
 extern int produce_threads_pause_finished_count;
+
+struct key_cache_array *kcp_get_from_ps(produce_scheme *ps, data_producer *dp);
 
 data_unit *data_unit_get(void);
 void data_unit_put(data_unit *du);
@@ -97,5 +113,7 @@ int vrt_start_produce_data(void);
 int vrt_wait_produce_data(void);
 
 int *get_keys_from_data_producer(data_producer *dp, sds *argv, int argc, int *numkeys);
+
+sds get_one_key_from_data_unit(data_unit *du);
 
 #endif

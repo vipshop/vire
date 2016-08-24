@@ -159,8 +159,22 @@ static void reply_callback(redisAsyncContext *c, void *r, void *privdata) {
         
         ret = check_replys_if_same(ru);
         if (ret == VRT_OK && reply != NULL) {
+            data_unit *du = ru->du;
+            data_producer *dp = du->dp;
             if (reply->type == REDIS_REPLY_ERROR) {
                 ddt->reply_type_err_count_per_cycle++;
+            }
+
+            /* Cache this key if needed. */
+            if (du->dp->flags&PRO_ADD) {
+                produce_scheme *ps = du->data;
+                ASSERT(ps != NULL && dp->need_cache_key_proc != NULL);
+                if (dp->need_cache_key_proc != NULL && 
+                    dp->need_cache_key_proc(reply)) {
+                    key_cache_array *kcp = kcp_get_from_ps(ps, dp);
+                    sds key = get_one_key_from_data_unit(du);
+                    key_cache_array_input(kcp,key,sdslen(key));
+                }
             }
         }
 

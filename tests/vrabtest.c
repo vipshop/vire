@@ -306,6 +306,11 @@ vrt_get_options(int argc, char **argv)
                 log_stderr("vireabtest: option -K requires a number");
                 return VRT_ERROR;
             }
+            if (llvalue < 1000) {
+                log_stderr("vireabtest: option -K requires a number that must bigger than 1000");
+                return VRT_ERROR;
+            }
+            
             config.cached_keys_per_produce_thread = llvalue;
             break;
 
