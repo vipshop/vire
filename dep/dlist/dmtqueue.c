@@ -19,7 +19,6 @@ dmtqueue *dmtqueue_create(void)
     q->lock_pop = NULL;
     q->destroy = NULL;
     q->length = NULL;
-    q->random = NULL;
     
     return q;
 }

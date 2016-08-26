@@ -14,7 +14,7 @@
 
 #include <vr_hashkit.h>
 #include <dlist.h>
-#include <dmtlist.h>
+#include <dmtqueue.h>
 
 #include <vrt_util.h>
 #include <vrt_public.h>
