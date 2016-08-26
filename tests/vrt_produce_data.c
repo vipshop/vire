@@ -41,6 +41,8 @@ static unsigned int string_length_max;
 
 static int cmd_type;
 
+static int key_cache_pools_count = 0;
+
 static darray needed_cmd_type_producer;  /* type:  data_producer*/
 static unsigned int needed_cmd_type_producer_count;
 
@@ -48,6 +50,9 @@ int produce_data_threads_count;
 static darray produce_threads;
 
 int produce_threads_pause_finished_count;
+
+static int non_empty_kcps_count = 0;
+unsigned int non_empty_kcps_idx[PRODUCE_KEY_CACHE_POOL_COUNT] = {-1};
 
 static sds get_random_cached_key(produce_scheme *ps, data_producer *dp)
 {
@@ -1003,15 +1008,11 @@ static void produce_scheme_destroy(produce_scheme *ps)
     free(ps);
 }
 
-/* Get a key cache pool from the produce scheme */
-key_cache_array *kcp_get_from_ps(produce_scheme *ps, data_producer *dp)
+static unsigned int get_kcp_idx(int type)
 {
     unsigned int idx;
-    key_cache_array **kcp;
     
-    if (ps == NULL || ps->kcps == NULL || dp == NULL) return NULL;
-
-    switch(dp->cmd_type)
+    switch(type)
     {
     case TEST_CMD_TYPE_STRING:
         idx = 0;
@@ -1038,6 +1039,53 @@ key_cache_array *kcp_get_from_ps(produce_scheme *ps, data_producer *dp)
         break;
     }
 
+    return idx;
+}
+
+static void set_non_empty_kcps_idx(void)
+{
+    if (cmd_type&TEST_CMD_TYPE_STRING) {
+        non_empty_kcps_idx[non_empty_kcps_count++] = 
+            get_kcp_idx(TEST_CMD_TYPE_STRING);
+    }
+    if (cmd_type&TEST_CMD_TYPE_LIST) {
+        non_empty_kcps_idx[non_empty_kcps_count++] = 
+            get_kcp_idx(TEST_CMD_TYPE_LIST);
+    }
+    if (cmd_type&TEST_CMD_TYPE_SET) {
+        non_empty_kcps_idx[non_empty_kcps_count++] = 
+            get_kcp_idx(TEST_CMD_TYPE_SET);
+    }
+    if (cmd_type&TEST_CMD_TYPE_ZSET) {
+        non_empty_kcps_idx[non_empty_kcps_count++] = 
+            get_kcp_idx(TEST_CMD_TYPE_ZSET);
+    }
+    if (cmd_type&TEST_CMD_TYPE_HASH) {
+        non_empty_kcps_idx[non_empty_kcps_count++] = 
+            get_kcp_idx(TEST_CMD_TYPE_HASH);
+    }
+}
+
+/* Get a key cache pool from the produce scheme */
+key_cache_array *kcp_get_from_ps(produce_scheme *ps, data_producer *dp)
+{
+    unsigned int idx;
+    key_cache_array **kcp;
+    
+    if (ps == NULL || ps->kcps == NULL || dp == NULL) return NULL;
+
+    if (dp->cmd_type == TEST_CMD_TYPE_KEY) {
+        if (non_empty_kcps_count==0) {
+            idx = -1;
+        } else {
+            idx = rand()%non_empty_kcps_count;
+            idx = non_empty_kcps_idx[idx];
+            ASSERT(idx >= 0);
+        }  
+    } else {
+        idx = get_kcp_idx(dp->cmd_type);
+    }
+    
     if (idx >= PRODUCE_KEY_CACHE_POOL_COUNT || idx < 0) {
         return NULL;
     }
@@ -1221,6 +1269,8 @@ int vrt_produce_data_init(int key_length_range_min,int key_length_range_max,
             add_to_needed_cmd_type_producer(dp);
         }
     }
+
+    set_non_empty_kcps_idx();
 
     if (darray_n(&needed_cmd_type_producer) == 0) {
         log_error("No command need to test");
