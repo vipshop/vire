@@ -66,15 +66,15 @@ vireabtest_LDADD += $(top_builddir)/dep/dlist/libdlist.a
 vireabtest_LDADD += $(top_builddir)/dep/darray/libdarray.a
 vireabtest_LDADD += $(top_builddir)/dep/util/libdutil.a
 
-noinst_PROGRAMS += vire-benckmark
+noinst_PROGRAMS += vire-benchmark
 
-vire_benckmark_SOURCES =                    \
+vire_benchmark_SOURCES =                    \
     vrt_util.c vrt_util.h                   \
     vrt_public.c vrt_public.h               \
     vrt_benchmark.c
     
-vire_benckmark_LDADD = $(top_builddir)/dep/ae/libae.a
-vire_benckmark_LDADD += $(top_builddir)/dep/hiredis-0.13.3/libhiredis.a
-vire_benckmark_LDADD += $(top_builddir)/dep/dlist/libdlist.a
-vire_benckmark_LDADD += $(top_builddir)/dep/darray/libdarray.a
-vire_benckmark_LDADD += $(top_builddir)/dep/util/libdutil.a
+vire_benchmark_LDADD = $(top_builddir)/dep/ae/libae.a
+vire_benchmark_LDADD += $(top_builddir)/dep/hiredis-0.13.3/libhiredis.a
+vire_benchmark_LDADD += $(top_builddir)/dep/dlist/libdlist.a
+vire_benchmark_LDADD += $(top_builddir)/dep/darray/libdarray.a
+vire_benchmark_LDADD += $(top_builddir)/dep/util/libdutil.a
