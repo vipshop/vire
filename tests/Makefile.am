@@ -44,7 +44,6 @@ viretest_SOURCES =                      \
     vrtest.c
     
 viretest_LDADD = $(top_builddir)/dep/ae/libae.a
-viretest_LDADD += $(top_builddir)/dep/jemalloc-4.2.0/lib/libjemalloc.a
 viretest_LDADD += $(top_builddir)/dep/hiredis-0.13.3/libhiredis.a
 viretest_LDADD += $(top_builddir)/dep/darray/libdarray.a
 viretest_LDADD += $(top_builddir)/dep/util/libdutil.a
@@ -61,9 +60,21 @@ vireabtest_SOURCES =                        \
     vrabtest.c vrabtest.h
     
 vireabtest_LDADD = $(top_builddir)/dep/ae/libae.a
-vireabtest_LDADD += $(top_builddir)/dep/jemalloc-4.2.0/lib/libjemalloc.a
 vireabtest_LDADD += $(top_builddir)/dep/hiredis-0.13.3/libhiredis.a
 vireabtest_LDADD += $(top_builddir)/dep/hashkit/libhashkit.a
 vireabtest_LDADD += $(top_builddir)/dep/dlist/libdlist.a
 vireabtest_LDADD += $(top_builddir)/dep/darray/libdarray.a
 vireabtest_LDADD += $(top_builddir)/dep/util/libdutil.a
+
+noinst_PROGRAMS += vire-benckmark
+
+vire_benckmark_SOURCES =                    \
+    vrt_util.c vrt_util.h                   \
+    vrt_public.c vrt_public.h               \
+    vrt_benchmark.c
+    
+vire_benckmark_LDADD = $(top_builddir)/dep/ae/libae.a
+vire_benckmark_LDADD += $(top_builddir)/dep/hiredis-0.13.3/libhiredis.a
+vire_benckmark_LDADD += $(top_builddir)/dep/dlist/libdlist.a
+vire_benckmark_LDADD += $(top_builddir)/dep/darray/libdarray.a
+vire_benckmark_LDADD += $(top_builddir)/dep/util/libdutil.a
