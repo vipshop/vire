@@ -649,8 +649,8 @@ static data_unit *lrange_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
     du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
-    du->argv[2] = sdsfromlonglong((long long)get_random_int());
-    du->argv[3] = sdsfromlonglong((long long)get_random_int());
+    du->argv[2] = sdsfromlonglong((long long)get_random_int()%(field_length_max+1));
+    du->argv[3] = sdsfromlonglong((long long)get_random_int()%(field_length_max+1));
     
     return du;
 }
@@ -707,7 +707,7 @@ static data_unit *lrem_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
     du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
-    du->argv[2] = sdsfromlonglong((long long)get_random_int());
+    du->argv[2] = sdsfromlonglong((long long)get_random_int()%(field_length_max+1));
     du->argv[3] = get_random_string();
     
     return du;
@@ -723,8 +723,8 @@ static data_unit *ltrim_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
     du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
-    du->argv[2] = sdsfromlonglong((long long)get_random_int());
-    du->argv[3] = sdsfromlonglong((long long)get_random_int());
+    du->argv[2] = sdsfromlonglong((long long)get_random_int()%(field_length_max+1));
+    du->argv[3] = sdsfromlonglong((long long)get_random_int()%(field_length_max+1));
     
     return du;
 }
@@ -739,7 +739,23 @@ static data_unit *lindex_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
     du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
-    du->argv[2] = sdsfromlonglong((long long)get_random_int());
+    du->argv[2] = sdsfromlonglong((long long)get_random_int()%(field_length_max+1));
+    
+    return du;
+}
+
+static data_unit *lset_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 4;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
+    du->argv[2] = sdsfromlonglong((long long)get_random_int()%(field_length_max+1));
+    du->argv[3] = get_random_string();
     
     return du;
 }
@@ -1136,6 +1152,7 @@ data_producer redis_data_producer_table[] = {
     {"lrem",lrem_cmd_producer,4,"w",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,NULL},
     {"ltrim",ltrim_cmd_producer,4,"w",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,NULL},
     {"lindex",lindex_cmd_producer,3,"r",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,NULL},
+    {"lset",lset_cmd_producer,4,"wm",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,NULL},
     /* SortedSet */
     {"zadd",zadd_cmd_producer,-4,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,zadd_cmd_nck},
     {"zincrby",zincrby_cmd_producer,4,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,zincrby_cmd_nck},
