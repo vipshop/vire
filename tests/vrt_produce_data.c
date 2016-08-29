@@ -6,8 +6,11 @@
 #include <errno.h>
 #include <signal.h>
 #include <assert.h>
+#include <math.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
+
+#include <vr_specialconfig.h>
 
 #include <hiredis.h>
 #include <darray.h>
@@ -134,6 +137,119 @@ static sds get_random_score_str(void)
     }
 
     return str;
+}
+
+#define ZSET_RANGE_MIN_MAX_TYPE_RANK    0
+#define ZSET_RANGE_MIN_MAX_TYPE_SCORE   1
+#define ZSET_RANGE_MIN_MAX_TYPE_LEX     2
+static sds *get_random_zset_range_min_max_str(int range_type)
+{
+    sds *range; /* range[0] is the min, range[1] is the max */
+    unsigned int probability = rand()%100;
+
+    range = malloc(2*sizeof(sds));
+    if (range_type == ZSET_RANGE_MIN_MAX_TYPE_RANK) {
+        unsigned int min = get_random_unsigned_int();
+        unsigned int max = get_random_unsigned_int();
+
+        if (probability >= 95 && min <= max || 
+            probability < 95 && min > max) {
+            range[0] = sdsfromlonglong((long long)max);
+            range[1] = sdsfromlonglong((long long)min);
+        } else {
+            range[0] = sdsfromlonglong((long long)min);
+            range[1] = sdsfromlonglong((long long)max);
+        }
+    } else if (range_type == ZSET_RANGE_MIN_MAX_TYPE_SCORE) {
+        sds min_str = get_random_score_str();
+        sds max_str = get_random_score_str();
+        float min, max;
+        char *eptr;
+        sds swap;
+        unsigned int min_probability = rand()%3;
+        unsigned int max_probability = rand()%3;
+
+        min = strtod(min_str,&eptr);
+        if (eptr[0] != '\0' || isnan(min)) {
+            sdsfree(min_str);
+            sdsfree(max_str);
+            free(range);
+            return NULL;
+        }
+        max = strtod(max_str,&eptr);
+        if (eptr[0] != '\0' || isnan(max)) {
+            sdsfree(min_str);
+            sdsfree(max_str);
+            free(range);
+            return NULL;
+        }
+        if (probability >= 95 && min <= max || 
+            probability < 95 && min > max) {
+            swap = min_str;
+            min_str = max_str;
+            max_str = swap;
+        }
+        
+        if (min_probability == 0) {
+            range[0] = sdsnew("-inf");
+        } else if (min_probability == 1) {
+            range[0] = sdsnew("(");
+            range[0] = sdscatfmt(range[0],"%S",min_str);
+            sdsfree(min_str);
+        } else {
+            range[0] = min_str;
+        }
+        if (max_probability == 0) {
+            range[1] = sdsnew("+inf");
+        } else if (max_probability == 1) {
+            range[1] = sdsnew("(");
+            range[1] = sdscatfmt(range[1],"%S",max_str);
+            sdsfree(max_str);
+        } else {
+            range[1] = max_str;
+        }
+    } else if (range_type == ZSET_RANGE_MIN_MAX_TYPE_LEX) {
+        sds min_str = get_random_string();
+        sds max_str = get_random_string();
+        sds swap;
+        unsigned int min_probability = rand()%3;
+        unsigned int max_probability = rand()%3;
+
+        if (probability >= 95 && sdscmp(min_str,max_str) < 0 || 
+            probability < 95 && sdscmp(min_str,max_str) > 0) {
+            swap = min_str;
+            min_str = max_str;
+            max_str = swap;
+        }
+        
+        if (min_probability == 0) {
+            range[0] = sdsnew("-");
+        } else if (min_probability == 1) {
+            range[0] = sdsnew("(");
+            range[0] = sdscatfmt(range[0],"%S",min_str);
+            sdsfree(min_str);
+        } else {
+            range[0] = sdsnew("[");
+            range[0] = sdscatfmt(range[0],"%S",min_str);
+            sdsfree(min_str);
+        }
+        if (max_probability == 0) {
+            range[1] = sdsnew("+inf");
+        } else if (max_probability == 1) {
+            range[1] = sdsnew("(");
+            range[1] = sdscatfmt(range[1],"%S",max_str);
+            sdsfree(max_str);
+        } else {
+            range[1] = sdsnew("[");
+            range[1] = sdscatfmt(range[1],"%S",max_str);
+            sdsfree(max_str);
+        }
+    } else {
+        free(range);
+        range = NULL; 
+    }
+
+    return range;
 }
 
 static unsigned int get_random_field_len(void)
@@ -686,6 +802,7 @@ static data_unit *zcard_cmd_producer(data_producer *dp, produce_scheme *ps)
 static data_unit *zcount_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
+    sds *range = get_random_zset_range_min_max_str(ZSET_RANGE_MIN_MAX_TYPE_SCORE);
     
     du = data_unit_get();
     du->dp = dp;
@@ -693,9 +810,10 @@ static data_unit *zcount_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
     du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
-    du->argv[2] = get_random_score_str();
-    du->argv[3] = get_random_score_str();
-    
+    du->argv[2] = range[0];
+    du->argv[3] = range[1];
+
+    free(range);
     return du;
 }
 
@@ -704,6 +822,7 @@ static data_unit *zrangebyscore_cmd_producer(data_producer *dp, produce_scheme *
     data_unit *du;
     unsigned int idx = 0, arg_count = 0;
     int withscores,limit;
+    sds *range = get_random_zset_range_min_max_str(ZSET_RANGE_MIN_MAX_TYPE_SCORE);
 
     arg_count = 4;
     if (rand()%2 == 1) {
@@ -725,8 +844,8 @@ static data_unit *zrangebyscore_cmd_producer(data_producer *dp, produce_scheme *
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[idx++] = sdsnew(dp->name);
     du->argv[idx++] = get_random_key_with_hit_ratio(ps,dp);
-    du->argv[idx++] = get_random_score_str();
-    du->argv[idx++] = get_random_score_str();
+    du->argv[idx++] = range[0];
+    du->argv[idx++] = range[1];
     if (withscores) du->argv[idx++] = sdsnew("withscores");
     if (limit) {
         du->argv[idx++] = sdsnew("limit");
@@ -735,7 +854,8 @@ static data_unit *zrangebyscore_cmd_producer(data_producer *dp, produce_scheme *
     }
 
     ASSERT(arg_count == idx);
-    
+
+    free(range);
     return du;
 }
 
@@ -744,6 +864,7 @@ static data_unit *zrevrangebyscore_cmd_producer(data_producer *dp, produce_schem
     data_unit *du;
     unsigned int idx = 0, arg_count = 0;
     int withscores,limit;
+    sds *range = get_random_zset_range_min_max_str(ZSET_RANGE_MIN_MAX_TYPE_SCORE);
 
     arg_count = 4;
     if (rand()%2 == 1) {
@@ -765,8 +886,8 @@ static data_unit *zrevrangebyscore_cmd_producer(data_producer *dp, produce_schem
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[idx++] = sdsnew(dp->name);
     du->argv[idx++] = get_random_key_with_hit_ratio(ps,dp);
-    du->argv[idx++] = get_random_score_str();
-    du->argv[idx++] = get_random_score_str();
+    du->argv[idx++] = range[0];
+    du->argv[idx++] = range[1];
     if (withscores) du->argv[idx++] = sdsnew("withscores");
     if (limit) {
         du->argv[idx++] = sdsnew("limit");
@@ -775,7 +896,8 @@ static data_unit *zrevrangebyscore_cmd_producer(data_producer *dp, produce_schem
     }
 
     ASSERT(arg_count == idx);
-    
+
+    free(range);
     return du;
 }
 
@@ -827,6 +949,7 @@ static data_unit *zscore_cmd_producer(data_producer *dp, produce_scheme *ps)
 static data_unit *zremrangebyscore_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
+    sds *range = get_random_zset_range_min_max_str(ZSET_RANGE_MIN_MAX_TYPE_SCORE);
     
     du = data_unit_get();
     du->dp = dp;
@@ -834,15 +957,17 @@ static data_unit *zremrangebyscore_cmd_producer(data_producer *dp, produce_schem
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
     du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
-    du->argv[2] = get_random_score_str();
-    du->argv[3] = get_random_score_str();
-    
+    du->argv[2] = range[0];
+    du->argv[3] = range[1];
+
+    free(range);
     return du;
 }
 
 static data_unit *zremrangebyrank_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
+    sds *range = get_random_zset_range_min_max_str(ZSET_RANGE_MIN_MAX_TYPE_RANK);
     
     du = data_unit_get();
     du->dp = dp;
@@ -850,15 +975,17 @@ static data_unit *zremrangebyrank_cmd_producer(data_producer *dp, produce_scheme
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
     du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
-    du->argv[2] = sdsfromlonglong(get_random_int());
-    du->argv[3] = sdsfromlonglong(get_random_int());
-    
+    du->argv[2] = range[0];
+    du->argv[3] = range[1];
+
+    free(range);
     return du;
 }
 
 static data_unit *zremrangebylex_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
+    sds *range = get_random_zset_range_min_max_str(ZSET_RANGE_MIN_MAX_TYPE_LEX);
     
     du = data_unit_get();
     du->dp = dp;
@@ -866,9 +993,10 @@ static data_unit *zremrangebylex_cmd_producer(data_producer *dp, produce_scheme 
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
     du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
-    du->argv[2] = get_random_string();
-    du->argv[3] = get_random_string();
-    
+    du->argv[2] = range[0];
+    du->argv[3] = range[1];
+
+    free(range);
     return du;
 }
 
