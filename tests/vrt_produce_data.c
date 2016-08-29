@@ -116,7 +116,7 @@ static sds get_random_string(void)
     return str;
 }
 
-static sds get_random_score_str(void)
+static sds get_random_float_str(void)
 {
     unsigned int decimal_len;
     sds str;
@@ -161,8 +161,8 @@ static sds *get_random_zset_range_min_max_str(int range_type)
             range[1] = sdsfromlonglong((long long)max);
         }
     } else if (range_type == ZSET_RANGE_MIN_MAX_TYPE_SCORE) {
-        sds min_str = get_random_score_str();
-        sds max_str = get_random_score_str();
+        sds min_str = get_random_float_str();
+        sds max_str = get_random_float_str();
         float min, max;
         char *eptr;
         sds swap;
@@ -271,6 +271,19 @@ static sds get_random_key_with_hit_ratio(produce_scheme *ps, data_producer *dp)
     }
     return key;
 }
+
+/* Need cache key? */
+static int nck_when_noerror(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type != REDIS_REPLY_ERROR) {
+        return 1;
+    }
+
+    return 0;
+}
+
 
 static data_unit *get_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
@@ -585,6 +598,21 @@ static data_unit *strlen_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+static data_unit *getset_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 3;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
+    du->argv[2] = get_random_string();
+    
+    return du;
+}
+
 static data_unit *rpush_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
@@ -787,7 +815,7 @@ static data_unit *zadd_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argv[1] = get_random_key();
 
     for (j = 2; j < 2+field_length*2; j += 2) {
-        du->argv[j] = get_random_score_str();
+        du->argv[j] = get_random_float_str();
         du->argv[j+1] = get_random_string();
     }
     
@@ -817,7 +845,7 @@ static data_unit *zincrby_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
     du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
-    du->argv[2] = get_random_score_str();;
+    du->argv[2] = get_random_float_str();;
     du->argv[3] = get_random_string();
     
     return du;
@@ -1142,6 +1170,7 @@ data_producer redis_data_producer_table[] = {
     {"decrby",decrby_cmd_producer,3,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
     {"append",append_cmd_producer,3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,append_cmd_nck},
     {"strlen",strlen_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
+    {"getset",getset_cmd_producer,3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,nck_when_noerror},
     /* List */
     {"rpush",rpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,rpush_cmd_nck},
     {"lpush",lpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,lpush_cmd_nck},
@@ -1414,10 +1443,7 @@ static void *vrt_produce_thread_run(void *args)
         dp = darray_get(&needed_cmd_type_producer,idx);
         du = (*dp)->proc(*dp,pt->ps);
 
-        if ((*dp)->flags&PRO_ADD) {
-            ASSERT((*dp)->need_cache_key_proc != NULL);
-            du->data = pt->ps;
-        }
+        du->data = pt->ps;
 
         /* Dispatch the test data */
         ret = data_dispatch(du);

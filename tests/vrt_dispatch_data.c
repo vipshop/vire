@@ -166,11 +166,9 @@ static void reply_callback(redisAsyncContext *c, void *r, void *privdata) {
             }
 
             /* Cache this key if needed. */
-            if (du->dp->flags&PRO_ADD) {
+            if (dp->need_cache_key_proc != NULL) {
                 produce_scheme *ps = du->data;
-                ASSERT(ps != NULL && dp->need_cache_key_proc != NULL);
-                if (dp->need_cache_key_proc != NULL && 
-                    dp->need_cache_key_proc(reply)) {
+                if (dp->need_cache_key_proc(reply)) {
                     key_cache_array *kcp = kcp_get_from_ps(ps, dp);
                     sds key = get_one_key_from_data_unit(du);
                     key_cache_array_input(kcp,key,sdslen(key));
