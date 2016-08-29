@@ -272,7 +272,7 @@ static sds get_random_key_with_hit_ratio(produce_scheme *ps, data_producer *dp)
     return key;
 }
 
-/* Need cache key? */
+/************** Need cache key implement ************/
 static int nck_when_noerror(redisReply *reply)
 {
     if (reply == NULL) return 0;
@@ -284,6 +284,18 @@ static int nck_when_noerror(redisReply *reply)
     return 0;
 }
 
+static int nck_when_str(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type == REDIS_REPLY_STRING) {
+        return 1;
+    }
+
+    return 0;
+}
+
+/************** Need cache key implement end ************/
 
 static data_unit *get_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
@@ -609,6 +621,21 @@ static data_unit *getset_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argv[0] = sdsnew(dp->name);
     du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = get_random_string();
+    
+    return du;
+}
+
+static data_unit *incrbyfloat_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 3;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
+    du->argv[2] = get_random_float_str();
     
     return du;
 }
@@ -1171,6 +1198,7 @@ data_producer redis_data_producer_table[] = {
     {"append",append_cmd_producer,3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,append_cmd_nck},
     {"strlen",strlen_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
     {"getset",getset_cmd_producer,3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,nck_when_noerror},
+    {"incrbyfloat",incrbyfloat_cmd_producer,3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,nck_when_str},
     /* List */
     {"rpush",rpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,rpush_cmd_nck},
     {"lpush",lpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,lpush_cmd_nck},
