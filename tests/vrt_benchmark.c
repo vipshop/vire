@@ -529,10 +529,29 @@ static int compareLatency(const void *a, const void *b) {
     return (*(long long*)a)-(*(long long*)b);
 }
 
+static void updateBenchmarkStats(void)
+{
+    int i;
+    int count;
+
+    config.liveclients = 0;
+    config.requests_finished = 0;
+
+    for (i = 0; i < config.threads_count; i ++) {
+        benchmark_thread *bt = darray_get(bts, i);
+        update_state_get(bt->liveclients,&count);
+        config.liveclients += count;
+        update_state_get(bt->requests_finished,&count);
+        config.requests_finished += count;
+    }
+}
+
 static void showLatencyReport(void) {
     int i, j, curlat = 0;
     int n = 0;
     float perc, reqpersec;
+
+    updateBenchmarkStats();
 
     reqpersec = (float)config.requests_finished/((float)config.totlatency/1000);
     if (!config.quiet && !config.csv) {
@@ -744,23 +763,6 @@ usage:
 " with a range of values selected by the -r option.\n"
     );
     exit(exit_status);
-}
-
-static void updateBenchmarkStats(void)
-{
-    int i;
-    int count;
-
-    config.liveclients = 0;
-    config.requests_finished = 0;
-
-    for (i = 0; i < config.threads_count; i ++) {
-        benchmark_thread *bt = darray_get(bts, i);
-        update_state_get(bt->liveclients,&count);
-        config.liveclients += count;
-        update_state_get(bt->requests_finished,&count);
-        config.requests_finished += count;
-    }
 }
 
 static int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData) {
