@@ -238,6 +238,7 @@ AC_CONFIG_FILES([Makefile
                  dep/ae/Makefile
                  dep/dlist/Makefile
                  dep/darray/Makefile
+                 dep/himemcached-0.1.0/Makefile
                  src/Makefile
                  tests/Makefile])
 

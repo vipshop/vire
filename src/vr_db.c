@@ -608,6 +608,7 @@ void scanGenericCommand(client *c, int scantype) {
                 o->type == OBJ_ZSET);
 
 scan_retry:
+    
     /* Step 2: Iterate the collection.
      *
      * Note that if the object is encoded with a ziplist, intset, or any other

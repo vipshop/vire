@@ -21,6 +21,10 @@
 
 #include <vrt_util.h>
 #include <vrt_public.h>
+#include <himemcached.h>
+
+#define TEST_CMD_PROTOCOL_REDIS     0
+#define TEST_CMD_PROTOCOL_MEMCACHE  1
 
 #define RANDPTR_INITIAL_SIZE 8
 
@@ -53,6 +57,7 @@ static struct config {
     char *tests;
     char *auth;
     int threads_count;
+    int protocol;
 } config;
 
 typedef struct benchmark_thread {
@@ -79,7 +84,8 @@ typedef struct benchmark_thread {
 typedef struct _benchmark_client {
     benchmark_thread *bt;
     
-    redisContext *context;
+    redisContext *rc;
+    mcContext *mc;
     sds obuf;
     char **randptr;         /* Pointers to :rand: strings inside the command buf */
     size_t randlen;         /* Number of pointers in client->randptr */
@@ -107,10 +113,14 @@ static void freeClient(benchmark_client c) {
     dlistNode *ln;
 
     if (bt->el) {
-        aeDeleteFileEvent(bt->el,c->context->fd,AE_WRITABLE);
-        aeDeleteFileEvent(bt->el,c->context->fd,AE_READABLE);
+        aeDeleteFileEvent(bt->el,c->rc->fd,AE_WRITABLE);
+        aeDeleteFileEvent(bt->el,c->rc->fd,AE_READABLE);
     }
-    redisFree(c->context);
+    redisFree(c->rc);
+    if (c->mc) {
+        c->mc->fd = -1;
+        memcachedFree(c->mc);
+    }
     sdsfree(c->obuf);
     free(c->randptr);
     free(c);
@@ -133,9 +143,9 @@ static void freeAllClients(dlist *clients) {
 static void resetClient(benchmark_client c) {
     benchmark_thread *bt = c->bt;
     
-    aeDeleteFileEvent(bt->el,c->context->fd,AE_WRITABLE);
-    aeDeleteFileEvent(bt->el,c->context->fd,AE_READABLE);
-    aeCreateFileEvent(bt->el,c->context->fd,AE_WRITABLE,writeHandler,c);
+    aeDeleteFileEvent(bt->el,c->rc->fd,AE_WRITABLE);
+    aeDeleteFileEvent(bt->el,c->rc->fd,AE_READABLE);
+    aeCreateFileEvent(bt->el,c->rc->fd,AE_WRITABLE,writeHandler,c);
     c->written = 0;
     c->pending = config.pipeline;
 }
@@ -266,6 +276,82 @@ static int start_benchmark_threads_until_finish(void)
     return VRT_OK;
 }
 
+static void readHandlerMC(aeEventLoop *el, int fd, void *privdata, int mask) {
+    benchmark_client c = privdata;
+    benchmark_thread *bt = c->bt;
+    mcContext *mc = c->mc;
+    int requests_finished;
+    void *reply = NULL;
+    UNUSED(el);
+    UNUSED(fd);
+    UNUSED(mask);
+
+    /* Calculate latency only for the first read event. This means that the
+     * server already sent the reply and we need to parse it. Parsing overhead
+     * is not part of the latency, so calculate it only once, here. */
+    if (c->latency < 0) c->latency = dusec_now()-(c->start);
+
+    if (memcachedBufferRead(mc) != MC_OK) {
+        fprintf(stderr,"Error: %s\n",mc->errstr);
+        exit(1);
+    } else {
+        while(c->pending) {
+            if (memcachedGetReply(mc,&reply) != MC_OK) {
+                fprintf(stderr,"Error: %s\n",mc->errstr);
+                exit(1);
+            }
+            
+            if (reply != NULL) {
+                if (reply == (void*)MC_REPLY_ERROR) {
+                    fprintf(stderr,"Unexpected error reply, exiting...\n");
+                    exit(1);
+                }
+
+                if (config.showerrors) {
+                    static time_t lasterr_time = 0;
+                    time_t now = time(NULL);
+                    mcReply *r = reply;
+                    if (r->type == MC_REPLY_ERROR && lasterr_time != now) {
+                        lasterr_time = now;
+                        printf("Error from server: %s\n", r->str);
+                    }
+                }
+
+                freeMcReplyObject(reply);
+                /* This is an OK for prefix commands such as auth and select.*/
+                if (c->prefix_pending > 0) {
+                    c->prefix_pending--;
+                    c->pending--;
+                    /* Discard prefix commands on first response.*/
+                    if (c->prefixlen > 0) {
+                        size_t j;
+                        sdsrange(c->obuf, c->prefixlen, -1);
+                        /* We also need to fix the pointers to the strings
+                        * we need to randomize. */
+                        for (j = 0; j < c->randlen; j++)
+                            c->randptr[j] -= c->prefixlen;
+                        c->prefixlen = 0;
+                    }
+                    continue;
+                }
+
+                update_state_get(bt->requests_finished,&requests_finished);
+                if (requests_finished < bt->requests) {
+                    bt->latency[requests_finished] = c->latency;
+                    update_state_add(bt->requests_finished,1);
+                }
+                c->pending--;
+                if (c->pending == 0) {
+                    clientDone(c);
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    }
+}
+
 static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     benchmark_client c = privdata;
     benchmark_thread *bt = c->bt;
@@ -280,13 +366,13 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
      * is not part of the latency, so calculate it only once, here. */
     if (c->latency < 0) c->latency = dusec_now()-(c->start);
 
-    if (redisBufferRead(c->context) != REDIS_OK) {
-        fprintf(stderr,"Error: %s\n",c->context->errstr);
+    if (redisBufferRead(c->rc) != REDIS_OK) {
+        fprintf(stderr,"Error: %s\n",c->rc->errstr);
         exit(1);
     } else {
         while(c->pending) {
-            if (redisGetReply(c->context,&reply) != REDIS_OK) {
-                fprintf(stderr,"Error: %s\n",c->context->errstr);
+            if (redisGetReply(c->rc,&reply) != REDIS_OK) {
+                fprintf(stderr,"Error: %s\n",c->rc->errstr);
                 exit(1);
             }
             if (reply != NULL) {
@@ -363,7 +449,8 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     if (sdslen(c->obuf) > c->written) {
         void *ptr = c->obuf+c->written;
-        ssize_t nwritten = write(c->context->fd,ptr,sdslen(c->obuf)-c->written);
+        ssize_t nwritten = write(c->rc->fd,ptr,sdslen(c->obuf)-c->written);
+        
         if (nwritten == -1) {
             if (errno != EPIPE)
                 fprintf(stderr, "Writing to socket: %s\n", strerror(errno));
@@ -372,8 +459,14 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
         c->written += nwritten;
         if (sdslen(c->obuf) == c->written) {
-            aeDeleteFileEvent(bt->el,c->context->fd,AE_WRITABLE);
-            aeCreateFileEvent(bt->el,c->context->fd,AE_READABLE,readHandler,c);
+            aeDeleteFileEvent(bt->el,c->rc->fd,AE_WRITABLE);
+            if (config.protocol == TEST_CMD_PROTOCOL_REDIS) {
+                aeCreateFileEvent(bt->el,c->rc->fd,AE_READABLE,readHandler,c);
+            } else if (config.protocol == TEST_CMD_PROTOCOL_MEMCACHE) {
+                aeCreateFileEvent(bt->el,c->rc->fd,AE_READABLE,readHandlerMC,c);
+            } else {
+                NOT_REACHED();
+            }
         }
     }
 }
@@ -403,6 +496,20 @@ static benchmark_client createClient(char *cmd, size_t len, benchmark_client fro
     int j;
     benchmark_thread *bt;
     benchmark_client c = malloc(sizeof(struct _benchmark_client));
+
+    c->bt = NULL;
+    c->rc = NULL;
+    c->mc = NULL;
+    c->obuf = NULL;
+    c->randptr = NULL;
+    c->randlen = 0;
+    c->randfree = 0;
+    c->written = 0;
+    c->start = 0;
+    c->latency = 0;
+    c->pending = 0;
+    c->prefix_pending = 0;
+    c->prefixlen = 0;
     
     if (from == NULL) {
         ASSERT(thread != NULL);
@@ -414,20 +521,20 @@ static benchmark_client createClient(char *cmd, size_t len, benchmark_client fro
     c->bt = bt;
 
     if (config.hostsocket == NULL) {
-        c->context = redisConnectNonBlock(config.hostip,config.hostport);
+        c->rc = redisConnectNonBlock(config.hostip,config.hostport);
     } else {
-        c->context = redisConnectUnixNonBlock(config.hostsocket);
+        c->rc = redisConnectUnixNonBlock(config.hostsocket);
     }
-    if (c->context->err) {
+    if (c->rc->err) {
         fprintf(stderr,"Could not connect to Redis at ");
         if (config.hostsocket == NULL)
-            fprintf(stderr,"%s:%d: %s\n",config.hostip,config.hostport,c->context->errstr);
+            fprintf(stderr,"%s:%d: %s\n",config.hostip,config.hostport,c->rc->errstr);
         else
-            fprintf(stderr,"%s: %s\n",config.hostsocket,c->context->errstr);
+            fprintf(stderr,"%s: %s\n",config.hostsocket,c->rc->errstr);
         exit(1);
     }
     /* Suppress hiredis cleanup of unused buffers for max speed. */
-    c->context->reader->maxbuf = 0;
+    c->rc->reader->maxbuf = 0;
 
     /* Build the request buffer:
      * Queue N requests accordingly to the pipeline size, or simply clone
@@ -500,9 +607,18 @@ static benchmark_client createClient(char *cmd, size_t len, benchmark_client fro
         }
     }
     if (config.idlemode == 0)
-        aeCreateFileEvent(bt->el,c->context->fd,AE_WRITABLE,writeHandler,c);
+        aeCreateFileEvent(bt->el,c->rc->fd,AE_WRITABLE,writeHandler,c);
+
+    /* Attach the redis fd to memcached fd */
+    if (config.protocol == TEST_CMD_PROTOCOL_MEMCACHE) {
+        c->mc = memcachedContextInit();
+        c->mc->fd = c->rc->fd;
+        c->mc->flags &= ~MC_BLOCK;
+    }
+    
     dlistAddNodeTail(bt->clients,c);
     update_state_add(bt->liveclients,1);
+
     return c;
 }
 
@@ -701,6 +817,8 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"-T")) {
             if (lastarg) goto invalid;
             config.threads_count = atoi(argv[++i]);
+        } else if (!strcmp(argv[i],"-m")) {
+            config.protocol = TEST_CMD_PROTOCOL_MEMCACHE;
         } else if (!strcmp(argv[i],"--help")) {
             exit_status = 0;
             goto usage;
@@ -746,6 +864,7 @@ usage:
 " -t <tests>         Only run the comma separated list of tests. The test\n"
 "                    names are the same as the ones produced as output.\n"
 " -I                 Idle mode. Just open N idle connections and wait.\n\n"
+" -m                 Use memcached protocol. This option is used for testing memcached.\n\n"
 "Examples:\n\n"
 " Run the benchmark with the default configuration against 127.0.0.1:6379:\n"
 "   $ vire-benchmark\n\n"
@@ -803,56 +922,11 @@ int test_is_selected(char *name) {
     return strstr(config.tests,buf) != NULL;
 }
 
-int main(int argc, const char **argv) {
+static int test_redis(int argc, const char **argv)
+{
     int i;
     char *data, *cmd;
     int len;
-
-    benchmark_client c;
-
-    srandom(time(NULL));
-    signal(SIGHUP, SIG_IGN);
-    signal(SIGPIPE, SIG_IGN);
-
-    config.numclients = 50;
-    config.requests = 100000;
-    config.liveclients = 0;
-    config.keepalive = 1;
-    config.datasize = 3;
-    config.pipeline = 1;
-    config.showerrors = 0;
-    config.randomkeys = 0;
-    config.randomkeys_keyspacelen = 0;
-    config.quiet = 0;
-    config.csv = 0;
-    config.loop = 0;
-    config.idlemode = 0;
-    config.latency = NULL;
-    config.hostip = "127.0.0.1";
-    config.hostport = 6379;
-    config.hostsocket = NULL;
-    config.tests = NULL;
-    config.dbnum = 0;
-    config.auth = NULL;
-    config.threads_count = 1;
-
-    i = parseOptions(argc,argv);
-    argc -= i;
-    argv += i;
-
-    config.latency = malloc(sizeof(long long)*config.requests);
-
-    if (config.keepalive == 0) {
-        printf("WARNING: keepalive disabled, you probably need 'echo 1 > /proc/sys/net/ipv4/tcp_tw_reuse' for Linux and 'sudo sysctl -w net.inet.tcp.msl=1000' for Mac OS X in order to use a lot of clients/requests\n");
-    }
-
-    //if (config.idlemode) {
-    //    printf("Creating %d idle connections and waiting forever (Ctrl+C when done)\n", config.numclients);
-    //    c = createClient("",0,NULL); /* will never receive a reply */
-    //    createMissingClients(c);
-    //    aeMain(config.el);
-        /* and will wait for every */
-    //}
 
     /* Run benchmark with command in the remainder of the arguments. */
     if (argc) {
@@ -990,6 +1064,115 @@ int main(int argc, const char **argv) {
 
         if (!config.csv) printf("\n");
     } while(config.loop);
+
+    return VRT_OK;
+}
+
+static int test_memcached(int argc, const char **argv)
+{
+    int i;
+    char *data, *cmd;
+    int len;
+
+    /* Run benchmark with command in the remainder of the arguments. */
+    if (argc) {
+        sds title = sdsnew(argv[0]);
+        for (i = 1; i < argc; i++) {
+            title = sdscatlen(title, " ", 1);
+            title = sdscatlen(title, (char*)argv[i], strlen(argv[i]));
+        }
+
+        do {
+            len = memcachedFormatCommandArgv(&cmd,argc,argv,NULL);
+            benchmark(title,cmd,len);
+            free(cmd);
+        } while(config.loop);
+
+        return 0;
+    }
+
+    /* Run default benchmark suite. */
+    data = malloc(config.datasize+1);
+    do {
+        memset(data,'x',config.datasize);
+        data[config.datasize] = '\0';
+
+        if (test_is_selected("set")) {
+            len = memcachedFormatCommand(&cmd,"set key:__rand_int__ 0 0 %d %s", config.datasize, data);
+            
+            benchmark("SET",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("get")) {
+            len = memcachedFormatCommand(&cmd,"get key:__rand_int__");
+            benchmark("GET",cmd,len);
+            free(cmd);
+        }
+
+        if (!config.csv) printf("\n");
+    } while(config.loop);
+
+    return VRT_OK;
+}
+
+int main(int argc, const char **argv) {
+    int i;
+
+    benchmark_client c;
+
+    srandom(time(NULL));
+    signal(SIGHUP, SIG_IGN);
+    signal(SIGPIPE, SIG_IGN);
+
+    config.numclients = 50;
+    config.requests = 100000;
+    config.liveclients = 0;
+    config.keepalive = 1;
+    config.datasize = 3;
+    config.pipeline = 1;
+    config.showerrors = 0;
+    config.randomkeys = 0;
+    config.randomkeys_keyspacelen = 0;
+    config.quiet = 0;
+    config.csv = 0;
+    config.loop = 0;
+    config.idlemode = 0;
+    config.latency = NULL;
+    config.hostip = "127.0.0.1";
+    config.hostport = 6379;
+    config.hostsocket = NULL;
+    config.tests = NULL;
+    config.dbnum = 0;
+    config.auth = NULL;
+    config.threads_count = 1;
+    config.protocol = TEST_CMD_PROTOCOL_REDIS;
+
+    i = parseOptions(argc,argv);
+    argc -= i;
+    argv += i;
+
+    config.latency = malloc(sizeof(long long)*config.requests);
+
+    if (config.keepalive == 0) {
+        printf("WARNING: keepalive disabled, you probably need 'echo 1 > /proc/sys/net/ipv4/tcp_tw_reuse' for Linux and 'sudo sysctl -w net.inet.tcp.msl=1000' for Mac OS X in order to use a lot of clients/requests\n");
+    }
+
+    //if (config.idlemode) {
+    //    printf("Creating %d idle connections and waiting forever (Ctrl+C when done)\n", config.numclients);
+    //    c = createClient("",0,NULL); /* will never receive a reply */
+    //    createMissingClients(c);
+    //    aeMain(config.el);
+        /* and will wait for every */
+    //}
+
+    if (config.protocol == TEST_CMD_PROTOCOL_REDIS) {
+        test_redis(argc, argv);
+    } else if (config.protocol == TEST_CMD_PROTOCOL_MEMCACHE) {
+        test_memcached(argc, argv);
+    } else {
+        NOT_REACHED();
+    }
 
     return 0;
 }

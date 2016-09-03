@@ -12,6 +12,7 @@ AM_CPPFLAGS += -I $(top_srcdir)/dep/hashkit
 AM_CPPFLAGS += -I $(top_srcdir)/dep/dlist
 AM_CPPFLAGS += -I $(top_srcdir)/dep/darray
 AM_CPPFLAGS += -I $(top_srcdir)/dep/util
+AM_CPPFLAGS += -I $(top_srcdir)/dep/himemcached-0.1.0
 
 AM_CFLAGS = 
 AM_CFLAGS += -fno-strict-aliasing
@@ -75,6 +76,7 @@ vire_benchmark_SOURCES =                    \
     
 vire_benchmark_LDADD = $(top_builddir)/dep/ae/libae.a
 vire_benchmark_LDADD += $(top_builddir)/dep/hiredis-0.13.3/libhiredis.a
+vire_benchmark_LDADD += $(top_builddir)/dep/himemcached-0.1.0/libhimemcached.a
 vire_benchmark_LDADD += $(top_builddir)/dep/dlist/libdlist.a
 vire_benchmark_LDADD += $(top_builddir)/dep/darray/libdarray.a
 vire_benchmark_LDADD += $(top_builddir)/dep/util/libdutil.a
