@@ -1111,7 +1111,7 @@ static int test_memcached(int argc, const char **argv)
         }
 
         if (test_is_selected("incr")) {
-            len = memcachedFormatCommand(&cmd,"INCR counter:__rand_int__ 1");
+            len = memcachedFormatCommand(&cmd,"incr counter:__rand_int__ 1");
             benchmark("INCR",cmd,len);
             free(cmd);
         }
