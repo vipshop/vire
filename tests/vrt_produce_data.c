@@ -673,6 +673,21 @@ static data_unit *setbit_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+static data_unit *getbit_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 3;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
+    du->argv[2] = sdsfromlonglong(get_random_unsigned_int()%30000);
+    
+    return du;
+}
+
 static data_unit *rpush_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
@@ -1233,6 +1248,7 @@ data_producer redis_data_producer_table[] = {
     {"getset",getset_cmd_producer,3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,nck_when_noerror},
     {"incrbyfloat",incrbyfloat_cmd_producer,3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,nck_when_str},
     {"setbit",setbit_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,nck_when_zero_or_one},
+    {"getbit",getbit_cmd_producer,3,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
     /* List */
     {"rpush",rpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,rpush_cmd_nck},
     {"lpush",lpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,lpush_cmd_nck},
