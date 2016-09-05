@@ -753,6 +753,37 @@ static data_unit *bitcount_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+static data_unit *bitpos_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+    int with_range = 0; /* 0: no range; 1: just have start; 2: have start and end. */
+    unsigned int probability = rand()%3;
+    
+    if (probability == 0)
+        with_range = 0;
+    else if (probability == 1)
+        with_range = 1;
+    else if (probability == 2)
+        with_range = 2;
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = with_range==0?3:(with_range==1?4:5);
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
+    if (rand()%2)
+        du->argv[2] = sdsnew("0");
+    else
+        du->argv[2] = sdsnew("1");
+    if (with_range > 0)
+        du->argv[3] = sdsfromlonglong(get_random_int()%30000);
+    if (with_range == 2)
+        du->argv[4] = sdsfromlonglong(get_random_int()%30000);
+
+    return du;
+}
+
 static data_unit *rpush_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
@@ -1317,6 +1348,7 @@ data_producer redis_data_producer_table[] = {
     {"setrange",setrange_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,nck_when_nonzero_unsigned_integer},
     {"getrange",getrange_cmd_producer,4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
     {"bitcount",bitcount_cmd_producer,-2,"r",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
+    {"bitpos",bitpos_cmd_producer,-3,"r",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,0},
     /* List */
     {"rpush",rpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,rpush_cmd_nck},
     {"lpush",lpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,lpush_cmd_nck},
