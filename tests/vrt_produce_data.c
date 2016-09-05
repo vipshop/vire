@@ -285,6 +285,18 @@ static int nck_when_noerror(redisReply *reply)
     return 0;
 }
 
+static int nck_when_ok(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type == REDIS_REPLY_STATUS && 
+        !strcmp(reply->str, "OK")) {
+        return 1;
+    }
+
+    return 0;
+}
+
 static int nck_when_str(redisReply *reply)
 {
     if (reply == NULL) return 0;
@@ -351,19 +363,6 @@ static data_unit *set_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
-/* Need cache key? */
-static int set_cmd_nck(redisReply *reply)
-{
-    if (reply == NULL) return 0;
-
-    if (reply->type == REDIS_REPLY_STATUS && 
-        !strcmp(reply->str, "OK")) {
-        return 1;
-    }
-
-    return 0;
-}
-
 static data_unit *setnx_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
@@ -408,19 +407,6 @@ static data_unit *setex_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
-/* Need cache key? */
-static int setex_cmd_nck(redisReply *reply)
-{
-    if (reply == NULL) return 0;
-
-    if (reply->type == REDIS_REPLY_STATUS && 
-        !strcmp(reply->str, "OK")) {
-        return 1;
-    }
-
-    return 0;
-}
-
 static data_unit *psetex_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
@@ -435,19 +421,6 @@ static data_unit *psetex_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argv[3] = get_random_string();
     
     return du;
-}
-
-/* Need cache key? */
-static int psetex_cmd_nck(redisReply *reply)
-{
-    if (reply == NULL) return 0;
-
-    if (reply->type == REDIS_REPLY_STATUS && 
-        !strcmp(reply->str, "OK")) {
-        return 1;
-    }
-
-    return 0;
 }
 
 static data_unit *del_cmd_producer(data_producer *dp, produce_scheme *ps)
@@ -794,6 +767,21 @@ static data_unit *mget_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
     du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
+    
+    return du;
+}
+
+static data_unit *mset_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 3;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key();
+    du->argv[2] = get_random_string();
     
     return du;
 }
@@ -1345,10 +1333,10 @@ data_producer redis_data_producer_table[] = {
     {"expireat",expireat_cmd_producer,3,"wF",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE,NULL},
     /* String */
     {"get",get_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
-    {"set",set_cmd_producer,-3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,set_cmd_nck},
+    {"set",set_cmd_producer,-3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,nck_when_ok},
     {"setnx",setnx_cmd_producer,3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,setnx_cmd_nck},
-    {"setex",setex_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE,setex_cmd_nck},
-    {"psetex",psetex_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE,psetex_cmd_nck},
+    {"setex",setex_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE,nck_when_ok},
+    {"psetex",psetex_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_EXPIRE,nck_when_ok},
     {"incr",incr_cmd_producer,2,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
     {"decr",decr_cmd_producer,2,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
     {"incrby",incrby_cmd_producer,3,"wmF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
@@ -1362,8 +1350,9 @@ data_producer redis_data_producer_table[] = {
     {"setrange",setrange_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,nck_when_nonzero_unsigned_integer},
     {"getrange",getrange_cmd_producer,4,"r",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
     {"bitcount",bitcount_cmd_producer,-2,"r",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
-    {"bitpos",bitpos_cmd_producer,-3,"r",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,0},
-    {"mget",mget_cmd_producer,-2,"r",0,NULL,1,-1,1,TEST_CMD_TYPE_STRING,0},
+    {"bitpos",bitpos_cmd_producer,-3,"r",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
+    {"mget",mget_cmd_producer,-2,"r",0,NULL,1,-1,1,TEST_CMD_TYPE_STRING,NULL},
+    {"mset",mset_cmd_producer,-3,"wmA",0,NULL,1,-1,2,TEST_CMD_TYPE_STRING,nck_when_ok},
     /* List */
     {"rpush",rpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,rpush_cmd_nck},
     {"lpush",lpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,lpush_cmd_nck},
