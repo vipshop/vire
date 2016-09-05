@@ -116,4 +116,6 @@ int *get_keys_from_data_producer(data_producer *dp, sds *argv, int argc, int *nu
 
 sds get_one_key_from_data_unit(data_unit *du);
 
+void print_producer_command(data_unit *du);
+
 #endif

@@ -1207,6 +1207,7 @@ static void verify(unsigned char *zl, zlentry *e) {
 }
 
 int ziplistTest(int argc, char **argv) {
+    int ret;
     unsigned char *zl, *p;
     unsigned char *entry;
     unsigned int elen;
@@ -1500,10 +1501,12 @@ int ziplistTest(int argc, char **argv) {
 
         /* Pop values again and compare their value. */
         p = ziplistIndex(zl,0);
-        ASSERT(ziplistGet(p,&entry,&elen,&value));
+        ret = (int)ziplistGet(p,&entry,&elen,&value);
+        ASSERT(ret > 0);
         ASSERT(strncmp(v1,(char*)entry,elen) == 0);
         p = ziplistIndex(zl,1);
-        ASSERT(ziplistGet(p,&entry,&elen,&value));
+        ret = (int)ziplistGet(p,&entry,&elen,&value);
+        ASSERT(ret > 0);
         ASSERT(strncmp(v2,(char*)entry,elen) == 0);
         printf("SUCCESS\n\n");
         vr_free(zl);
@@ -1559,11 +1562,13 @@ int ziplistTest(int argc, char **argv) {
         }
         for (i = 0; i < 1000; i++) {
             p = ziplistIndex(zl,i);
-            ASSERT(ziplistGet(p,NULL,NULL,&value));
+            ret = (int)ziplistGet(p,NULL,NULL,&value);
+            ASSERT(ret > 0);
             ASSERT(i == value);
 
             p = ziplistIndex(zl,-i-1);
-            ASSERT(ziplistGet(p,NULL,NULL,&value));
+            ret = (int)ziplistGet(p,NULL,NULL,&value);
+            ASSERT(ret > 0);
             ASSERT(999-i == value);
         }
         printf("SUCCESS\n\n");
@@ -1732,7 +1737,8 @@ int ziplistTest(int argc, char **argv) {
                 p = ziplistIndex(zl,j);
                 refnode = listIndex(ref,j);
 
-                ASSERT(ziplistGet(p,&sstr,&slen,&sval));
+                ret = (int)ziplistGet(p,&sstr,&slen,&sval);
+                ASSERT(ret > 0);
                 if (sstr == NULL) {
                     buflen = sprintf(buf,"%lld",sval);
                 } else {

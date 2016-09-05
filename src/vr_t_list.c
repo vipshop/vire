@@ -748,6 +748,7 @@ void unblockClientWaitingData(client *c) {
  *
  * The list will be finally processed by handleClientsBlockedOnLists() */
 void signalListAsReady(redisDb *db, robj *key) {
+    int ret;
     readyList *rl;
 
     /* No clients blocking for this key? No need to queue it. */
@@ -767,7 +768,8 @@ void signalListAsReady(redisDb *db, robj *key) {
      * to avoid adding it multiple times into a list with a simple O(1)
      * check. */
     incrRefCount(key);
-    ASSERT(dictAdd(db->ready_keys,key,NULL) == DICT_OK);
+    ret = dictAdd(db->ready_keys,key,NULL);
+    ASSERT(ret == DICT_OK);
 }
 
 /* This is a helper function for handleClientsBlockedOnLists(). It's work

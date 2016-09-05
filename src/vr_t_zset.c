@@ -579,6 +579,7 @@ zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range) {
  *----------------------------------------------------------------------------*/
 
 double zzlGetScore(unsigned char *sptr) {
+    int ret;
     unsigned char *vstr;
     unsigned int vlen;
     long long vlong;
@@ -586,7 +587,9 @@ double zzlGetScore(unsigned char *sptr) {
     double score;
 
     ASSERT(sptr != NULL);
-    ASSERT(ziplistGet(sptr,&vstr,&vlen,&vlong));
+    
+    ret = (int)ziplistGet(sptr,&vstr,&vlen,&vlong);
+    ASSERT(ret > 0);
 
     if (vstr) {
         memcpy(buf,vstr,vlen);
@@ -603,12 +606,15 @@ double zzlGetScore(unsigned char *sptr) {
  * This simple abstraction can be used to simplifies some code at the
  * cost of some performance. */
 robj *ziplistGetObject(unsigned char *sptr) {
+    int ret;
     unsigned char *vstr;
     unsigned int vlen;
     long long vlong;
 
     ASSERT(sptr != NULL);
-    ASSERT(ziplistGet(sptr,&vstr,&vlen,&vlong));
+
+    ret = (int)ziplistGet(sptr,&vstr,&vlen,&vlong);
+    ASSERT(ret > 0);
 
     if (vstr) {
         return createStringObject((char*)vstr,vlen);
@@ -619,13 +625,15 @@ robj *ziplistGetObject(unsigned char *sptr) {
 
 /* Compare element in sorted set with given element. */
 int zzlCompareElements(unsigned char *eptr, unsigned char *cstr, unsigned int clen) {
+    int ret;
     unsigned char *vstr;
     unsigned int vlen;
     long long vlong;
     unsigned char vbuf[32];
     int minlen, cmp;
 
-    ASSERT(ziplistGet(eptr,&vstr,&vlen,&vlong));
+    ret = (int)ziplistGet(eptr,&vstr,&vlen,&vlong);
+    ASSERT(ret > 0);
     if (vstr == NULL) {
         /* Store string representation of long long in buf. */
         vlen = ll2string((char*)vbuf,sizeof(vbuf),vlong);
@@ -758,10 +766,12 @@ unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range) {
         /* Move to previous element by moving to the score of previous element.
          * When this returns NULL, we know there also is no element. */
         sptr = ziplistPrev(zl,eptr);
-        if (sptr != NULL)
-            ASSERT((eptr = ziplistPrev(zl,sptr)) != NULL);
-        else
+        if (sptr != NULL) {
+            eptr = ziplistPrev(zl,sptr);
+            ASSERT(eptr != NULL);
+        } else {
             eptr = NULL;
+        }
     }
 
     return NULL;
@@ -849,10 +859,12 @@ unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec *range) {
         /* Move to previous element by moving to the score of previous element.
          * When this returns NULL, we know there also is no element. */
         sptr = ziplistPrev(zl,eptr);
-        if (sptr != NULL)
-            ASSERT((eptr = ziplistPrev(zl,sptr)) != NULL);
-        else
+        if (sptr != NULL) {
+            eptr = ziplistPrev(zl,sptr);
+            ASSERT(eptr != NULL);
+        } else {
             eptr = NULL;
+        }
     }
 
     return NULL;
@@ -1666,6 +1678,8 @@ int zuiLength(zsetopsrc *op) {
  * and move to the next element. If not valid, this means we have reached the
  * end of the structure and can abort. */
 int zuiNext(zsetopsrc *op, zsetopval *val) {
+    int ret;
+    
     if (op->subject == NULL)
         return 0;
 
@@ -1703,7 +1717,8 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
             /* No need to check both, but better be explicit. */
             if (it->zl.eptr == NULL || it->zl.sptr == NULL)
                 return 0;
-            ASSERT(ziplistGet(it->zl.eptr,&val->estr,&val->elen,&val->ell));
+            ret = (int) ziplistGet(it->zl.eptr,&val->estr,&val->elen,&val->ell);
+            ASSERT(ret > 0);
             val->score = zzlGetScore(it->zl.sptr);
 
             /* Move to next element. */

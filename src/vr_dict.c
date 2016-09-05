@@ -574,10 +574,12 @@ dictEntry *dictNext(dictIterator *iter)
 void dictReleaseIterator(dictIterator *iter)
 {
     if (!(iter->index == -1 && iter->table == 0)) {
-        if (iter->safe)
+        if (iter->safe) {
             iter->d->iterators--;
-        else
-            ASSERT(iter->fingerprint == dictFingerprint(iter->d));
+        } else {
+            long long hv = dictFingerprint(iter->d);
+            ASSERT(iter->fingerprint == hv);
+        }
     }
     vr_free(iter);
 }

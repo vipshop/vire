@@ -234,7 +234,7 @@ static sds *get_random_zset_range_min_max_str(int range_type)
             sdsfree(min_str);
         }
         if (max_probability == 0) {
-            range[1] = sdsnew("+inf");
+            range[1] = sdsnew("+");
         } else if (max_probability == 1) {
             range[1] = sdsnew("(");
             range[1] = sdscatfmt(range[1],"%S",max_str);
@@ -1700,4 +1700,18 @@ sds get_one_key_from_data_unit(data_unit *du)
     free(keyindex);
 
     return key;
+}
+
+void print_producer_command(data_unit *du)
+{
+    int j;
+    sds cmd = sdsempty();
+    
+    for (j = 0; j < du->argc; j ++) {
+        cmd = sdscatsds(cmd,du->argv[j]);
+        cmd = sdscat(cmd," ");
+    }
+    cmd = sdscat(cmd,"\n");
+    log_write_len(cmd,sdslen(cmd));
+    sdsfree(cmd);
 }
