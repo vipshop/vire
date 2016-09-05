@@ -80,6 +80,7 @@ static unsigned int get_random_unsigned_int(void)
 static char get_random_char(void)
 {
     return (char)rand()%250 + 5;
+    //return (char)(rand()%25 + 97);
 }
 
 static sds get_random_key(void)
@@ -289,6 +290,18 @@ static int nck_when_str(redisReply *reply)
     if (reply == NULL) return 0;
 
     if (reply->type == REDIS_REPLY_STRING) {
+        return 1;
+    }
+
+    return 0;
+}
+
+static int nck_when_zero_or_one(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type == REDIS_REPLY_INTEGER && 
+        (reply->integer == 0 || reply->integer == 1)) {
         return 1;
     }
 
@@ -636,6 +649,26 @@ static data_unit *incrbyfloat_cmd_producer(data_producer *dp, produce_scheme *ps
     du->argv[0] = sdsnew(dp->name);
     du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = get_random_float_str();
+    
+    return du;
+}
+
+static data_unit *setbit_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 4;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
+    du->argv[2] = sdsfromlonglong(get_random_unsigned_int()%30000);
+    if (rand()%2) {
+        du->argv[3] = sdsnew("1");
+    } else {
+        du->argv[3] = sdsnew("0");
+    }
     
     return du;
 }
@@ -1199,6 +1232,7 @@ data_producer redis_data_producer_table[] = {
     {"strlen",strlen_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
     {"getset",getset_cmd_producer,3,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,nck_when_noerror},
     {"incrbyfloat",incrbyfloat_cmd_producer,3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,nck_when_str},
+    {"setbit",setbit_cmd_producer,4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,nck_when_zero_or_one},
     /* List */
     {"rpush",rpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,rpush_cmd_nck},
     {"lpush",lpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,lpush_cmd_nck},
