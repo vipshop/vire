@@ -1109,12 +1109,6 @@ static int test_memcached(int argc, const char **argv)
             benchmark("GET",cmd,len);
             free(cmd);
         }
-
-        if (test_is_selected("incr")) {
-            len = memcachedFormatCommand(&cmd,"incr counter:__rand_int__ 1");
-            benchmark("INCR",cmd,len);
-            free(cmd);
-        }
         
         if (!config.csv) printf("\n");
     } while(config.loop);
