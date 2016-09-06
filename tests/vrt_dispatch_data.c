@@ -119,7 +119,8 @@ static int sort_replys_if_needed(reply_unit *ru)
     int step = 0, idx_cmp = 0;
 
     if (dp->cmd_type&TEST_CMD_TYPE_SET) {
-        if (!strcmp(dp->name,"smembers")) {
+        if (!strcmp(dp->name,"smembers") || 
+            !strcmp(dp->name,"sunion")) {
             step = 1;
         }
     }

@@ -1055,6 +1055,20 @@ static data_unit *sismember_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+static data_unit *sunion_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 2;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
+    
+    return du;
+}
+
 /* Need cache key? */
 static int lpush_cmd_nck(redisReply *reply)
 {
@@ -1464,6 +1478,7 @@ data_producer redis_data_producer_table[] = {
     {"scard",scard_cmd_producer,2,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_SET,NULL},
     {"srem",srem_cmd_producer,-3,"wF",0,NULL,1,1,1,TEST_CMD_TYPE_SET,NULL},
     {"sismember",sismember_cmd_producer,3,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_SET,NULL},
+    {"sunion",sunion_cmd_producer,-2,"rS",0,NULL,1,-1,1,TEST_CMD_TYPE_SET,NULL},
     /* SortedSet */
     {"zadd",zadd_cmd_producer,-4,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,zadd_cmd_nck},
     {"zincrby",zincrby_cmd_producer,4,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,zincrby_cmd_nck},
