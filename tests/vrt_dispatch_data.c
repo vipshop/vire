@@ -118,7 +118,7 @@ static int sort_replys_if_needed(reply_unit *ru)
     data_producer *dp = du->dp;
     int step = 0, idx_cmp = 0;
 
-    if (dp->flags&TEST_CMD_TYPE_SET) {
+    if (dp->cmd_type&TEST_CMD_TYPE_SET) {
         if (!strcmp(dp->name,"smembers")) {
             step = 1;
         }
@@ -129,8 +129,10 @@ static int sort_replys_if_needed(reply_unit *ru)
         redisReply *reply;
         for (i = 0; i < ru->received_count; i ++) {
             reply = ru->replys[i];
+            if (reply->type != REDIS_REPLY_ARRAY)
+                continue;
             sort_array_by_step(reply->element, reply->elements, 
-                step,idx_cmp, reply_string_binary_compare);
+                step, idx_cmp, reply_string_binary_compare);
         }
     }
     

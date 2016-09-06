@@ -537,6 +537,9 @@ int sort_array_by_step(void **element, size_t elements,
     struct sort_unit *sus;
     size_t count, j, k;
 
+    if (elements <= 1)
+        return VRT_OK;
+
     if (step <= 0)
         return VRT_ERROR;
     

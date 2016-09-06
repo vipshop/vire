@@ -219,6 +219,8 @@ static int sort_replys_if_needed(check_unit *cunit)
         redisReply **reply;
         for (i = 0; i < darray_n(&cunit->replys); i ++) {
             reply = darray_get(&cunit->replys, i);
+            if ((*reply)->type != REDIS_REPLY_ARRAY)
+                continue;
             sort_array_by_step((*reply)->element, (*reply)->elements, 
                 step, idx_cmp, reply_string_binary_compare);
         }
