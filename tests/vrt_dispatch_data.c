@@ -120,7 +120,8 @@ static int sort_replys_if_needed(reply_unit *ru)
 
     if (dp->cmd_type&TEST_CMD_TYPE_SET) {
         if (!strcmp(dp->name,"smembers") || 
-            !strcmp(dp->name,"sunion")) {
+            !strcmp(dp->name,"sunion") || 
+            !strcmp(dp->name,"sdiff")) {
             step = 1;
         }
     }
