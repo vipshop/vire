@@ -204,12 +204,37 @@ static void disconnect_callback(const redisAsyncContext *c, int status) {
     //aeStop(loop);
 }
 
+static int sort_replys_if_needed(check_unit *cunit)
+{
+    int step = 0, idx_cmp = 0;
+
+    if (cunit->key_type == REDIS_SET) {
+        step = 1;
+    } else if (cunit->key_type == REDIS_HASH) {
+        step = 2;
+    }
+
+    if (step > 0) {
+        int i;
+        redisReply **reply;
+        for (i = 0; i < darray_n(&cunit->replys); i ++) {
+            reply = darray_get(&cunit->replys, i);
+            sort_array_by_step((*reply)->element, (*reply)->elements, 
+                step, idx_cmp, reply_string_binary_compare);
+        }
+    }
+    
+    return VRT_OK;
+}
+
 /* 1: All replys are same
  * 0: replys are different */
 static int check_replys_if_same(check_unit *cunit)
 {
     unsigned int j;
     redisReply **replyb, **reply;
+
+    sort_replys_if_needed(cunit);
 
     replyb = darray_get(&cunit->replys,0);
     

@@ -130,6 +130,8 @@ long long get_longlong_from_info_reply(redisReply *reply, char *name);
 
 redisReply *steal_hiredis_redisreply(redisReply *r);
 int check_two_replys_if_same(redisReply *reply1, redisReply *reply2);
+int sort_array_by_step(void **element, size_t elements, int step, int idx_cmp, int (*fcmp)(const void *,const void *));
+int reply_string_binary_compare(const void *r1,const void *r2);
 
 int parse_command_types(char *command_types_str);
 struct darray *parse_command_list(char *command_list_str);

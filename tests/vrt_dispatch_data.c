@@ -109,6 +109,32 @@ static void show_replys_inconsistency_msg(data_unit *du, redisReply *reply1, red
             reply1->type==REDIS_REPLY_ARRAY?reply1->elements:0,
             reply2->type==REDIS_REPLY_ARRAY?reply2->elements:0);
     }
+
+}
+
+static int sort_replys_if_needed(reply_unit *ru)
+{
+    data_unit *du = ru->du;
+    data_producer *dp = du->dp;
+    int step = 0, idx_cmp = 0;
+
+    if (dp->flags&TEST_CMD_TYPE_SET) {
+        if (!strcmp(dp->name,"smembers")) {
+            step = 1;
+        }
+    }
+
+    if (step > 0) {
+        int i;
+        redisReply *reply;
+        for (i = 0; i < ru->received_count; i ++) {
+            reply = ru->replys[i];
+            sort_array_by_step(reply->element, reply->elements, 
+                step,idx_cmp, reply_string_binary_compare);
+        }
+    }
+    
+    return VRT_OK;
 }
 
 static int check_replys_if_same(reply_unit *ru)
@@ -116,6 +142,8 @@ static int check_replys_if_same(reply_unit *ru)
     int j;
     redisReply **replys = ru->replys;
     redisReply *replyb, *reply;
+
+    sort_replys_if_needed(ru);
 
     replyb = replys[0];
     
@@ -235,6 +263,7 @@ static int dispatch_thread_send_data(dispatch_data_thread *ddt)
             redisAsyncCommandArgv(actx, reply_callback, cbd, du->argc, du->argv, argvlen);
         }
         free(argvlen);
+
         if (count_per_time-- <= 0) break;
     }
 

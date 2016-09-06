@@ -308,6 +308,18 @@ static int nck_when_str(redisReply *reply)
     return 0;
 }
 
+static int nck_when_unsigned_integer(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type == REDIS_REPLY_INTEGER && 
+        reply->integer >= 0) {
+        return 1;
+    }
+
+    return 0;
+}
+
 static int nck_when_nonzero_unsigned_integer(redisReply *reply)
 {
     if (reply == NULL) return 0;
@@ -799,7 +811,6 @@ static data_unit *rpush_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
     du->argv[1] = get_random_key();
-
     for (j = 0; j < field_length; j ++) {
         du->argv[2+j] = get_random_string();
     }
@@ -957,6 +968,26 @@ static data_unit *lset_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     du->argv[2] = sdsfromlonglong((long long)get_random_int()%(field_length_max+1));
     du->argv[3] = get_random_string();
+    
+    return du;
+}
+
+static data_unit *sadd_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+    unsigned int j, field_length;
+
+    field_length = get_random_field_len();
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 2 + field_length;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key();
+    for (j = 0; j < field_length; j ++) {
+        du->argv[2+j] = get_random_string();
+    }
     
     return du;
 }
@@ -1364,6 +1395,8 @@ data_producer redis_data_producer_table[] = {
     {"ltrim",ltrim_cmd_producer,4,"w",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,NULL},
     {"lindex",lindex_cmd_producer,3,"r",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,NULL},
     {"lset",lset_cmd_producer,4,"wm",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,NULL},
+    /* Set */
+    {"sadd",sadd_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_SET,nck_when_unsigned_integer},
     /* SortedSet */
     {"zadd",zadd_cmd_producer,-4,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,zadd_cmd_nck},
     {"zincrby",zincrby_cmd_producer,4,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,zincrby_cmd_nck},

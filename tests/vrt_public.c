@@ -511,6 +511,82 @@ int check_two_replys_if_same(redisReply *reply1, redisReply *reply2)
     return 0;
 }
 
+struct sort_unit {
+    size_t nfield;
+    void **fields;
+    unsigned int idx_cmp;
+    int (*fcmp)(const void *,const void *);
+};
+
+static int element_cmp_multi_step(const void *ele1,const void *ele2)
+{
+    struct sort_unit *su1 = ele1, *su2 = ele2;
+
+    ASSERT(su1->fcmp == su2->fcmp);
+    ASSERT(su1->nfield == su2->nfield);
+    ASSERT(su1->idx_cmp == su2->idx_cmp);
+    ASSERT(su1->idx_cmp < su1->nfield);
+
+    return su1->fcmp(su1->fields[su1->idx_cmp],su2->fields[su2->idx_cmp]);
+}
+
+/* The element in the array must a pointer. */
+int sort_array_by_step(void **element, size_t elements, 
+    int step, int idx_cmp, int (*fcmp)(const void *,const void *))
+{
+    struct sort_unit *sus;
+    size_t count, j, k;
+
+    if (step <= 0)
+        return VRT_ERROR;
+    
+    if (step == 1) {
+        qsort(element, elements, sizeof(void *), fcmp);
+        return VRT_OK;
+    }
+
+    if (elements%step != 0)
+        return VRT_ERROR;
+
+    count = elements/step;
+    if (count == 0)
+        return VRT_ERROR;
+    sus = malloc(count*sizeof(struct sort_unit));
+    for (j = 0; j < count; j ++) {
+        sus[j].nfield = step;
+        sus[j].idx_cmp = idx_cmp;
+        sus[j].fcmp = fcmp;
+        sus[j].fields = malloc(step*sizeof(void*));
+        for (k = j; k < step; k ++) {
+            sus[j].fields[k] = element[j*step+k];
+        }
+    }
+
+    qsort(sus, count, sizeof(struct sort_unit), element_cmp_multi_step);
+
+    for (j = 0; j < count; j ++) {
+        for (k = j; k < step; k ++) {
+            element[j*step+k] = sus[j].fields[k];
+        }
+        free(sus[j].fields);
+    }
+    free(sus);
+    return VRT_OK;
+}
+
+/* The reply type must be string */
+int reply_string_binary_compare(const void *r1,const void *r2)
+{
+    redisReply *reply1 = *(redisReply **)r1, *reply2 = *(redisReply **)r2;
+    int minlen;
+    int cmp;
+
+    minlen = (reply1->len < reply2->len) ? reply1->len:reply2->len;
+    cmp = memcmp(reply1->str,reply2->str,minlen);
+    if (cmp == 0) return reply1->len - reply2->len;
+    return cmp;
+}
+
 /* command types string is like 'string,list,set,zset,hash,server,key,expire' */
 int parse_command_types(char *command_types_str)
 {
