@@ -1084,6 +1084,10 @@ static int test_memcached(int argc, const char **argv)
 
         do {
             len = memcachedFormatCommandArgv(&cmd,argc,argv,NULL);
+            if (len < 0) {
+                return 0;
+            }
+            
             benchmark(title,cmd,len);
             free(cmd);
         } while(config.loop);

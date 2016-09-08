@@ -426,12 +426,30 @@ static int checkCmdValidAndGetTotalLen(int cmdtype, int argtype, int argc, char 
                 ARGUMENTLEN(argtype,argv,argvlen,2) + 2;
             break;
         case REQ_TYPE_RETRIEVAL:
-        case REQ_TYPE_DELETE:
-            if (argc != 2) {
+            if (argc <= 1) {
                 return -1;
             }
+
+            totlen = 0;
+            for (j = 0; j < argc-1; j ++) {
+                totlen += ARGUMENTLEN(argtype,argv,argvlen,j) + 1;
+            }
+            totlen += ARGUMENTLEN(argtype,argv,argvlen,argc-1) + 2;
+            break;
+        case REQ_TYPE_DELETE:
+            if (argc != 2 && argc != 3) {
+                return -1;
+            }
+            
             totlen = ARGUMENTLEN(argtype,argv,argvlen,0) + 1 + 
-                ARGUMENTLEN(argtype,argv,argvlen,1) + 2;
+                ARGUMENTLEN(argtype,argv,argvlen,1);
+            if (argc == 3) {
+                if (strncasecmp(argv[2],"noreply",7)) {
+                    return -1;
+                }
+                totlen += 1 + ARGUMENTLEN(argtype,argv,argvlen,2);
+            }
+            totlen += 2;
             break;
         default:
             totlen = -1;
@@ -461,7 +479,7 @@ static int genericMemcachedCommand(int cmdtype, char *cmd, int argtype, int argc
             cmd[pos++] = '\n';
             len = ARGUMENTLEN(argtype,argv,argvlen,argc-1);
             memcpy(cmd+pos,argv[argc-1],len);
-            pos += len;
+            pos += (int)len;
             cmd[pos++] = '\r';
             cmd[pos++] = '\n';
             break;
@@ -470,13 +488,13 @@ static int genericMemcachedCommand(int cmdtype, char *cmd, int argtype, int argc
         case REQ_TYPE_DELETE:
             for (j = 0; j < argc-1; j ++) {
                 len = ARGUMENTLEN(argtype,argv,argvlen,j);
-                 memcpy(cmd+pos,argv[j],len);
-                 pos += len;
-                 cmd[pos++] = ' ';
+                memcpy(cmd+pos,argv[j],len);
+                pos += len;
+                cmd[pos++] = ' ';
             }
             len = ARGUMENTLEN(argtype,argv,argvlen,argc-1);
             memcpy(cmd+pos,argv[argc-1],len);
-            pos += len;
+            pos += (int)len;
             cmd[pos++] = '\r';
             cmd[pos++] = '\n';
             break;
@@ -794,8 +812,9 @@ int memcachedFormatCommandArgv(char **target, int argc, const char **argv, const
         return -1;
 
     type = getRequestTypeFromString(argv[0], argvlen==NULL?strlen(argv[0]):argvlen[0]);
-    if (type < 0)
+    if (type < 0) {
         goto format_err;
+    }
 
     totlen = checkCmdValidAndGetTotalLen(type, 1, argc, argv, argvlen);
     if (totlen < 0) {
@@ -807,7 +826,9 @@ int memcachedFormatCommandArgv(char **target, int argc, const char **argv, const
     if (cmd == NULL) goto memory_err;
 
     pos = genericMemcachedCommand(type, cmd, 1, argc, argv, argvlen);
-    if (pos < 0) goto format_err;
+    if (pos < 0) {
+        goto format_err;
+    }
     
     assert(pos == totlen);
     cmd[pos] = '\0';
