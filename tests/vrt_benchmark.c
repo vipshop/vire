@@ -58,6 +58,7 @@ static struct config {
     char *auth;
     int threads_count;
     int protocol;
+    int noinline;
 } config;
 
 typedef struct benchmark_thread {
@@ -819,6 +820,8 @@ int parseOptions(int argc, const char **argv) {
             config.threads_count = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-m")) {
             config.protocol = TEST_CMD_PROTOCOL_MEMCACHE;
+        } else if (!strcmp(argv[i],"--noinline")) {
+            config.noinline = 1;
         } else if (!strcmp(argv[i],"--help")) {
             exit_status = 0;
             goto usage;
@@ -863,8 +866,9 @@ usage:
 " -l                 Loop. Run the tests forever\n"
 " -t <tests>         Only run the comma separated list of tests. The test\n"
 "                    names are the same as the ones produced as output.\n"
-" -I                 Idle mode. Just open N idle connections and wait.\n\n"
-" -m                 Use memcached protocol. This option is used for testing memcached.\n\n"
+" -I                 Idle mode. Just open N idle connections and wait.\n"
+" -m                 Use memcached protocol. This option is used for testing memcached.\n"
+" --noinline         Not test redis inline commands.\n\n"
 "Examples:\n\n"
 " Run the benchmark with the default configuration against 127.0.0.1:6379:\n"
 "   $ vire-benchmark\n\n"
@@ -951,7 +955,7 @@ static int test_redis(int argc, const char **argv)
         memset(data,'x',config.datasize);
         data[config.datasize] = '\0';
 
-        if (test_is_selected("ping_inline") || test_is_selected("ping"))
+        if (!config.noinline && (test_is_selected("ping_inline") || test_is_selected("ping")))
             benchmark("PING_INLINE","PING\r\n",6);
 
         if (test_is_selected("ping_mbulk") || test_is_selected("ping")) {
@@ -1151,6 +1155,7 @@ int main(int argc, const char **argv) {
     config.auth = NULL;
     config.threads_count = 1;
     config.protocol = TEST_CMD_PROTOCOL_REDIS;
+    config.noinline = 0;
 
     i = parseOptions(argc,argv);
     argc -= i;
