@@ -344,6 +344,18 @@ static int nck_when_zero_or_one(redisReply *reply)
     return 0;
 }
 
+static int nck_when_one(redisReply *reply)
+{
+    if (reply == NULL) return 0;
+
+    if (reply->type == REDIS_REPLY_INTEGER && 
+        reply->integer == 1) {
+        return 1;
+    }
+
+    return 0;
+}
+
 /************** Need cache key implement end ************/
 
 static data_unit *get_cmd_producer(data_producer *dp, produce_scheme *ps)
@@ -798,6 +810,21 @@ static data_unit *mset_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+static data_unit *hset_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 4;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key();
+    du->argv[2] = get_random_string();
+    du->argv[3] = get_random_string();
+    
+    return du;
+}
 static data_unit *rpush_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
@@ -1489,6 +1516,8 @@ data_producer redis_data_producer_table[] = {
     {"bitpos",bitpos_cmd_producer,-3,"r",0,NULL,1,1,1,TEST_CMD_TYPE_STRING,NULL},
     {"mget",mget_cmd_producer,-2,"r",0,NULL,1,-1,1,TEST_CMD_TYPE_STRING,NULL},
     {"mset",mset_cmd_producer,-3,"wmA",0,NULL,1,-1,2,TEST_CMD_TYPE_STRING,nck_when_ok},
+    /* Hash */
+    {"hset",hset_cmd_producer,4,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_HASH,nck_when_one},
     /* List */
     {"rpush",rpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,rpush_cmd_nck},
     {"lpush",lpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,lpush_cmd_nck},
