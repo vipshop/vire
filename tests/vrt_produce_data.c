@@ -918,6 +918,20 @@ static data_unit *hvals_cmd_producer(data_producer *dp, produce_scheme *ps)
     return du;
 }
 
+static data_unit *hgetall_cmd_producer(data_producer *dp, produce_scheme *ps)
+{
+    data_unit *du;
+
+    du = data_unit_get();
+    du->dp = dp;
+    du->argc = 2;
+    du->argv = malloc(du->argc*sizeof(sds));
+    du->argv[0] = sdsnew(dp->name);
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
+    
+    return du;
+}
+
 static data_unit *hmset_cmd_producer(data_producer *dp, produce_scheme *ps)
 {
     data_unit *du;
@@ -1638,6 +1652,7 @@ data_producer redis_data_producer_table[] = {
     {"hexists",hexists_cmd_producer,3,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_HASH,NULL},
     {"hkeys",hkeys_cmd_producer,2,"rS",0,NULL,1,1,1,TEST_CMD_TYPE_HASH,NULL},
     {"hvals",hvals_cmd_producer,2,"rS",0,NULL,1,1,1,TEST_CMD_TYPE_HASH,NULL},
+    {"hgetall",hgetall_cmd_producer,2,"r",0,NULL,1,1,1,TEST_CMD_TYPE_HASH,NULL},
     {"hmset",hmset_cmd_producer,-4,"wmA",0,NULL,1,1,1,TEST_CMD_TYPE_HASH,nck_when_ok},
     /* List */
     {"rpush",rpush_cmd_producer,-3,"wmFA",0,NULL,1,1,1,TEST_CMD_TYPE_LIST,rpush_cmd_nck},

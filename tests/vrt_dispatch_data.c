@@ -129,6 +129,9 @@ static int sort_replys_if_needed(reply_unit *ru)
         if (!strcmp(dp->name,"hkeys") || 
             !strcmp(dp->name,"hvals")) {
             step = 1;
+        } else if (!strcmp(dp->name,"hgetall")) {
+            step = 2;
+            idx_cmp = 0;
         }
     }
 
