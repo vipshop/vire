@@ -23,12 +23,13 @@ robj *setTypeCreate(robj *value) {
  * returned, otherwise the new element is added and 1 is returned. */
 int setTypeAdd(robj *subject, robj *value) {
     long long llval;
+    robj *obj;
     if (subject->encoding == OBJ_ENCODING_HT) {
-        value = dupStringObjectUnconstant(value);
-        if (dictAdd(subject->ptr,value,NULL) == DICT_OK) {
+        obj = dupStringObjectUnconstant(value);
+        if (dictAdd(subject->ptr,obj,NULL) == DICT_OK) {
             return 1;
         } else {
-            freeObject(value);
+            freeObject(obj);
         }
     } else if (subject->encoding == OBJ_ENCODING_INTSET) {
         if (isObjectRepresentableAsLongLong(value,&llval) == VR_OK) {
@@ -44,11 +45,11 @@ int setTypeAdd(robj *subject, robj *value) {
         } else {
             /* Failed to get integer from object, convert to regular set. */
             setTypeConvert(subject,OBJ_ENCODING_HT);
-            value = dupStringObjectUnconstant(value);
+            obj = dupStringObjectUnconstant(value);
             /* The set *was* an intset and this value is not integer
              * encodable, so dictAdd should always work. */
-            serverAssertWithInfo(NULL,value,
-                dictAdd(subject->ptr,value,NULL) == DICT_OK);
+            serverAssertWithInfo(NULL,obj,
+                dictAdd(subject->ptr,obj,NULL) == DICT_OK);
             return 1;
         }
     } else {
@@ -528,7 +529,6 @@ void spopWithCountCommand(client *c) {
             if (encoding == OBJ_ENCODING_INTSET) {
                 objele = createStringObjectFromLongLong(llele);
             } else {
-                incrRefCount(objele);
                 objele = dupStringObjectUnconstant(objele);
             }
 
@@ -941,14 +941,20 @@ void sinterGenericCommand(client *c, robj **setkeys,
             if (!setobj) {
                 unlockDb(c->db);
                 freeObject(min_len_set);
-                if (dstset) freeObject(dstset);
+                if (dstset) {
+                    freeObject(dstset);
+                    dstset = NULL;
+                }
                 setTypeReleaseIterator(si);
                 goto done;
             }
             if (checkType(c,setobj,OBJ_SET)) {
                 unlockDb(c->db);
                 freeObject(min_len_set);
-                if (dstset) freeObject(dstset);
+                if (dstset) {
+                    freeObject(dstset);
+                    dstset = NULL;
+                }
                 setTypeReleaseIterator(si);
                 return;
             }
@@ -1020,7 +1026,10 @@ done:
             notifyKeyspaceEvent(NOTIFY_SET,"sinterstore",
                 dstkey,c->db->id);
         } else {
-            if (dstset) freeObject(dstset);
+            if (dstset) {
+                freeObject(dstset);
+                dstset = NULL;
+            }
             addReply(c,shared.czero);
             if (deleted)
                 notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
@@ -1039,7 +1048,6 @@ done:
                     freeObject(eleobj); /* free this object for intset type */
             }
             setTypeReleaseIterator(si);
-            freeObject(dstset);
         }
         if (dstset) freeObject(dstset);
     }
