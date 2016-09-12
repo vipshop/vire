@@ -986,7 +986,7 @@ static int data_checker_cron(aeEventLoop *eventLoop, long long id, void *clientD
             get_total_reply_err_count_per_cycle(),
             (float)get_total_reply_err_count_per_cycle()/(float)get_total_tested_commands_count_per_cycle()*100);
         reset_total_count_per_cycle();
-        
+        sleep(1);
         last_check_begin_time = vrt_sec_now();
         begin_check_data();
         log_notice("Start checking the data...");

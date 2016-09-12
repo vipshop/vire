@@ -1523,8 +1523,7 @@ data_producer redis_data_producer_table[] = {
     {"zrevrank",zrevrank_cmd_producer,3,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
     {"zscore",zscore_cmd_producer,3,"rF",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
     {"zremrangebyscore",zremrangebyscore_cmd_producer,4,"w",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
-    {"zremrangebyrank",zremrangebyrank_cmd_producer,4,"w",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL},
-    {"zremrangebylex",zremrangebylex_cmd_producer,4,"w",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL}
+    {"zremrangebyrank",zremrangebyrank_cmd_producer,4,"w",0,NULL,1,1,1,TEST_CMD_TYPE_ZSET,NULL}
 };
 
 data_unit *data_unit_get(void)
