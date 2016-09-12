@@ -125,6 +125,10 @@ static int sort_replys_if_needed(reply_unit *ru)
             !strcmp(dp->name,"sinter")) {
             step = 1;
         }
+    } else if (dp->cmd_type&TEST_CMD_TYPE_HASH) {
+        if (!strcmp(dp->name,"hkeys")) {
+            step = 1;
+        }
     }
 
     if (step > 0) {
