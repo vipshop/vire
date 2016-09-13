@@ -554,7 +554,7 @@ void hincrbyCommand(client *c) {
         if (getLongLongFromObjectOrReply(c,current,&value,
             "hash value is not an integer") != VR_OK) {
             if (o->encoding == OBJ_ENCODING_ZIPLIST) freeObject(current);
-            return;
+            goto end;
         }
         if (o->encoding == OBJ_ENCODING_ZIPLIST) freeObject(current);
     } else {
@@ -565,7 +565,7 @@ void hincrbyCommand(client *c) {
     if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
         (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue))) {
         addReplyError(c,"increment or decrement would overflow");
-        return;
+        goto end;
     }
     value += incr;
     new = createStringObjectFromLongLong(value);
@@ -591,7 +591,11 @@ void hincrbyfloatCommand(client *c) {
 
     fetchInternalDbByKey(c, c->argv[1]);
     lockDbWrite(c->db);
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1],&expired)) == NULL) return;
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1],&expired)) == NULL) {
+        unlockDb(c->db);
+        if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
+        return;
+    }
     if ((current = hashTypeGetObject(o,c->argv[2])) != NULL) {
         if (getLongDoubleFromObjectOrReply(c,current,&value,
             "hash value is not a valid float") != VR_OK) {
