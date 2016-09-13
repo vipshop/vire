@@ -520,7 +520,7 @@ struct sort_unit {
 
 static int element_cmp_multi_step(const void *ele1,const void *ele2)
 {
-    struct sort_unit *su1 = *(struct sort_unit **)ele1, *su2 = *(struct sort_unit **)ele2;
+    struct sort_unit *su1 = (struct sort_unit *)ele1, *su2 = (struct sort_unit *)ele2;
 
     ASSERT(su1->fcmp == su2->fcmp);
     ASSERT(su1->nfield == su2->nfield);
@@ -534,7 +534,7 @@ static int element_cmp_multi_step(const void *ele1,const void *ele2)
 int sort_array_by_step(void **element, size_t elements, 
     int step, int idx_cmp, int (*fcmp)(const void *,const void *))
 {
-    struct sort_unit **sus;
+    struct sort_unit *sus;
     size_t count, j, k;
 
     if (elements <= 1)
@@ -554,26 +554,24 @@ int sort_array_by_step(void **element, size_t elements,
     count = elements/step;
     if (count == 0)
         return VRT_ERROR;
-    sus = malloc(count*sizeof(struct sort_unit*));
+    sus = calloc(count,sizeof(struct sort_unit));
     for (j = 0; j < count; j ++) {
-        sus[j] = malloc(sizeof(struct sort_unit));
-        sus[j]->nfield = step;
-        sus[j]->idx_cmp = idx_cmp;
-        sus[j]->fcmp = fcmp;
-        sus[j]->fields = malloc(step*sizeof(void*));
+        sus[j].nfield = step;
+        sus[j].idx_cmp = idx_cmp;
+        sus[j].fcmp = fcmp;
+        sus[j].fields = malloc(step*sizeof(void*));
         for (k = 0; k < step; k ++) {
-            sus[j]->fields[k] = element[j*step+k];
+            sus[j].fields[k] = element[j*step+k];
         }
     }
 
-    qsort(sus, count, sizeof(struct sort_unit*), element_cmp_multi_step);
+    qsort(sus, count, sizeof(struct sort_unit), element_cmp_multi_step);
 
     for (j = 0; j < count; j ++) {
         for (k = 0; k < step; k ++) {
-            element[j*step+k] = sus[j]->fields[k];
+            element[j*step+k] = sus[j].fields[k];
         }
-        free(sus[j]->fields);
-        free(sus[j]);
+        free(sus[j].fields);
     }
     free(sus);
     return VRT_OK;

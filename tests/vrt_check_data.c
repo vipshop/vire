@@ -699,9 +699,9 @@ static int check_data_thread_cron(aeEventLoop *eventLoop, long long id, void *cl
         int *idx;
         conn_context *cc;
         
-        abg = darray_get(cdt->abgs,cdt->scan_group_idx);
+        abg = darray_get(cdt->abgs, cdt->scan_group_idx);
         abs = darray_get(cdt->scan_servers, cdt->scan_finished_count);
-        cc = darray_get((*abs)->conn_contexts,0);
+        cc = darray_get((*abs)->conn_contexts, 0);
 
         redisAsyncCommand(cc->actx, scan_for_check_callback, 
             *abs, "scan %lld count 1000", cdt->cursor);

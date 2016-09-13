@@ -164,11 +164,11 @@ static int check_replys_if_same(reply_unit *ru)
         reply = replys[j];
         if (check_two_replys_if_same(replyb, reply)) {
             show_replys_inconsistency_msg(ru->du, replyb, reply);
-            return VRT_ERROR;
+            return 0;
         }
     }
     
-    return VRT_OK;
+    return 1;
 }
 
 struct callback_data {
@@ -199,7 +199,7 @@ static void reply_callback(redisAsyncContext *c, void *r, void *privdata) {
         int j;
         
         ret = check_replys_if_same(ru);
-        if (ret == VRT_OK && reply != NULL) {
+        if (ret == 1 && reply != NULL) {
             data_unit *du = ru->du;
             data_producer *dp = du->dp;
             if (reply->type == REDIS_REPLY_ERROR) {
@@ -225,14 +225,17 @@ static void reply_callback(redisAsyncContext *c, void *r, void *privdata) {
         free(ru->replys);
         data_unit_put(ru->du);
         free(ru);
-
+        
+        ddt->count_wait_for_reply --;
+        ASSERT(ddt->count_wait_for_reply >= 0);
+        
         ddt->reply_total_count_per_cycle++;
     }
 }
 
 static int dispatch_thread_send_data(dispatch_data_thread *ddt)
 {
-    int count_per_time = 10000;
+    int count_per_time = 1000;
     data_unit *du;
 
     while ((du = dmtqueue_pop(ddt->datas)) != NULL) {
@@ -277,6 +280,8 @@ static int dispatch_thread_send_data(dispatch_data_thread *ddt)
         }
         free(argvlen);
 
+        ddt->count_wait_for_reply ++;
+        
         if (count_per_time-- <= 0) break;
     }
 
@@ -298,16 +303,18 @@ static int dispatch_data_thread_cron(aeEventLoop *eventLoop, long long id, void 
             return 1000;
         }
     }
-    
-    if (!dmtqueue_empty(ddt->datas)) {
+
+    if (ddt->count_wait_for_reply < 4000 && 
+        !dmtqueue_empty(ddt->datas)) {
         dispatch_thread_send_data(ddt);
     }
 
     /* At the end of this loop */
-    if (test_if_need_pause() && dmtqueue_empty(ddt->datas) &&
-        dlistLength(ddt->rdatas) == 0 && 
+    if (test_if_need_pause() && 
         all_produce_threads_paused() && 
-        all_backend_threads_paused()) {
+        all_backend_threads_paused() && 
+        dmtqueue_empty(ddt->datas) &&
+        dlistLength(ddt->rdatas) == 0) {
         
         ddt->pause = 1;
 
@@ -392,6 +399,7 @@ static int dispatch_data_thread_init(dispatch_data_thread *ddt, char *test_targe
     ddt->rdatas = NULL;
     ddt->abgs = NULL;
     ddt->pause = 0;
+    ddt->count_wait_for_reply = 0;
     ddt->reply_total_count_per_cycle = 0;
     ddt->reply_type_err_count_per_cycle = 0;
 

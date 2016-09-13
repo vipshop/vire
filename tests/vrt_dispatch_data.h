@@ -26,6 +26,8 @@ typedef struct dispatch_data_thread {
 
     int pause;
 
+    int count_wait_for_reply;
+
     long long reply_total_count_per_cycle;
     long long reply_type_err_count_per_cycle;
 } dispatch_data_thread;
