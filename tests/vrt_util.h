@@ -9,7 +9,7 @@
 # define VRT_DEBUG_LOG 1
 #endif
 
-#include <vr_specialconfig.h>
+#include <dspecialconfig.h>
 
 #include <sds.h>
 

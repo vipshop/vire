@@ -14,7 +14,7 @@ struct evictionPoolEntry {
     sds key;                    /* Key name. */
 };
 
-/* Redis database representation. There are multiple databases identified
+/* Vire database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
@@ -27,7 +27,7 @@ typedef struct redisDb {
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
 
-    pthread_rwlock_t rwl;      /* read write lock */
+    pthread_rwlock_t rwl;       /* read write lock */
 } redisDb;
 
 extern dictType dbDictType;

@@ -5,7 +5,7 @@
 # include <config.h>
 #endif
 
-#include <vr_specialconfig.h>
+#include <dspecialconfig.h>
 
 #ifdef HAVE_STATS
 # define VR_STATS 1
