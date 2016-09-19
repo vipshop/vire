@@ -3,6 +3,8 @@
 
 #include <stdarg.h>
 
+#include <dspecialconfig.h>
+
 #define UNUSED(x) (void)(x)
 
 #define LF                  (uint8_t) 10
@@ -113,5 +115,57 @@ int _safe_snprintf(char *to, size_t n, const char *fmt, ...);
 
 int string_match_len(const char *pattern, int patternLen, const char *string, int stringLen, int nocase);
 int string_match(const char *pattern, const char *string, int nocase);
+
+
+/* Atomic API */
+/* GCC version >= 4.7 */
+#if defined(__ATOMIC_RELAXED)
+#define atomic_add(_value, _n) __atomic_add_fetch(&_value, (_n), __ATOMIC_RELAXED)
+#define atomic_sub(_value, _n) __atomic_sub_fetch(&_value, (_n), __ATOMIC_RELAXED)
+#define atomic_set(_value, _n) __atomic_store_n(&_value, (_n), __ATOMIC_RELAXED)
+#define atomic_get(_value, _v) do {                 \
+    __atomic_load(&_value, _v, __ATOMIC_RELAXED);   \
+} while(0)
+
+#define ATOMIC_LOCK_TYPE "__ATOMIC_RELAXED"
+/* GCC version >= 4.1 */
+#elif defined(HAVE_ATOMIC)
+#define atomic_add(_value, _n) __sync_add_and_fetch(&_value, (_n))
+#define atomic_sub(_value, _n) __sync_sub_and_fetch(&_value, (_n))
+#define atomic_set(_value, _n) __sync_lock_test_and_set(&_value, (_n))
+#define atomic_get(_value, _v) do {                 \
+    (*_v) = __sync_add_and_fetch(&_value, 0);       \
+} while(0)
+
+#define ATOMIC_LOCK_TYPE "HAVE_ATOMIC"
+#else
+extern pthread_mutex_t atomic_locker;
+
+#define atomic_add(_value, _n) do {         \
+    pthread_mutex_lock(&atomic_locker);     \
+    _value += (_n);                         \
+    pthread_mutex_unlock(&atomic_locker);   \
+} while(0)
+
+#define atomic_sub(_value, _n) do {         \
+    pthread_mutex_lock(&atomic_locker);     \
+    _value -= (_n);                         \
+    pthread_mutex_unlock(&atomic_locker);   \
+} while(0)
+
+#define atomic_set(_value, _n) do {         \
+    pthread_mutex_lock(&atomic_locker);     \
+    _value = (_n);                          \
+    pthread_mutex_unlock(&atomic_locker);   \
+} while(0)
+
+#define atomic_get(_value, _v) do {         \
+    pthread_mutex_lock(&atomic_locker);     \
+    (*_v) = _value;                         \
+    pthread_mutex_unlock(&atomic_locker);   \
+} while(0)
+
+#define ATOMIC_LOCK_TYPE "pthread_mutex_lock"
+#endif
 
 #endif

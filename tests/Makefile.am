@@ -4,11 +4,10 @@ AM_CPPFLAGS =
 if !OS_SOLARIS
 AM_CPPFLAGS += -D_GNU_SOURCE
 endif
-AM_CPPFLAGS += -I $(top_srcdir)/src/
 AM_CPPFLAGS += -I $(top_srcdir)/dep/ae
 AM_CPPFLAGS += -I $(top_srcdir)/dep/jemalloc-4.2.0/include
 AM_CPPFLAGS += -I $(top_srcdir)/dep/hiredis-0.13.3
-AM_CPPFLAGS += -I $(top_srcdir)/dep/hashkit
+AM_CPPFLAGS += -I $(top_srcdir)/dep/dhashkit
 AM_CPPFLAGS += -I $(top_srcdir)/dep/dlist
 AM_CPPFLAGS += -I $(top_srcdir)/dep/darray
 AM_CPPFLAGS += -I $(top_srcdir)/dep/util
@@ -62,7 +61,7 @@ vireabtest_SOURCES =                        \
     
 vireabtest_LDADD = $(top_builddir)/dep/ae/libae.a
 vireabtest_LDADD += $(top_builddir)/dep/hiredis-0.13.3/libhiredis.a
-vireabtest_LDADD += $(top_builddir)/dep/hashkit/libhashkit.a
+vireabtest_LDADD += $(top_builddir)/dep/dhashkit/libdhashkit.a
 vireabtest_LDADD += $(top_builddir)/dep/dlist/libdlist.a
 vireabtest_LDADD += $(top_builddir)/dep/darray/libdarray.a
 vireabtest_LDADD += $(top_builddir)/dep/util/libdutil.a

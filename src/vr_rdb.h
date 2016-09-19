@@ -36,4 +36,6 @@ struct saveparam {
 int rdbSave(char *filename);
 void rdbRemoveTempFile(pid_t childpid);
 
+void bgsaveCommand(client *c);
+
 #endif

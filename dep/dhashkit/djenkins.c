@@ -1,4 +1,4 @@
-#include <vr_hashkit.h>
+#include <dhashkit.h>
 
 #define hashsize(n) ((uint32_t)1<<(n))
 #define hashmask(n) (hashsize(n)-1)

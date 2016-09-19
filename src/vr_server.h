@@ -193,6 +193,7 @@ struct vr_server {
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     int rdb_pipe_write_result_to_parent; /* RDB pipes used to return the state */
     int rdb_pipe_read_result_from_child; /* of each slave in diskless SYNC. */
+    int rdb_generating;             /* Rdb is now in generating state or not */
 
     /* Scripting */
     //lua_State *lua; /* The Lua interpreter. We use just one for all clients */

@@ -4,11 +4,12 @@ AM_CPPFLAGS =
 if !OS_SOLARIS
 AM_CPPFLAGS += -D_GNU_SOURCE
 endif
-AM_CPPFLAGS += -I $(top_srcdir)/dep/hashkit
+AM_CPPFLAGS += -I $(top_srcdir)/dep/dhashkit
 AM_CPPFLAGS += -I $(top_srcdir)/dep/ae
 AM_CPPFLAGS += -I $(top_srcdir)/dep/util
 AM_CPPFLAGS += -I $(top_srcdir)/dep/jemalloc-4.2.0/include
 AM_CPPFLAGS += -I $(top_srcdir)/dep/hiredis-0.13.3
+AM_CPPFLAGS += -I $(top_srcdir)/dep/dhashtable
 
 AM_CFLAGS = 
 AM_CFLAGS += -fno-strict-aliasing
@@ -84,5 +85,6 @@ vire_SOURCES =                          \
     
 vire_LDADD = $(top_builddir)/dep/util/libdutil.a
 vire_LDADD += $(top_builddir)/dep/ae/libae.a
-vire_LDADD += $(top_builddir)/dep/hashkit/libhashkit.a
+vire_LDADD += $(top_builddir)/dep/dhashkit/libdhashkit.a
 vire_LDADD += $(top_builddir)/dep/jemalloc-4.2.0/lib/libjemalloc.a
+vire_LDADD += $(top_builddir)/dep/dhashtable/libdhashtable.a

@@ -1,5 +1,5 @@
-#ifndef _VR_SPECIALCONFIG_H_
-#define _VR_SPECIALCONFIG_H_
+#ifndef _DSPECIALCONFIG_H_
+#define _DSPECIALCONFIG_H_
 
 #ifdef __APPLE__
 #include <AvailabilityMacros.h>

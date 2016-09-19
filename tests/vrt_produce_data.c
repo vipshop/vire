@@ -10,7 +10,7 @@
 #include <sys/stat.h>
 #include <sys/utsname.h>
 
-#include <vr_specialconfig.h>
+#include <dspecialconfig.h>
 
 #include <hiredis.h>
 #include <darray.h>

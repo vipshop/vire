@@ -26,6 +26,14 @@
 #include <dlog.h>
 #include <dutil.h>
 
+/* GCC version >= 4.7 */
+#if defined(__ATOMIC_RELAXED)
+/* GCC version >= 4.1 */
+#elif defined(HAVE_ATOMIC)
+#else
+pthread_mutex_t atomic_locker = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
 void
 dassert(const char *cond, const char *file, int line, int panic)
 {

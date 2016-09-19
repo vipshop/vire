@@ -59,6 +59,7 @@ int redisDbInit(redisDb *db)
     db->blocking_keys = dictCreate(&keylistDictType,NULL);
     db->ready_keys = dictCreate(&setDictType,NULL);
     db->watched_keys = dictCreate(&keylistDictType,NULL);
+    db->snapshot_keys = NULL;
     db->eviction_pool = evictionPoolAlloc();
     db->avg_ttl = 0;
 

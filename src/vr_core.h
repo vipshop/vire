@@ -5,7 +5,7 @@
 # include <config.h>
 #endif
 
-#include <vr_specialconfig.h>
+#include <dspecialconfig.h>
 
 #ifdef HAVE_STATS
 # define VR_STATS 1
@@ -72,6 +72,8 @@ struct vr_worker;
 #include <ae.h>
 #include <dutil.h>
 #include <dlog.h>
+#include <dhashkit.h>
+#include <dhashtable.h>
 
 #include <vr_util.h>
 #include <vr_signal.h>
@@ -94,8 +96,6 @@ struct vr_worker;
 
 #include <vr_listen.h>
 #include <vr_connection.h>
-
-#include <vr_hashkit.h>
 
 #include <vr_stats.h>
 #include <vr_conf.h>

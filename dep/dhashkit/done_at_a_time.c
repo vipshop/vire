@@ -12,7 +12,7 @@
  * http://en.wikipedia.org/wiki/Jenkins_hash_function
  */
 
-#include <vr_hashkit.h>
+#include <dhashkit.h>
 
 uint32_t
 hash_one_at_a_time(const char *key, size_t key_length)

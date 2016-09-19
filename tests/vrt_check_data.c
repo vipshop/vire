@@ -13,7 +13,7 @@
 #include <async.h>
 #include <adapters/ae.h>
 
-#include <vr_hashkit.h>
+#include <dhashkit.h>
 #include <dlist.h>
 #include <dmtqueue.h>
 #include <dlog.h>
