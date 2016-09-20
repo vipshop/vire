@@ -1,4 +1,4 @@
-#include <vr_hashkit.h>
+#include <dhashkit.h>
 
 static uint64_t FNV_64_INIT = UINT64_C(0xcbf29ce484222325);
 static uint64_t FNV_64_PRIME = UINT64_C(0x100000001b3);

@@ -61,7 +61,7 @@ static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65536};
 quicklist *quicklistCreate(void) {
     struct quicklist *quicklist;
 
-    quicklist = vr_alloc(sizeof(*quicklist));
+    quicklist = dalloc(sizeof(*quicklist));
     quicklist->head = quicklist->tail = NULL;
     quicklist->len = 0;
     quicklist->count = 0;
@@ -104,7 +104,7 @@ quicklist *quicklistNew(int fill, int compress) {
 
 REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
     quicklistNode *node;
-    node = vr_alloc(sizeof(*node));
+    node = dalloc(sizeof(*node));
     node->zl = NULL;
     node->count = 0;
     node->sz = 0;
@@ -128,15 +128,15 @@ void quicklistRelease(quicklist *quicklist) {
     while (len--) {
         next = current->next;
 
-        vr_free(current->zl);
+        dfree(current->zl);
         quicklist->count -= current->count;
 
-        vr_free(current);
+        dfree(current);
 
         quicklist->len--;
         current = next;
     }
-    vr_free(quicklist);
+    dfree(quicklist);
 }
 
 /* Compress the ziplist in 'node' and update encoding details.
@@ -151,18 +151,18 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
     if (node->sz < MIN_COMPRESS_BYTES)
         return 0;
 
-    quicklistLZF *lzf = vr_alloc(sizeof(*lzf) + node->sz);
+    quicklistLZF *lzf = dalloc(sizeof(*lzf) + node->sz);
 
     /* Cancel if compression fails or doesn't compress small enough */
     if (((lzf->sz = lzf_compress(node->zl, node->sz, lzf->compressed,
                                  node->sz)) == 0) ||
         lzf->sz + MIN_COMPRESS_IMPROVE >= node->sz) {
         /* lzf_compress aborts/rejects compression if value not compressable. */
-        vr_free(lzf);
+        dfree(lzf);
         return 0;
     }
-    lzf = vr_realloc(lzf, sizeof(*lzf) + lzf->sz);
-    vr_free(node->zl);
+    lzf = drealloc(lzf, sizeof(*lzf) + lzf->sz);
+    dfree(node->zl);
     node->zl = (unsigned char *)lzf;
     node->encoding = QUICKLIST_NODE_ENCODING_LZF;
     node->recompress = 0;
@@ -184,14 +184,14 @@ REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
     node->attempted_compress = 0;
 #endif
 
-    void *decompressed = vr_alloc(node->sz);
+    void *decompressed = dalloc(node->sz);
     quicklistLZF *lzf = (quicklistLZF *)node->zl;
     if (lzf_decompress(lzf->compressed, lzf->sz, decompressed, node->sz) == 0) {
         /* Someone requested decompress, but we can't decompress.  Not good. */
-        vr_free(decompressed);
+        dfree(decompressed);
         return 0;
     }
-    vr_free(lzf);
+    dfree(lzf);
     node->zl = decompressed;
     node->encoding = QUICKLIST_NODE_ENCODING_RAW;
     return 1;
@@ -523,7 +523,7 @@ quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist,
         quicklistPushTail(quicklist, value, sz);
         p = ziplistNext(zl, p);
     }
-    vr_free(zl);
+    dfree(zl);
     return quicklist;
 }
 
@@ -564,8 +564,8 @@ REDIS_STATIC void __quicklistDelNode(quicklist *quicklist,
 
     quicklist->count -= node->count;
 
-    vr_free(node->zl);
-    vr_free(node);
+    dfree(node->zl);
+    dfree(node);
     quicklist->len--;
 }
 
@@ -765,7 +765,7 @@ REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset,
     size_t zl_sz = node->sz;
 
     quicklistNode *new_node = quicklistCreateNode();
-    new_node->zl = vr_alloc(zl_sz);
+    new_node->zl = dalloc(zl_sz);
 
     /* Copy original ziplist so we can split it */
     memcpy(new_node->zl, node->zl, zl_sz);
@@ -1014,7 +1014,7 @@ int quicklistCompare(unsigned char *p1, unsigned char *p2, int p2_len) {
 quicklistIter *quicklistGetIterator(const quicklist *quicklist, int direction) {
     quicklistIter *iter;
 
-    iter = vr_alloc(sizeof(*iter));
+    iter = dalloc(sizeof(*iter));
 
     if (direction == AL_START_HEAD) {
         iter->current = quicklist->head;
@@ -1056,7 +1056,7 @@ void quicklistReleaseIterator(quicklistIter *iter) {
     if (iter->current)
         quicklistCompress(iter->quicklist, iter->current);
 
-    vr_free(iter);
+    dfree(iter);
 }
 
 /* Get next element in iterator.
@@ -1162,10 +1162,10 @@ quicklist *quicklistDup(quicklist *orig) {
         if (node->encoding == QUICKLIST_NODE_ENCODING_LZF) {
             quicklistLZF *lzf = (quicklistLZF *)node->zl;
             size_t lzf_sz = sizeof(*lzf) + lzf->sz;
-            node->zl = vr_alloc(lzf_sz);
+            node->zl = dalloc(lzf_sz);
             memcpy(node->zl, current->zl, lzf_sz);
         } else if (node->encoding == QUICKLIST_NODE_ENCODING_RAW) {
-            node->zl = vr_alloc(current->sz);
+            node->zl = dalloc(current->sz);
             memcpy(node->zl, current->zl, current->sz);
         }
 
@@ -1339,7 +1339,7 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
 REDIS_STATIC void *_quicklistSaver(unsigned char *data, unsigned int sz) {
     unsigned char *vstr;
     if (data) {
-        vstr = vr_alloc(sz);
+        vstr = dalloc(sz);
         memcpy(vstr, data, sz);
         return vstr;
     }

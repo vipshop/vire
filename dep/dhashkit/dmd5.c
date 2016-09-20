@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include <vr_hashkit.h>
+#include <dhashkit.h>
 
 /*
  * This is an OpenSSL-compatible implementation of the RSA Data Security, Inc.

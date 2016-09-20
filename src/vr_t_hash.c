@@ -272,7 +272,7 @@ unsigned long hashTypeLength(robj *o) {
 }
 
 hashTypeIterator *hashTypeInitIterator(robj *subject) {
-    hashTypeIterator *hi = vr_alloc(sizeof(hashTypeIterator));
+    hashTypeIterator *hi = dalloc(sizeof(hashTypeIterator));
     hi->subject = subject;
     hi->encoding = subject->encoding;
 
@@ -293,7 +293,7 @@ void hashTypeReleaseIterator(hashTypeIterator *hi) {
         dictReleaseIterator(hi->di);
     }
 
-    vr_free(hi);
+    dfree(hi);
 }
 
 /* Move to the next entry in the hash. Return VR_OK when the next entry
@@ -434,7 +434,7 @@ void hashTypeConvertZiplist(robj *o, int enc) {
         }
 
         hashTypeReleaseIterator(hi);
-        vr_free(o->ptr);
+        dfree(o->ptr);
 
         o->encoding = OBJ_ENCODING_HT;
         o->ptr = d;

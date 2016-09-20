@@ -1,5 +1,5 @@
-#ifndef _VR_HASHKIT_H_
-#define _VR_HASHKIT_H_
+#ifndef _DHASHKIT_H_
+#define _DHASHKIT_H_
 
 #include <stdint.h>
 #include <stdio.h>

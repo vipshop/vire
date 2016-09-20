@@ -3,8 +3,8 @@
 
 #include <vr_util.h>
 
-#define s_malloc    vr_alloc
-#define s_realloc   vr_realloc
-#define s_free      vr_free
+#define s_malloc    dalloc
+#define s_realloc   drealloc
+#define s_free      dfree
 
 #endif

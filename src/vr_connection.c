@@ -12,7 +12,7 @@ _conn_get(conn_base *cb)
     if (cb != NULL && listLength(cb->free_connq) > 0) {
         conn = listPop(cb->free_connq);
     } else {
-        conn = vr_alloc(sizeof(*conn));
+        conn = dalloc(sizeof(*conn));
         if (conn == NULL) {
             return NULL;
         }
@@ -112,7 +112,7 @@ conn_free(struct conn *conn)
         conn->outqueue = NULL;
     }
     
-    vr_free(conn);
+    dfree(conn);
 }
 
 void

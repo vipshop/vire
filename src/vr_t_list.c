@@ -54,7 +54,7 @@ unsigned long listTypeLength(robj *subject) {
 /* Initialize an iterator at the specified index. */
 listTypeIterator *listTypeInitIterator(robj *subject, long index,
                                        unsigned char direction) {
-    listTypeIterator *li = vr_alloc(sizeof(listTypeIterator));
+    listTypeIterator *li = dalloc(sizeof(listTypeIterator));
     li->subject = subject;
     li->encoding = subject->encoding;
     li->direction = direction;
@@ -74,8 +74,8 @@ listTypeIterator *listTypeInitIterator(robj *subject, long index,
 
 /* Clean up the iterator. */
 void listTypeReleaseIterator(listTypeIterator *li) {
-    vr_free(li->iter);
-    vr_free(li);
+    dfree(li->iter);
+    dfree(li);
 }
 
 /* Stores pointer to current the entry in the provided entry structure
@@ -758,7 +758,7 @@ void signalListAsReady(redisDb *db, robj *key) {
     if (dictFind(db->ready_keys,key) != NULL) return;
 
     /* Ok, we need to queue this key into server.ready_keys. */
-    rl = vr_alloc(sizeof(*rl));
+    rl = dalloc(sizeof(*rl));
     rl->key = key;
     rl->db = db;
     incrRefCount(key);
@@ -925,7 +925,7 @@ void handleClientsBlockedOnLists(void) {
 
             /* Free this item. */
             decrRefCount(rl->key);
-            vr_free(rl);
+            dfree(rl);
             listDelNode(l,ln);
         }
         listRelease(l); /* We have the new list on place at this point. */

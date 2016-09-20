@@ -565,9 +565,9 @@ void bitopCommand(client *c) {
 
     /* Lookup keys, and store pointers to the string objects into an array. */
     numkeys = c->argc - 3;
-    src = vr_alloc(sizeof(unsigned char*) * numkeys);
-    len = vr_alloc(sizeof(long) * numkeys);
-    objects = vr_alloc(sizeof(robj*) * numkeys);
+    src = dalloc(sizeof(unsigned char*) * numkeys);
+    len = dalloc(sizeof(long) * numkeys);
+    objects = dalloc(sizeof(robj*) * numkeys);
     for (j = 0; j < numkeys; j++) {
         o = lookupKeyRead(c->db,c->argv[j+3]);
         /* Handle non-existing keys as empty strings. */
@@ -585,9 +585,9 @@ void bitopCommand(client *c) {
                 if (objects[i])
                     decrRefCount(objects[i]);
             }
-            vr_free(src);
-            vr_free(len);
-            vr_free(objects);
+            dfree(src);
+            dfree(len);
+            dfree(objects);
             return;
         }
         objects[j] = getDecodedObject(o);
@@ -687,9 +687,9 @@ void bitopCommand(client *c) {
         if (objects[j])
             decrRefCount(objects[j]);
     }
-    vr_free(src);
-    vr_free(len);
-    vr_free(objects);
+    dfree(src);
+    dfree(len);
+    dfree(objects);
 
     /* Store the computed value into the target key */
     if (maxlen) {
@@ -936,37 +936,37 @@ void bitfieldCommand(client *c) {
                 owtype = BFOVERFLOW_FAIL;
             else {
                 addReplyError(c,"Invalid OVERFLOW type specified");
-                vr_free(ops);
+                dfree(ops);
                 return;
             }
             continue;
         } else {
             addReply(c,shared.syntaxerr);
-            vr_free(ops);
+            dfree(ops);
             return;
         }
 
         /* Get the type and offset arguments, common to all the ops. */
         if (getBitfieldTypeFromArgument(c,c->argv[j+1],&sign,&bits) != VR_OK) {
-            vr_free(ops);
+            dfree(ops);
             return;
         }
 
         if (getBitOffsetFromArgument(c,c->argv[j+2],&bitoffset,1,bits) != VR_OK){
-            vr_free(ops);
+            dfree(ops);
             return;
         }
 
         /* INCRBY and SET require another argument. */
         if (opcode != BITFIELDOP_GET) {
             if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != VR_OK){
-                vr_free(ops);
+                dfree(ops);
                 return;
             }
         }
 
         /* Populate the array of operations we'll process. */
-        ops = vr_realloc(ops,sizeof(*ops)*(numops+1));
+        ops = drealloc(ops,sizeof(*ops)*(numops+1));
         ops[numops].offset = bitoffset;
         ops[numops].i64 = i64;
         ops[numops].opcode = opcode;
@@ -1099,5 +1099,5 @@ void bitfieldCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty += changes;
     }
-    vr_free(ops);
+    dfree(ops);
 }

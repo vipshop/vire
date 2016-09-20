@@ -31,7 +31,7 @@ csui_new(void) {
         int i;
 
         /* Allocate a bunch of items at once to reduce fragmentation */
-        item = vr_alloc(sizeof(struct connswapunit) * SU_PER_ALLOC);
+        item = dalloc(sizeof(struct connswapunit) * SU_PER_ALLOC);
         if (NULL == item) {
             return NULL;
         }
@@ -465,11 +465,11 @@ worker_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Sample the RSS here since this is a relatively slow call. */
     run_with_period(1000, vel->cronloops) {
-        vel->resident_set_size = vr_alloc_get_rss();
+        vel->resident_set_size = dalloc_get_rss();
     }
 
     /* Record the max memory used since the server was started. */
-    /*stat_used_memory = vr_alloc_used_memory();
+    /*stat_used_memory = dalloc_used_memory();
     update_stats_get(vel->stats, peak_memory, &stats_peak_memory);
     if (stat_used_memory > stats_peak_memory) {
         update_stats_set(vel->stats, peak_memory, stat_used_memory);

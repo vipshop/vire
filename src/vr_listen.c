@@ -15,7 +15,7 @@ vr_listen_create(sds listen_str)
         return NULL;
     }
 
-    vlisten = vr_alloc(sizeof(struct vr_listen));
+    vlisten = dalloc(sizeof(struct vr_listen));
     if (vlisten == NULL) {
         return NULL;
     }
@@ -116,7 +116,7 @@ vr_listen_destroy(vr_listen *vliston)
         vliston->sd = -1;
     }
     
-    vr_free(vliston);
+    dfree(vliston);
 }
 
 static rstatus_t

@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <vr_hashkit.h>
+#include <dhashkit.h>
 
 #define MODULA_CONTINUUM_ADDITION   10  /* # extra slots to build into continuum */
 #define MODULA_POINTS_PER_SERVER    1

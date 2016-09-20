@@ -1,4 +1,4 @@
-#include <vr_hashkit.h>
+#include <dhashkit.h>
 
 #undef get16bits
 #if (defined(__GNUC__) && defined(__i386__))

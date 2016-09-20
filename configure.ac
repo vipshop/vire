@@ -234,7 +234,8 @@ AC_CONFIG_COMMANDS_PRE([cd ../..])
 AC_CONFIG_FILES([Makefile
                  dep/Makefile
                  dep/util/Makefile
-                 dep/hashkit/Makefile
+                 dep/dhashkit/Makefile
+                 dep/dmalloc/Makefile
                  dep/ae/Makefile
                  dep/dlist/Makefile
                  dep/darray/Makefile

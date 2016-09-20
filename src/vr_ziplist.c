@@ -422,7 +422,7 @@ static void zipEntry(unsigned char *p, zlentry *e) {
 /* Create a new empty ziplist. */
 unsigned char *ziplistNew(void) {
     unsigned int bytes = ZIPLIST_HEADER_SIZE+1;
-    unsigned char *zl = vr_alloc(bytes);
+    unsigned char *zl = dalloc(bytes);
     ZIPLIST_BYTES(zl) = intrev32ifbe(bytes);
     ZIPLIST_TAIL_OFFSET(zl) = intrev32ifbe(ZIPLIST_HEADER_SIZE);
     ZIPLIST_LENGTH(zl) = 0;
@@ -432,7 +432,7 @@ unsigned char *ziplistNew(void) {
 
 /* Resize the ziplist. */
 static unsigned char *ziplistResize(unsigned char *zl, unsigned int len) {
-    zl = vr_realloc(zl,len);
+    zl = drealloc(zl,len);
     ZIPLIST_BYTES(zl) = intrev32ifbe(len);
     zl[len-1] = ZIP_END;
     return zl;
@@ -735,7 +735,7 @@ unsigned char *ziplistMerge(unsigned char **first, unsigned char **second) {
     size_t second_offset = intrev32ifbe(ZIPLIST_TAIL_OFFSET(*second));
 
     /* Extend target to new zlbytes then append or prepend source. */
-    target = vr_realloc(target, zlbytes);
+    target = drealloc(target, zlbytes);
     if (append) {
         /* append == appending to target */
         /* Copy source after target (copying over original [END]):
@@ -774,11 +774,11 @@ unsigned char *ziplistMerge(unsigned char **first, unsigned char **second) {
 
     /* Now free and NULL out what we didn't realloc */
     if (append) {
-        vr_free(*second);
+        dfree(*second);
         *second = NULL;
         *first = target;
     } else {
-        vr_free(*first);
+        dfree(*first);
         *first = NULL;
         *second = target;
     }
@@ -1132,7 +1132,7 @@ static void stress(int pos, int num, int maxsize, int dnum) {
         }
         printf("List size: %8d, bytes: %8d, %dx push+pop (%s): %6lld usec\n",
             i,intrev32ifbe(ZIPLIST_BYTES(zl)),num,posstr[pos],usec()-start);
-        vr_free(zl);
+        dfree(zl);
     }
 }
 
@@ -1220,7 +1220,7 @@ int ziplistTest(int argc, char **argv) {
     zl = createIntList();
     ziplistRepr(zl);
 
-    vr_free(zl);
+    dfree(zl);
 
     zl = createList();
     ziplistRepr(zl);
@@ -1237,7 +1237,7 @@ int ziplistTest(int argc, char **argv) {
     zl = pop(zl,ZIPLIST_TAIL);
     ziplistRepr(zl);
 
-    vr_free(zl);
+    dfree(zl);
 
     printf("Get element at index 3:\n");
     {
@@ -1254,7 +1254,7 @@ int ziplistTest(int argc, char **argv) {
             printf("%lld\n", value);
         }
         printf("\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Get element at index 4 (out of range):\n");
@@ -1268,7 +1268,7 @@ int ziplistTest(int argc, char **argv) {
             return 1;
         }
         printf("\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Get element at index -1 (last element):\n");
@@ -1286,7 +1286,7 @@ int ziplistTest(int argc, char **argv) {
             printf("%lld\n", value);
         }
         printf("\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Get element at index -4 (first element):\n");
@@ -1304,7 +1304,7 @@ int ziplistTest(int argc, char **argv) {
             printf("%lld\n", value);
         }
         printf("\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Get element at index -5 (reverse out of range):\n");
@@ -1318,7 +1318,7 @@ int ziplistTest(int argc, char **argv) {
             return 1;
         }
         printf("\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Iterate list from 0 to end:\n");
@@ -1336,7 +1336,7 @@ int ziplistTest(int argc, char **argv) {
             printf("\n");
         }
         printf("\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Iterate list from 1 to end:\n");
@@ -1354,7 +1354,7 @@ int ziplistTest(int argc, char **argv) {
             printf("\n");
         }
         printf("\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Iterate list from 2 to end:\n");
@@ -1372,7 +1372,7 @@ int ziplistTest(int argc, char **argv) {
             printf("\n");
         }
         printf("\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Iterate starting out of range:\n");
@@ -1385,7 +1385,7 @@ int ziplistTest(int argc, char **argv) {
             printf("ERROR\n");
         }
         printf("\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Iterate from back to front:\n");
@@ -1403,7 +1403,7 @@ int ziplistTest(int argc, char **argv) {
             printf("\n");
         }
         printf("\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Iterate from back to front, deleting all items:\n");
@@ -1422,7 +1422,7 @@ int ziplistTest(int argc, char **argv) {
             printf("\n");
         }
         printf("\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Delete inclusive range 0,0:\n");
@@ -1430,7 +1430,7 @@ int ziplistTest(int argc, char **argv) {
         zl = createList();
         zl = ziplistDeleteRange(zl, 0, 1);
         ziplistRepr(zl);
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Delete inclusive range 0,1:\n");
@@ -1438,7 +1438,7 @@ int ziplistTest(int argc, char **argv) {
         zl = createList();
         zl = ziplistDeleteRange(zl, 0, 2);
         ziplistRepr(zl);
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Delete inclusive range 1,2:\n");
@@ -1446,7 +1446,7 @@ int ziplistTest(int argc, char **argv) {
         zl = createList();
         zl = ziplistDeleteRange(zl, 1, 2);
         ziplistRepr(zl);
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Delete with start index out of range:\n");
@@ -1454,7 +1454,7 @@ int ziplistTest(int argc, char **argv) {
         zl = createList();
         zl = ziplistDeleteRange(zl, 5, 1);
         ziplistRepr(zl);
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Delete with num overflow:\n");
@@ -1462,7 +1462,7 @@ int ziplistTest(int argc, char **argv) {
         zl = createList();
         zl = ziplistDeleteRange(zl, 1, 5);
         ziplistRepr(zl);
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Delete foo while iterating:\n");
@@ -1487,7 +1487,7 @@ int ziplistTest(int argc, char **argv) {
         }
         printf("\n");
         ziplistRepr(zl);
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Regression test for >255 byte strings:\n");
@@ -1509,7 +1509,7 @@ int ziplistTest(int argc, char **argv) {
         ASSERT(ret > 0);
         ASSERT(strncmp(v2,(char*)entry,elen) == 0);
         printf("SUCCESS\n\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Regression test deleting next to last entries:\n");
@@ -1548,7 +1548,7 @@ int ziplistTest(int argc, char **argv) {
         ASSERT(e[1].prevrawlensize == 5);
 
         printf("SUCCESS\n\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Create long list and check indices:\n");
@@ -1572,7 +1572,7 @@ int ziplistTest(int argc, char **argv) {
             ASSERT(999-i == value);
         }
         printf("SUCCESS\n\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Compare strings with ziplist entries:\n");
@@ -1598,7 +1598,7 @@ int ziplistTest(int argc, char **argv) {
             return 1;
         }
         printf("SUCCESS\n\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Merge test:\n");
@@ -1622,7 +1622,7 @@ int ziplistTest(int argc, char **argv) {
             printf("ERROR: Merging two empty ziplists created entries.\n");
             return 1;
         }
-        vr_free(zl4);
+        dfree(zl4);
 
         zl2 = ziplistMerge(&zl, &zl2);
         /* merge gives us: [hello, foo, quux, 1024, hello, foo, quux, 1024] */
@@ -1673,7 +1673,7 @@ int ziplistTest(int argc, char **argv) {
             return 1;
         }
         printf("SUCCESS\n\n");
-        vr_free(zl);
+        dfree(zl);
     }
 
     printf("Stress with random payloads of different encoding:\n");
@@ -1748,7 +1748,7 @@ int ziplistTest(int argc, char **argv) {
                 }
                 ASSERT(memcmp(buf,listNodeValue(refnode),buflen) == 0);
             }
-            vr_free(zl);
+            dfree(zl);
             listRelease(ref);
         }
         printf("SUCCESS\n\n");

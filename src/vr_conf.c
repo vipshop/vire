@@ -704,7 +704,7 @@ conf_value *conf_value_create(int type)
 {
     conf_value *cv;
 
-    cv = vr_alloc(sizeof(*cv));
+    cv = dalloc(sizeof(*cv));
     if(cv == NULL){
         return NULL;
     }
@@ -715,7 +715,7 @@ conf_value *conf_value_create(int type)
     if(cv->type == CONF_VALUE_TYPE_ARRAY){
         cv->value = array_create(3, sizeof(conf_value*));
         if(cv->value == NULL){
-            vr_free(cv);
+            dfree(cv);
             return NULL;
         }
     }
@@ -732,7 +732,7 @@ void conf_value_destroy(conf_value *cv)
     }
     
     if(cv->type == CONF_VALUE_TYPE_UNKNOW){
-        vr_free(cv);
+        dfree(cv);
         return;
     }else if(cv->type == CONF_VALUE_TYPE_STRING){
         if(cv->value != NULL){
@@ -751,7 +751,7 @@ void conf_value_destroy(conf_value *cv)
         NOT_REACHED();
     }
 
-    vr_free(cv);
+    dfree(cv);
 }
 
 static int conf_server_init(conf_server *cs)
@@ -1271,7 +1271,7 @@ conf_open(char *filename)
         goto error;
     }
 
-    cf = vr_alloc(sizeof(*cf));
+    cf = dalloc(sizeof(*cf));
     if (cf == NULL) {
         goto error;
     }
@@ -1354,7 +1354,7 @@ conf_destroy(vr_conf *cf)
     
     conf_deinit(cf);
     
-    vr_free(cf);
+    dfree(cf);
 }
 
 unsigned long long
@@ -1492,7 +1492,7 @@ static void configSetCommand(client *c) {
         long long maxmemory;
         conf_server_get(CONFIG_SOPN_MAXMEMORY,&maxmemory);
         if (maxmemory) {
-            if (maxmemory < vr_alloc_used_memory()) {
+            if (maxmemory < dalloc_used_memory()) {
                 log_warn("WARNING: the new maxmemory value set via CONFIG SET is smaller than the current memory usage. This will result in keys eviction and/or inability to accept new write commands depending on the maxmemory-policy.");
                 freeMemoryIfNeeded(c->vel);
             }
@@ -1608,7 +1608,7 @@ struct rewriteConfigState {
 
 /* Append the new line to the current configuration state. */
 static void rewriteConfigAppendLine(struct rewriteConfigState *state, sds line) {
-    state->lines = vr_realloc(state->lines, sizeof(char*) * (state->numlines+1));
+    state->lines = drealloc(state->lines, sizeof(char*) * (state->numlines+1));
     state->lines[state->numlines++] = line;
 }
 
@@ -1650,7 +1650,7 @@ dictType optionSetDictType = {
  * If the old file does not exist at all, an empty state is returned. */
 static struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     FILE *fp = fopen(path,"r");
-    struct rewriteConfigState *state = vr_alloc(sizeof(*state));
+    struct rewriteConfigState *state = dalloc(sizeof(*state));
     char buf[CONFIG_MAX_LINE+1];
     int linenum = -1;
 
@@ -1771,7 +1771,7 @@ static void rewriteConfigReleaseState(struct rewriteConfigState *state) {
     sdsfreesplitres(state->lines,state->numlines);
     dictRelease(state->option_to_line);
     dictRelease(state->rewritten);
-    vr_free(state);
+    dfree(state);
 }
 
 /* At the end of the rewrite process the state contains the remaining

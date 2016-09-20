@@ -175,7 +175,7 @@ vr_print_run(struct instance *nci)
 "      `-._    `-.__.-'    _.-'                                       \n"
 "          `-._        _.-'                                           \n"
 "              `-.__.-'                                               \n\n";
-        char *buf = vr_alloc(1024*16);
+        char *buf = dalloc(1024*16);
         snprintf(buf,1024*16,ascii_logo,
             VR_VERSION_STRING,
             (sizeof(long) == 8) ? "64" : "32",
@@ -185,7 +185,7 @@ vr_print_run(struct instance *nci)
             status < 0 ? " ":name.release,
             status < 0 ? " ":name.machine);
         log_write_len(buf, strlen(buf));
-        vr_free(buf);
+        dfree(buf);
     }else {
         char buf[256];
         snprintf(buf,256,"Vire %s, %s bit, %s mode, port %d, pid %ld, built for %s %s %s ready to run.\n",

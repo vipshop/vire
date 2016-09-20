@@ -129,7 +129,7 @@ static void _dictReset(dictht *ht)
 dict *dictCreate(dictType *type,
         void *privDataPtr)
 {
-    dict *d = vr_alloc(sizeof(*d));
+    dict *d = dalloc(sizeof(*d));
 
     _dictInit(d,type,privDataPtr);
     return d;
@@ -178,7 +178,7 @@ int dictExpand(dict *d, unsigned long size)
     /* Allocate the new hash table and initialize all pointers to NULL */
     n.size = realsize;
     n.sizemask = realsize-1;
-    n.table = vr_calloc(realsize, sizeof(dictEntry*));
+    n.table = dcalloc(realsize, sizeof(dictEntry*));
     n.used = 0;
 
     /* Is this the first initialization? If so it's not really a rehashing
@@ -237,7 +237,7 @@ int dictRehash(dict *d, int n) {
 
     /* Check if we already rehashed the whole table... */
     if (d->ht[0].used == 0) {
-        vr_free(d->ht[0].table);
+        dfree(d->ht[0].table);
         d->ht[0] = d->ht[1];
         _dictReset(&d->ht[1]);
         d->rehashidx = -1;
@@ -322,7 +322,7 @@ dictEntry *dictAddRaw(dict *d, void *key)
      * system it is more likely that recently added entries are accessed
      * more frequently. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
-    entry = vr_alloc(sizeof(*entry));
+    entry = dalloc(sizeof(*entry));
     entry->next = ht->table[index];
     ht->table[index] = entry;
     ht->used++;
@@ -395,7 +395,7 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
                     dictFreeKey(d, he);
                     dictFreeVal(d, he);
                 }
-                vr_free(he);
+                dfree(he);
                 d->ht[table].used--;
                 return DICT_OK;
             }
@@ -430,13 +430,13 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
             nextHe = he->next;
             dictFreeKey(d, he);
             dictFreeVal(d, he);
-            vr_free(he);
+            dfree(he);
             ht->used--;
             he = nextHe;
         }
     }
     /* Free the table and the allocated cache structure */
-    if(ht->table) vr_free(ht->table);
+    if(ht->table) dfree(ht->table);
     /* Re-initialize the table */
     _dictReset(ht);
     return DICT_OK; /* never fails */
@@ -447,7 +447,7 @@ void dictRelease(dict *d)
 {
     _dictClear(d,&d->ht[0],NULL);
     _dictClear(d,&d->ht[1],NULL);
-    vr_free(d);
+    dfree(d);
 }
 
 dictEntry *dictFind(dict *d, const void *key)
@@ -518,7 +518,7 @@ long long dictFingerprint(dict *d) {
 
 dictIterator *dictGetIterator(dict *d)
 {
-    dictIterator *iter = vr_alloc(sizeof(*iter));
+    dictIterator *iter = dalloc(sizeof(*iter));
 
     iter->d = d;
     iter->table = 0;
@@ -581,7 +581,7 @@ void dictReleaseIterator(dictIterator *iter)
             ASSERT(iter->fingerprint == hv);
         }
     }
-    vr_free(iter);
+    dfree(iter);
 }
 
 /* Return a random entry from the hash table. Useful to

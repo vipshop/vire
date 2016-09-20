@@ -361,7 +361,7 @@ init_server(struct instance *nci)
 
     server.ready_keys = listCreate();
 
-    server.system_memory_size = vr_alloc_get_memory_size();
+    server.system_memory_size = dalloc_get_memory_size();
 
     server.rdb_child_pid = -1;
     server.aof_child_pid = -1;
@@ -405,7 +405,7 @@ init_server(struct instance *nci)
     }
 
     log_debug(LOG_NOTICE, "memory alloc lock type: %s", malloc_lock_type());
-    log_debug(LOG_NOTICE, "malloc lib: %s", VR_MALLOC_LIB);
+    log_debug(LOG_NOTICE, "malloc lib: %s", DMALLOC_LIB);
 
     log_debug(LOG_NOTICE, "stats lock type: %s", STATS_LOCK_TYPE);
 
@@ -437,7 +437,7 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict,
     if (maxmemory_samples <= EVICTION_SAMPLES_ARRAY_SIZE) {
         samples = _samples;
     } else {
-        samples = vr_alloc(sizeof(samples[0])*maxmemory_samples);
+        samples = dalloc(sizeof(samples[0])*maxmemory_samples);
     }
 
     count = dictGetSomeKeys(sampledict,samples,maxmemory_samples);
@@ -489,7 +489,7 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict,
         pool[k].key = sdsdup(key);
         pool[k].idle = idle;
     }
-    if (samples != _samples) vr_free(samples);
+    if (samples != _samples) dfree(samples);
 }
 
 int freeMemoryIfNeeded(vr_eventloop *vel) {
@@ -501,7 +501,7 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
     int ret;
 
     maxmemory = vel->cc.maxmemory;
-    if (vr_alloc_used_memory() <= maxmemory)
+    if (dalloc_used_memory() <= maxmemory)
         return VR_OK;
 
     conf_server_get(CONFIG_SOPN_MAXMEMORYP, &maxmemory_policy);
@@ -606,7 +606,7 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
             unlockDb(db);
 
             conf_server_get(CONFIG_SOPN_MAXMEMORY, &maxmemory);
-            if (vr_alloc_used_memory() <= maxmemory) {
+            if (dalloc_used_memory() <= maxmemory) {
                 goto stop;
             }
         }
@@ -836,7 +836,7 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
         char used_memory_lua_hmem[64];
         char used_memory_rss_hmem[64];
         char maxmemory_hmem[64];
-        size_t vr_used_memory = vr_alloc_used_memory();
+        size_t vr_used_memory = dalloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
         const char *evict_policy;
         size_t peak_memory = 0, peak_memory_for_one_worker;
@@ -897,7 +897,7 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
             maxmemory_hmem,
             evict_policy,
             (float)vel->resident_set_size/vr_used_memory,
-            VR_MALLOC_LIB
+            DMALLOC_LIB
             );
     }
 

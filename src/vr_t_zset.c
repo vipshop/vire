@@ -4,7 +4,7 @@ static int zslLexValueGteMin(robj *value, zlexrangespec *spec);
 static int zslLexValueLteMax(robj *value, zlexrangespec *spec);
 
 zskiplistNode *zslCreateNode(int level, double score, robj *obj) {
-    zskiplistNode *zn = vr_alloc(sizeof(*zn)+level*sizeof(struct zskiplistLevel));
+    zskiplistNode *zn = dalloc(sizeof(*zn)+level*sizeof(struct zskiplistLevel));
     zn->score = score;
     zn->obj = obj;
     return zn;
@@ -14,7 +14,7 @@ zskiplist *zslCreate(void) {
     int j;
     zskiplist *zsl;
 
-    zsl = vr_alloc(sizeof(*zsl));
+    zsl = dalloc(sizeof(*zsl));
     zsl->level = 1;
     zsl->length = 0;
     zsl->header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL);
@@ -29,19 +29,19 @@ zskiplist *zslCreate(void) {
 
 void zslFreeNode(zskiplistNode *node) {
     /* node->obj is stored in the dict of the zset object, so we just free the node. */
-    vr_free(node);
+    dfree(node);
 }
 
 void zslFree(zskiplist *zsl) {
     zskiplistNode *node = zsl->header->level[0].forward, *next;
 
-    vr_free(zsl->header);
+    dfree(zsl->header);
     while(node) {
         next = node->level[0].forward;
         zslFreeNode(node);
         node = next;
     }
-    vr_free(zsl);
+    dfree(zsl);
 }
 
 /* Returns a random level for the new skiplist node we are going to create.
@@ -1067,7 +1067,7 @@ void zsetConvert(robj *zobj, int encoding) {
         if (encoding != OBJ_ENCODING_SKIPLIST)
             serverPanic("Unknown target encoding");
 
-        zs = vr_alloc(sizeof(*zs));
+        zs = dalloc(sizeof(*zs));
         zs->dict = dictCreate(&zsetDictType,NULL);
         zs->zsl = zslCreate();
 
@@ -1090,7 +1090,7 @@ void zsetConvert(robj *zobj, int encoding) {
             zzlNext(zl,&eptr,&sptr);
         }
 
-        vr_free(zobj->ptr);
+        dfree(zobj->ptr);
         zobj->ptr = zs;
         zobj->encoding = OBJ_ENCODING_SKIPLIST;
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -1103,8 +1103,8 @@ void zsetConvert(robj *zobj, int encoding) {
          * the same time as creating the ziplist. */
         zs = zobj->ptr;
         node = zs->zsl->header->level[0].forward;
-        vr_free(zs->zsl->header);
-        vr_free(zs->zsl);
+        dfree(zs->zsl->header);
+        dfree(zs->zsl);
 
         while (node) {
             ele = getDecodedObject(node->obj);
@@ -1116,7 +1116,7 @@ void zsetConvert(robj *zobj, int encoding) {
         }
 
         dictRelease(zs->dict);
-        vr_free(zs);
+        dfree(zs);
         zobj->ptr = zl;
         zobj->encoding = OBJ_ENCODING_ZIPLIST;
     } else {
@@ -1229,7 +1229,7 @@ void zaddGenericCommand(client *c, int flags) {
     /* Start parsing all the scores, we need to emit any syntax error
      * before executing additions to the sorted set, as the command should
      * either execute fully or nothing at all. */
-    scores = vr_alloc(sizeof(double)*elements);
+    scores = dalloc(sizeof(double)*elements);
     for (j = 0; j < elements; j++) {
         if (getDoubleFromObjectOrReply(c,c->argv[scoreidx+j*2],&scores[j],NULL)
             != VR_OK) goto cleanup;
@@ -1365,7 +1365,7 @@ reply_to_client:
     }
 
 cleanup:
-    vr_free(scores);
+    dfree(scores);
     if (added || updated) {
         signalModifiedKey(c->db,key);
         notifyKeyspaceEvent(NOTIFY_ZSET,
@@ -1912,12 +1912,12 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     }
 
     /* read keys to be used for input */
-    src = vr_calloc(setnum, sizeof(zsetopsrc));
+    src = dcalloc(setnum, sizeof(zsetopsrc));
     for (i = 0, j = 3; i < setnum; i++, j++) {
         robj *obj = lookupKeyWrite(c->db,c->argv[j],NULL);
         if (obj != NULL) {
             if (obj->type != OBJ_ZSET && obj->type != OBJ_SET) {
-                vr_free(src);
+                dfree(src);
                 addReply(c,shared.wrongtypeerr);
                 return;
             }
@@ -1944,7 +1944,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                     if (getDoubleFromObjectOrReply(c,c->argv[j],&src[i].weight,
                             "weight value is not a float") != VR_OK)
                     {
-                        vr_free(src);
+                        dfree(src);
                         return;
                     }
                 }
@@ -1957,13 +1957,13 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                 } else if (!strcasecmp(c->argv[j]->ptr,"max")) {
                     aggregate = REDIS_AGGR_MAX;
                 } else {
-                    vr_free(src);
+                    dfree(src);
                     addReply(c,shared.syntaxerr);
                     return;
                 }
                 j++; remaining--;
             } else {
-                vr_free(src);
+                dfree(src);
                 addReply(c,shared.syntaxerr);
                 return;
             }
@@ -2116,7 +2116,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
         if (touched)
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
     }
-    vr_free(src);
+    dfree(src);
 }
 
 void zunionstoreCommand(client *c) {

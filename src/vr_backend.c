@@ -57,7 +57,7 @@ backend_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     vel->mstime = vr_msec_now();
 
     /* Record the max memory used since the server was started. */
-    stat_used_memory = vr_alloc_used_memory();
+    stat_used_memory = dalloc_used_memory();
     update_stats_get(vel->stats, peak_memory, &stats_peak_memory);
     if (stat_used_memory > stats_peak_memory) {
         update_stats_set(vel->stats, peak_memory, stat_used_memory);

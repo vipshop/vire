@@ -40,7 +40,7 @@ static struct evictionPoolEntry *evictionPoolAlloc(void) {
     struct evictionPoolEntry *ep;
     int j;
 
-    ep = vr_alloc(sizeof(*ep)*MAXMEMORY_EVICTION_POOL_SIZE);
+    ep = dalloc(sizeof(*ep)*MAXMEMORY_EVICTION_POOL_SIZE);
     for (j = 0; j < MAXMEMORY_EVICTION_POOL_SIZE; j++) {
         ep[j].idle = 0;
         ep[j].key = NULL;
@@ -1196,7 +1196,7 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
     }
     last = cmd->lastkey;
     if (last < 0) last = argc+last;
-    keys = vr_alloc(sizeof(int)*((last - cmd->firstkey)+1));
+    keys = dalloc(sizeof(int)*((last - cmd->firstkey)+1));
     for (j = cmd->firstkey; j <= last; j += cmd->keystep) {
         ASSERT(j < argc);
         keys[i++] = j;
@@ -1226,7 +1226,7 @@ int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *nu
 
 /* Free the result of getKeysFromCommand. */
 void getKeysFreeResult(int *result) {
-    vr_free(result);
+    dfree(result);
 }
 
 /* Helper function to extract keys from following commands:
@@ -1247,7 +1247,7 @@ int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *nu
     /* Keys in z{union,inter}store come from two places:
      * argv[1] = storage key,
      * argv[3...n] = keys to intersect */
-    keys = vr_alloc(sizeof(int)*(num+1));
+    keys = dalloc(sizeof(int)*(num+1));
 
     /* Add all key positions for argv[3...n] to keys[] */
     for (i = 0; i < num; i++) keys[i] = 3+i;
@@ -1273,7 +1273,7 @@ int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
         return NULL;
     }
 
-    keys = vr_alloc(sizeof(int)*num);
+    keys = dalloc(sizeof(int)*num);
     *numkeys = num;
 
     /* Add all key positions for argv[3...n] to keys[] */
@@ -1294,7 +1294,7 @@ int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
     UNUSED(cmd);
 
     num = 0;
-    keys = vr_alloc(sizeof(int)*2); /* Alloc 2 places for the worst case. */
+    keys = dalloc(sizeof(int)*2); /* Alloc 2 places for the worst case. */
 
     keys[num++] = 1; /* <sort-key> is always present. */
 
@@ -1352,7 +1352,7 @@ int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkey
         }
     }
 
-    keys = vr_alloc(sizeof(int)*num);
+    keys = dalloc(sizeof(int)*num);
     for (i = 0; i < num; i++) keys[i] = first+i;
     *numkeys = num;
     return keys;

@@ -55,7 +55,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
     int hdrlen = sdsHdrSize(type);
     unsigned char *fp; /* flags pointer. */
 
-    sh = vr_alloc(hdrlen+initlen+1);
+    sh = dalloc(hdrlen+initlen+1);
     if (!init)
         memset(sh, 0, hdrlen+initlen+1);
     if (sh == NULL) return NULL;
@@ -123,9 +123,9 @@ void sdsfree(sds s) {
     void *ptr;
     
     if (s == NULL) return;
-    //vr_free((char*)s-sdsHdrSize(s[-1]));
+    //dfree((char*)s-sdsHdrSize(s[-1]));
     ptr = sdsAllocPtr(s);
-    vr_free(ptr);
+    dfree(ptr);
 }
 
 /* Set the sds string length to the length as obtained with strlen(), so
@@ -189,16 +189,16 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
 
     hdrlen = sdsHdrSize(type);
     if (oldtype==type) {
-        newsh = vr_realloc(sh, hdrlen+newlen+1);
+        newsh = drealloc(sh, hdrlen+newlen+1);
         if (newsh == NULL) return NULL;
         s = (char*)newsh+hdrlen;
     } else {
         /* Since the header size changes, need to move the string forward,
          * and can't use realloc */
-        newsh = vr_alloc(hdrlen+newlen+1);
+        newsh = dalloc(hdrlen+newlen+1);
         if (newsh == NULL) return NULL;
         memcpy((char*)newsh+hdrlen, s, len+1);
-        vr_free(sh);
+        dfree(sh);
         s = (char*)newsh+hdrlen;
         s[-1] = type;
         sdssetlen(s, len);
@@ -223,14 +223,14 @@ sds sdsRemoveFreeSpace(sds s) {
     type = sdsReqType(len);
     hdrlen = sdsHdrSize(type);
     if (oldtype==type) {
-        newsh = vr_realloc(sh, hdrlen+len+1);
+        newsh = drealloc(sh, hdrlen+len+1);
         if (newsh == NULL) return NULL;
         s = (char*)newsh+hdrlen;
     } else {
-        newsh = vr_alloc(hdrlen+len+1);
+        newsh = dalloc(hdrlen+len+1);
         if (newsh == NULL) return NULL;
         memcpy((char*)newsh+hdrlen, s, len+1);
-        vr_free(sh);
+        dfree(sh);
         s = (char*)newsh+hdrlen;
         s[-1] = type;
         sdssetlen(s, len);
@@ -477,7 +477,7 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     /* We try to start using a static buffer for speed.
      * If not possible we revert to heap allocation. */
     if (buflen > sizeof(staticbuf)) {
-        buf = vr_alloc(buflen);
+        buf = dalloc(buflen);
         if (buf == NULL) return NULL;
     } else {
         buflen = sizeof(staticbuf);
@@ -491,9 +491,9 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
         vsnprintf(buf, buflen, fmt, cpy);
         va_end(cpy);
         if (buf[buflen-2] != '\0') {
-            if (buf != staticbuf) vr_free(buf);
+            if (buf != staticbuf) dfree(buf);
             buflen *= 2;
-            buf = vr_alloc(buflen);
+            buf = dalloc(buflen);
             if (buf == NULL) return NULL;
             continue;
         }
@@ -502,7 +502,7 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
 
     /* Finally concat the obtained string to the SDS string and return it. */
     t = sdscat(s, buf);
-    if (buf != staticbuf) vr_free(buf);
+    if (buf != staticbuf) dfree(buf);
     return t;
 }
 
@@ -769,7 +769,7 @@ sds *sdssplitlen(const char *s, int len, const char *sep, int seplen, int *count
 
     if (seplen < 1 || len < 0) return NULL;
 
-    tokens = vr_alloc(sizeof(sds)*slots);
+    tokens = dalloc(sizeof(sds)*slots);
     if (tokens == NULL) return NULL;
 
     if (len == 0) {
@@ -782,7 +782,7 @@ sds *sdssplitlen(const char *s, int len, const char *sep, int seplen, int *count
             sds *newtokens;
 
             slots *= 2;
-            newtokens = vr_realloc(tokens,sizeof(sds)*slots);
+            newtokens = drealloc(tokens,sizeof(sds)*slots);
             if (newtokens == NULL) goto cleanup;
             tokens = newtokens;
         }
@@ -806,7 +806,7 @@ cleanup:
     {
         int i;
         for (i = 0; i < elements; i++) sdsfree(tokens[i]);
-        vr_free(tokens);
+        dfree(tokens);
         *count = 0;
         return NULL;
     }
@@ -835,7 +835,7 @@ sds *sdssplitlenonce(const char *s, int len, const char *sep, int seplen, int *c
 
     if (seplen < 1 || len < 0) return NULL;
 
-    tokens = vr_alloc(sizeof(sds)*slots);
+    tokens = dalloc(sizeof(sds)*slots);
     if (tokens == NULL) return NULL;
 
     if (len == 0) {
@@ -874,7 +874,7 @@ cleanup:
     {
         int i;
         for (i = 0; i < elements; i++) sdsfree(tokens[i]);
-        vr_free(tokens);
+        dfree(tokens);
         *count = 0;
         return NULL;
     }
@@ -885,7 +885,7 @@ void sdsfreesplitres(sds *tokens, int count) {
     if (!tokens) return;
     while(count--)
         sdsfree(tokens[count]);
-    vr_free(tokens);
+    dfree(tokens);
 }
 
 /* Append to the sds string "s" an escaped string representation where
@@ -1059,13 +1059,13 @@ sds *sdssplitargs(const char *line, int *argc) {
                 if (*p) p++;
             }
             /* add the token to the vector */
-            vector = vr_realloc(vector,((*argc)+1)*sizeof(char*));
+            vector = drealloc(vector,((*argc)+1)*sizeof(char*));
             vector[*argc] = current;
             (*argc)++;
             current = NULL;
         } else {
             /* Even on empty input string return something not NULL. */
-            if (vector == NULL) vector = vr_alloc(sizeof(void*));
+            if (vector == NULL) vector = dalloc(sizeof(void*));
             return vector;
         }
     }
@@ -1073,7 +1073,7 @@ sds *sdssplitargs(const char *line, int *argc) {
 err:
     while((*argc)--)
         sdsfree(vector[*argc]);
-    vr_free(vector);
+    dfree(vector);
     if (current) sdsfree(current);
     *argc = 0;
     return NULL;

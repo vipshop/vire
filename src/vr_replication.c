@@ -46,7 +46,7 @@ void vr_replication_deinit(void)
     }
 
     if (repl.repl_backlog != NULL) {
-        vr_free(repl.repl_backlog);
+        dfree(repl.repl_backlog);
         repl.repl_backlog = NULL;
     }
 

@@ -74,12 +74,12 @@ typedef struct aeApiState {
 
 static int aeApiCreate(aeEventLoop *eventLoop) {
     int i;
-    aeApiState *state = vr_alloc(sizeof(aeApiState));
+    aeApiState *state = malloc(sizeof(aeApiState));
     if (!state) return -1;
 
     state->portfd = port_create();
     if (state->portfd == -1) {
-        vr_free(state);
+        free(state);
         return -1;
     }
 
@@ -103,7 +103,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     aeApiState *state = eventLoop->apidata;
 
     close(state->portfd);
-    vr_free(state);
+    free(state);
 }
 
 static int aeApiLookupPending(aeApiState *state, int fd) {

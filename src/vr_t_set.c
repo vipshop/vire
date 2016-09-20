@@ -92,7 +92,7 @@ int setTypeIsMember(robj *subject, robj *value) {
 }
 
 setTypeIterator *setTypeInitIterator(robj *subject) {
-    setTypeIterator *si = vr_alloc(sizeof(setTypeIterator));
+    setTypeIterator *si = dalloc(sizeof(setTypeIterator));
     si->subject = subject;
     si->encoding = subject->encoding;
     if (si->encoding == OBJ_ENCODING_HT) {
@@ -108,7 +108,7 @@ setTypeIterator *setTypeInitIterator(robj *subject) {
 void setTypeReleaseIterator(setTypeIterator *si) {
     if (si->encoding == OBJ_ENCODING_HT)
         dictReleaseIterator(si->di);
-    vr_free(si);
+    dfree(si);
 }
 
 /* Move to the next entry in the set. Returns the object at the current
@@ -235,7 +235,7 @@ void setTypeConvert(robj *setobj, int enc) {
         setTypeReleaseIterator(si);
 
         setobj->encoding = OBJ_ENCODING_HT;
-        vr_free(setobj->ptr);
+        dfree(setobj->ptr);
         setobj->ptr = d;
     } else {
         serverPanic("Unsupported set conversion");

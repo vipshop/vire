@@ -9,14 +9,14 @@ array_create(uint32_t n, size_t size)
 
     ASSERT(n != 0 && size != 0);
 
-    a = vr_alloc(sizeof(*a));
+    a = dalloc(sizeof(*a));
     if (a == NULL) {
         return NULL;
     }
 
-    a->elem = vr_alloc(n * size);
+    a->elem = dalloc(n * size);
     if (a->elem == NULL) {
-        vr_free(a);
+        dfree(a);
         return NULL;
     }
 
@@ -31,7 +31,7 @@ void
 array_destroy(struct array *a)
 {
     array_deinit(a);
-    vr_free(a);
+    dfree(a);
 }
 
 rstatus_t
@@ -39,7 +39,7 @@ array_init(struct array *a, uint32_t n, size_t size)
 {
     ASSERT(n != 0 && size != 0);
 
-    a->elem = vr_alloc(n * size);
+    a->elem = dalloc(n * size);
     if (a->elem == NULL) {
         return VR_ENOMEM;
     }
@@ -57,7 +57,7 @@ array_deinit(struct array *a)
     ASSERT(a->nelem == 0);
 
     if (a->elem != NULL) {
-        vr_free(a->elem);
+        dfree(a->elem);
     }
 }
 
@@ -90,7 +90,7 @@ array_push(struct array *a)
 
         /* the array is full; allocate new array */
         size = a->size * a->nalloc;
-        new = vr_realloc(a->elem, 2 * size);
+        new = drealloc(a->elem, 2 * size);
         if (new == NULL) {
             return NULL;
         }

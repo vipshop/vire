@@ -612,7 +612,7 @@ int redisOpArrayAppend(redisOpArray *oa, struct redisCommand *cmd, int dbid,
 {
     redisOp *op;
 
-    oa->ops = vr_realloc(oa->ops,sizeof(redisOp)*((size_t)oa->numops+1));
+    oa->ops = drealloc(oa->ops,sizeof(redisOp)*((size_t)oa->numops+1));
     op = oa->ops+oa->numops;
     op->cmd = cmd;
     op->dbid = dbid;
@@ -632,9 +632,9 @@ void redisOpArrayFree(redisOpArray *oa) {
         op = oa->ops+oa->numops;
         for (j = 0; j < op->argc; j++)
             decrRefCount(op->argv[j]);
-        vr_free(op->argv);
+        dfree(op->argv);
     }
-    vr_free(oa->ops);
+    dfree(oa->ops);
 }
 
 /* Propagate the specified command (in the context of the specified database id)
@@ -677,7 +677,7 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
 
     if (server.loading) return; /* No propagation during loading. */
 
-    argvcopy = vr_alloc(sizeof(robj*)*(size_t)argc);
+    argvcopy = dalloc(sizeof(robj*)*(size_t)argc);
     for (j = 0; j < argc; j++) {
         argvcopy[j] = dupStringObjectUnconstant(argv[j]);
     }

@@ -41,7 +41,7 @@ void unwatchAllKeys(client *c) {
         /* Remove this watched key from the client->watched list */
         listDelNode(c->watched_keys,ln);
         decrRefCount(wk->key);
-        vr_free(wk);
+        dfree(wk);
     }
 }
 
@@ -61,9 +61,9 @@ void freeClientMultiState(client *c) {
 
         for (i = 0; i < mc->argc; i++)
             decrRefCount(mc->argv[i]);
-        vr_free(mc->argv);
+        dfree(mc->argv);
     }
-    if (c->mstate.commands) vr_free(c->mstate.commands);
+    if (c->mstate.commands) dfree(c->mstate.commands);
 }
 
 /* Add a new command into the MULTI commands queue */
@@ -71,12 +71,12 @@ void queueMultiCommand(client *c) {
     multiCmd *mc;
     int j;
 
-    c->mstate.commands = vr_realloc(c->mstate.commands,
+    c->mstate.commands = drealloc(c->mstate.commands,
             sizeof(multiCmd)*(c->mstate.count+1));
     mc = c->mstate.commands+c->mstate.count;
     mc->cmd = c->cmd;
     mc->argc = c->argc;
-    mc->argv = vr_alloc(sizeof(robj*)*c->argc);
+    mc->argv = dalloc(sizeof(robj*)*c->argc);
     memcpy(mc->argv,c->argv,sizeof(robj*)*c->argc);
     for (j = 0; j < c->argc; j++)
         incrRefCount(mc->argv[j]);
@@ -142,7 +142,7 @@ void watchForKey(client *c, robj *key) {
     }
     listAddNodeTail(clients,c);
     /* Add the new key to the list of keys watched by this client */
-    wk = vr_alloc(sizeof(*wk));
+    wk = dalloc(sizeof(*wk));
     wk->key = key;
     wk->db = c->db;
     incrRefCount(key);

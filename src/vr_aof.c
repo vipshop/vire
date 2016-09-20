@@ -129,7 +129,7 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
         if (len) { /* First block to allocate, or need another block. */
             int numblocks;
 
-            block = vr_alloc(sizeof(*block));
+            block = dalloc(sizeof(*block));
             block->free = AOF_RW_BUF_BLOCK_SIZE;
             block->used = 0;
             listAddNodeTail(server.aof_rewrite_buf_blocks,block);

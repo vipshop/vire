@@ -85,62 +85,6 @@ int d2string(char *buf, size_t len, double value);
 bool vr_valid_port(int n);
 
 /*
- * Memory allocation and free wrappers.
- *
- * These wrappers enables us to loosely detect double free, dangling
- * pointer access and zero-byte alloc.
- */
-#if defined(VR_USE_JEMALLOC)
-#define VR_MALLOC_LIB ("jemalloc-" __xstr(JEMALLOC_VERSION_MAJOR) "." __xstr(JEMALLOC_VERSION_MINOR) "." __xstr(JEMALLOC_VERSION_BUGFIX))
-#include <jemalloc/jemalloc.h>
-#if (JEMALLOC_VERSION_MAJOR == 2 && JEMALLOC_VERSION_MINOR >= 1) || (JEMALLOC_VERSION_MAJOR > 2)
-#define HAVE_MALLOC_SIZE 1
-#define vr_malloc_size(p) je_malloc_usable_size(p)
-#else
-#error "Newer version of jemalloc required"
-#endif
-#elif defined(__APPLE__)
-#include <malloc/malloc.h>
-#define HAVE_MALLOC_SIZE 1
-#define vr_malloc_size(p) malloc_size(p)
-#endif
-    
-#ifndef VR_MALLOC_LIB
-#define VR_MALLOC_LIB "libc"
-#endif
-
-#define vr_alloc(_s)                    \
-    _vr_alloc((size_t)(_s), __FILE__, __LINE__)
-
-#define vr_zalloc(_s)                   \
-    _vr_zalloc((size_t)(_s), __FILE__, __LINE__)
-
-#define vr_calloc(_n, _s)               \
-    _vr_calloc((size_t)(_n), (size_t)(_s), __FILE__, __LINE__)
-
-#define vr_realloc(_p, _s)              \
-    _vr_realloc(_p, (size_t)(_s), __FILE__, __LINE__)
-
-#define vr_free(_p) do {                \
-    _vr_free(_p, __FILE__, __LINE__);   \
-    (_p) = NULL;                        \
-} while (0)
-
-char *malloc_lock_type(void);
-
-#ifndef HAVE_MALLOC_SIZE
-size_t vr_malloc_size(void *ptr);
-#endif
-
-void *_vr_alloc(size_t size, const char *name, int line);
-void *_vr_zalloc(size_t size, const char *name, int line);
-void *_vr_calloc(size_t nmemb, size_t size, const char *name, int line);
-void *_vr_realloc(void *ptr, size_t size, const char *name, int line);
-void _vr_free(void *ptr, const char *name, int line);
-
-size_t vr_alloc_used_memory(void);
-
-/*
  * Wrappers to send or receive n byte message on a blocking
  * socket descriptor.
  */
@@ -278,10 +222,5 @@ long long memtoll(const char *p, int *err);
 void bytesToHuman(char *s, unsigned long long n);
 
 sds getAbsolutePath(char *filename);
-
-size_t vr_alloc_get_memory_size(void);
-
-size_t vr_alloc_get_rss(void);
-float vr_alloc_get_fragmentation_ratio(size_t rss);
 
 #endif

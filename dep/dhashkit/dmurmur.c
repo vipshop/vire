@@ -15,7 +15,7 @@
  *  Updated to murmur2 hash - BP
  */
 
-#include <vr_hashkit.h>
+#include <dhashkit.h>
 
 uint32_t
 hash_murmur(const char *key, size_t length)

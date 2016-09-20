@@ -42,7 +42,7 @@ vr_eventloop_init(vr_eventloop *vel, int filelimit)
         return VR_ERROR;
     }
 
-    vel->cb = vr_alloc(sizeof(conn_base));
+    vel->cb = dalloc(sizeof(conn_base));
     if (vel->cb == NULL) {
         log_error("create conn_base failed: out of memory");
         return VR_ENOMEM;
@@ -77,7 +77,7 @@ vr_eventloop_init(vr_eventloop *vel, int filelimit)
         return VR_ENOMEM;
     }
 
-    vel->stats = vr_alloc(sizeof(vr_stats));
+    vel->stats = dalloc(sizeof(vr_stats));
     if (vel->stats == NULL) {
         log_error("out of memory");
         return VR_ENOMEM;
@@ -138,13 +138,13 @@ vr_eventloop_deinit(vr_eventloop *vel)
 
     if (vel->cb != NULL) {
         conn_deinit(vel->cb);
-        vr_free(vel->cb);
+        dfree(vel->cb);
         vel->cb = NULL;
     }
 
     if (vel->stats != NULL) {
         vr_stats_deinit(vel->stats);
-        vr_free(vel->stats);
+        dfree(vel->stats);
         vel->stats = NULL;
     }
 

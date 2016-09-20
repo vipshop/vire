@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-#include <vr_hashkit.h>
+#include <dhashkit.h>
 
 #define KETAMA_CONTINUUM_ADDITION   10  /* # extra slots to build into continuum */
 #define KETAMA_POINTS_PER_SERVER    160 /* 40 points per hash */

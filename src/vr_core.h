@@ -21,10 +21,6 @@
 # define VR_HAVE_BACKTRACE 1
 #endif
 
-#ifdef HAVE_JEMALLOC
-# define VR_USE_JEMALLOC 1
-#endif
-
 #ifdef HAVE_SPINLOCK
 # define VR_USE_SPINLOCK 1
 #endif
@@ -72,6 +68,8 @@ struct vr_worker;
 #include <ae.h>
 #include <dutil.h>
 #include <dlog.h>
+#include <dhashkit.h>
+#include <dmalloc.h>
 
 #include <vr_util.h>
 #include <vr_signal.h>
@@ -94,8 +92,6 @@ struct vr_worker;
 
 #include <vr_listen.h>
 #include <vr_connection.h>
-
-#include <vr_hashkit.h>
 
 #include <vr_stats.h>
 #include <vr_conf.h>

@@ -186,7 +186,7 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
         pubsubPattern *pat;
         listAddNodeTail(c->pubsub_patterns,pattern);
         incrRefCount(pattern);
-        pat = vr_alloc(sizeof(*pat));
+        pat = dalloc(sizeof(*pat));
         pat->pattern = getDecodedObject(pattern);
         pat->client = c;
         listAddNodeTail(c->vel->pubsub_patterns,pat);

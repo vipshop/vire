@@ -9,7 +9,7 @@ static void setProtocolError(client *c, int pos);
  * the client output buffer size. */
 size_t sdsZmallocSize(sds s) {
     void *sh = sdsAllocPtr(s);
-    return vr_malloc_size(sh);
+    return dmalloc_size(sh);
 }
 
 void *dupClientReplyValue(void *o) {
@@ -25,7 +25,7 @@ int listMatchObjects(void *a, void *b) {
 }
 
 client *createClient(vr_eventloop *vel, struct conn *conn) {
-    client *c = vr_alloc(sizeof(client));
+    client *c = dalloc(sizeof(client));
 
     /* passing -1 as fd it is possible to create a non connected client.
      * This is useful since all the commands needs to be executed
@@ -40,7 +40,7 @@ client *createClient(vr_eventloop *vel, struct conn *conn) {
             readQueryFromClient, c) == AE_ERR)
         {
             log_error("Unrecoverable error creating client ipfd file event.");
-            vr_free(c);
+            dfree(c);
             return NULL;
         }
     }
@@ -806,10 +806,10 @@ void freeClient(client *c) {
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
     if (c->name) freeObject(c->name);
-    if (c->argv) vr_free(c->argv);
+    if (c->argv) dfree(c->argv);
     freeClientMultiState(c);
     sdsfree(c->peerid);
-    vr_free(c);
+    dfree(c);
 }
 
 /* Schedule a client to free it at a safe time in the serverCron() function.
@@ -888,7 +888,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
          * However if we are over the maxmemory limit we ignore that and
          * just deliver as much data as it is possible to deliver. */
         if (totwritten > NET_MAX_WRITES_PER_EVENT &&
-            (maxmemory == 0 || vr_alloc_used_memory() < maxmemory)) 
+            (maxmemory == 0 || dalloc_used_memory() < maxmemory)) 
             break;
     }
     if (nwritten == -1) {
@@ -1025,8 +1025,8 @@ int processInlineBuffer(client *c) {
 
     /* Setup argv array on client structure */
     if (argc) {
-        if (c->argv) vr_free(c->argv);
-        c->argv = vr_alloc(sizeof(robj*)*argc);
+        if (c->argv) dfree(c->argv);
+        c->argv = dalloc(sizeof(robj*)*argc);
     }
 
     /* Create redis objects for all arguments. */
@@ -1038,7 +1038,7 @@ int processInlineBuffer(client *c) {
             sdsfree(argv[j]);
         }
     }
-    vr_free(argv);
+    dfree(argv);
     return VR_OK;
 }
 
@@ -1097,8 +1097,8 @@ int processMultibulkBuffer(client *c) {
         c->multibulklen = ll;
 
         /* Setup argv array on client structure */
-        if (c->argv) vr_free(c->argv);
-        c->argv = vr_alloc(sizeof(robj*)*c->multibulklen);
+        if (c->argv) dfree(c->argv);
+        c->argv = dalloc(sizeof(robj*)*c->multibulklen);
     }
 
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
@@ -1471,7 +1471,7 @@ void clientCommand(client *c) {
         struct clientkilldata *ckd;
 
         if (c->steps == 0) {
-            ckd = vr_alloc(sizeof(struct clientkilldata));
+            ckd = dalloc(sizeof(struct clientkilldata));
             ckd->addr = NULL;
             ckd->type = -1;
             ckd->id = 0;
@@ -1496,7 +1496,7 @@ void clientCommand(client *c) {
                         if (getLongLongFromObjectOrReply(c,c->argv[i+1],&tmp,NULL)
                             != VR_OK) {
                             if (ckd->addr) sdsfree(ckd->addr);
-                            vr_free(ckd);
+                            dfree(ckd);
                             return;
                         }
                         ckd->id = tmp;
@@ -1504,7 +1504,7 @@ void clientCommand(client *c) {
                         ckd->type = getClientTypeByName(c->argv[i+1]->ptr);
                         if (ckd->type == -1) {
                             if (ckd->addr) sdsfree(ckd->addr);
-                            vr_free(ckd);
+                            dfree(ckd);
                             addReplyErrorFormat(c,"Unknown client type '%s'",
                                 (char*) c->argv[i+1]->ptr);
                             return;
@@ -1518,13 +1518,13 @@ void clientCommand(client *c) {
                             ckd->skipme = 0;
                         } else {
                             if (ckd->addr) sdsfree(ckd->addr);
-                            vr_free(ckd);
+                            dfree(ckd);
                             addReply(c,shared.syntaxerr);
                             return;
                         }
                     } else {
                         if (ckd->addr) sdsfree(ckd->addr);
-                        vr_free(ckd);
+                        dfree(ckd);
                         addReply(c,shared.syntaxerr);
                         return;
                     }
@@ -1532,7 +1532,7 @@ void clientCommand(client *c) {
                 }
             } else {
                 if (ckd->addr) sdsfree(ckd->addr);
-                vr_free(ckd);
+                dfree(ckd);
                 addReply(c,shared.syntaxerr);
                 return;
             }
@@ -1585,7 +1585,7 @@ void clientCommand(client *c) {
             if (ckd->close_this_client) c->flags |= CLIENT_CLOSE_AFTER_REPLY;
 
             if (ckd->addr) sdsfree(ckd->addr);
-            vr_free(ckd);
+            dfree(ckd);
         }
 
         return;
@@ -1661,7 +1661,7 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
     int j;
     robj **argv; /* The new argument vector */
 
-    argv = vr_alloc(sizeof(robj*)*argc);
+    argv = dalloc(sizeof(robj*)*argc);
     va_start(ap,argc);
     for (j = 0; j < argc; j++) {
         robj *a;
@@ -1670,7 +1670,7 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
     }
     /* We free the objects in the original vector at the end. */
     for (j = 0; j < c->argc; j++) freeObject(c->argv[j]);
-    vr_free(c->argv);
+    dfree(c->argv);
     /* Replace argv and argc with our new versions. */
     c->argv = argv;
     c->argc = argc;
@@ -1682,7 +1682,7 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
 /* Completely replace the client command vector with the provided one. */
 void replaceClientCommandVector(client *c, int argc, robj **argv) {
     freeClientArgv(c);
-    vr_free(c->argv);
+    dfree(c->argv);
     c->argv = argv;
     c->argc = argc;
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
@@ -1704,7 +1704,7 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     robj *oldval;
 
     if (i >= c->argc) {
-        c->argv = vr_realloc(c->argv,sizeof(robj*)*(i+1));
+        c->argv = drealloc(c->argv,sizeof(robj*)*(i+1));
         c->argc = i+1;
         c->argv[i] = NULL;
     }

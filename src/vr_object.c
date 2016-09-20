@@ -8,7 +8,7 @@
 #endif
 
 robj *createObject(int type, void *ptr) {
-    robj *o = vr_alloc(sizeof(*o));
+    robj *o = dalloc(sizeof(*o));
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
@@ -28,7 +28,7 @@ robj *createRawStringObject(const char *ptr, size_t len) {
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself. */
 robj *createEmbeddedStringObject(const char *ptr, size_t len) {
-    robj *o = vr_alloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
+    robj *o = dalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
     struct sdshdr8 *sh = (void*)(o+1);
 
     o->type = OBJ_STRING;
@@ -196,7 +196,7 @@ robj *createHashObject(void) {
   * when zs->dict was not released.
   */
 robj *createZsetObject(void) {
-    zset *zs = vr_alloc(sizeof(*zs));
+    zset *zs = dalloc(sizeof(*zs));
     robj *o;
 
     zs->dict = dictCreate(&zsetDictType,NULL);
@@ -235,7 +235,7 @@ void freeSetObject(robj *o) {
         dictRelease((dict*) o->ptr);
         break;
     case OBJ_ENCODING_INTSET:
-        vr_free(o->ptr);
+        dfree(o->ptr);
         break;
     default:
         serverPanic("Unknown set encoding type");
@@ -249,10 +249,10 @@ void freeZsetObject(robj *o) {
         zs = o->ptr;
         dictRelease(zs->dict);
         zslFree(zs->zsl);
-        vr_free(zs);
+        dfree(zs);
         break;
     case OBJ_ENCODING_ZIPLIST:
-        vr_free(o->ptr);
+        dfree(o->ptr);
         break;
     default:
         serverPanic("Unknown sorted set encoding");
@@ -265,7 +265,7 @@ void freeHashObject(robj *o) {
         dictRelease((dict*) o->ptr);
         break;
     case OBJ_ENCODING_ZIPLIST:
-        vr_free(o->ptr);
+        dfree(o->ptr);
         break;
     default:
         serverPanic("Unknown hash encoding type");
@@ -288,7 +288,7 @@ void decrRefCount(robj *o) {
         case OBJ_HASH: freeHashObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
-        vr_free(o);
+        dfree(o);
     } else {
         o->refcount--;
     }
@@ -312,7 +312,7 @@ void freeObject(robj *o) {
     case OBJ_HASH: freeHashObject(o); break;
     default: serverPanic("Unknown object type"); break;
     }
-    vr_free(o);
+    dfree(o);
 }
 
 void freeObjectVoid(void *o) {
@@ -694,7 +694,7 @@ size_t getStringObjectSdsUsedMemory(robj *o) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     switch(o->encoding) {
     case OBJ_ENCODING_RAW: return sdsZmallocSize(o->ptr);
-    case OBJ_ENCODING_EMBSTR: return vr_malloc_size(o)-sizeof(robj);
+    case OBJ_ENCODING_EMBSTR: return dmalloc_size(o)-sizeof(robj);
     default: return 0; /* Just integer encoding for now. */
     }
 }
