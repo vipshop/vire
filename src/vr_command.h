@@ -112,7 +112,7 @@ void preventCommandReplication(struct client *c);
 
 void commandCommand(struct client *c);
 
-struct array *commandStatsTableCreate(void);
-void commandStatsTableDestroy(struct array *cstatstable);
+struct darray *commandStatsTableCreate(void);
+void commandStatsTableDestroy(struct darray *cstatstable);
 
 #endif

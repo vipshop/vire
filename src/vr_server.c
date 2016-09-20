@@ -335,7 +335,7 @@ init_server(struct instance *nci)
     server.dblnum = cserver->databases;
     server.dbinum = cserver->internal_dbs_per_databases;
     server.dbnum = server.dblnum*server.dbinum;
-    array_init(&server.dbs, server.dbnum, sizeof(redisDb));
+    darray_init(&server.dbs, server.dbnum, sizeof(redisDb));
     server.pidfile = nci->pid_filename;
     server.executable = NULL;
     server.activerehashing = CONFIG_DEFAULT_ACTIVE_REHASHING;
@@ -343,7 +343,7 @@ init_server(struct instance *nci)
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
 
     for (i = 0; i < server.dbnum; i ++) {
-        db = array_push(&server.dbs);
+        db = darray_push(&server.dbs);
         redisDbInit(db);
     }
 
@@ -516,7 +516,7 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
             long bestval = 0; /* just to prevent warning */
             sds bestkey = NULL;
             dictEntry *de;
-            redisDb *db = array_get(&server.dbs, j);
+            redisDb *db = darray_get(&server.dbs, j);
             dict *dict;
 
             lockDbWrite(db);
@@ -753,7 +753,7 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
     unsigned long lol, bib;
     int allsections = 0, defsections = 0;
     int sections = 0;
-    struct array *kss = NULL;  /* type: keys_statistics */
+    struct darray *kss = NULL;  /* type: keys_statistics */
 
     if (section == NULL) section = "default";
     allsections = strcasecmp(section,"all") == 0;
@@ -847,8 +847,8 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
          * may happen that the instantaneous value is slightly bigger than
          * the peak value. This may confuse users, so we update the peak
          * if found smaller than the current memory usage. */
-        for (idx = 0; idx < array_n(&workers); idx ++) {
-            worker = array_get(&workers, idx);
+        for (idx = 0; idx < darray_n(&workers); idx ++) {
+            worker = darray_get(&workers, idx);
             update_stats_get(worker->vel.stats, peak_memory, 
                 &peak_memory_for_one_worker);
             if (peak_memory < peak_memory_for_one_worker)
@@ -914,9 +914,9 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
         long long stat_numcommands_ops=0;
         float stat_net_input_bytes_ops=0, stat_net_output_bytes_ops=0;
 
-        for (idx = 0; idx < array_n(&workers); idx ++) {
+        for (idx = 0; idx < darray_n(&workers); idx ++) {
             long long stats_value;
-            vr_worker *worker = array_get(&workers, idx);
+            vr_worker *worker = darray_get(&workers, idx);
             stats = worker->vel.stats;
 
             update_stats_get(stats, numcommands, &stats_value);
@@ -940,9 +940,9 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
             stat_net_input_bytes_ops += (float)getInstantaneousMetric(stats, STATS_METRIC_NET_INPUT)/1024;
             stat_net_output_bytes_ops += (float)getInstantaneousMetric(stats, STATS_METRIC_NET_OUTPUT)/1024;
         }
-        for (idx = 0; idx < array_n(&backends); idx ++) {
+        for (idx = 0; idx < darray_n(&backends); idx ++) {
             long long stats_value;
-            vr_backend *backend = array_get(&backends, idx);
+            vr_backend *backend = darray_get(&backends, idx);
             stats = backend->vel.stats;
 
             update_stats_get(stats, expiredkeys, &stats_value);
@@ -996,16 +996,16 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
         struct keys_statistics *ks;
         long long keys, vkeys, avg_ttl;
         
-        kss = array_create(server.dblnum, sizeof(struct keys_statistics));
+        kss = darray_create(server.dblnum, sizeof(struct keys_statistics));
         
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Internal\r\n");
         for (j = 0; j < server.dblnum; j++) {
-            ks = array_push(kss);
+            ks = darray_push(kss);
             ks->keys_all = ks->vkeys_all = ks->avg_ttl_all = 0;
             ks->nexist = 0;
             for (k = 0; k < server.dbinum; k ++) {
-                db = array_get(&server.dbs, (uint32_t)(j*server.dbinum+k));
+                db = darray_get(&server.dbs, (uint32_t)(j*server.dbinum+k));
                 lockDbRead(db);
                 keys = dictSize(db->dict);
                 vkeys = dictSize(db->expires);
@@ -1038,7 +1038,7 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
                 keys_all = vkeys_all = avg_ttl_all = 0;
                 nexist = 0;
                 for (k = 0; k < server.dbinum; k ++) {
-                    db = array_get(&server.dbs, (uint32_t)(j*server.dbinum+k));
+                    db = darray_get(&server.dbs, (uint32_t)(j*server.dbinum+k));
                     lockDbRead(db);
                     keys_all += dictSize(db->dict);
                     vkeys_all += dictSize(db->expires);
@@ -1054,7 +1054,7 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
             }
         } else {
             for (j = 0; j < server.dblnum; j ++) {
-                ks = array_get(kss, j);
+                ks = darray_get(kss, j);
                 if (ks->keys_all || ks->vkeys_all) {
                     info = sdscatprintf(info,
                         "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
@@ -1067,7 +1067,7 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
 
     if (kss != NULL) {
         kss->nelem = 0;
-        array_destroy(kss);
+        darray_destroy(kss);
         kss = NULL;
     }
 

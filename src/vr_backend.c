@@ -3,7 +3,7 @@
 /* Which thread we assigned a connection to most recently. */
 static int num_backend_threads;
 
-struct array backends;
+struct darray backends;
 
 static void *backend_thread_run(void *args);
 
@@ -105,10 +105,10 @@ backends_init(uint32_t backend_count)
     uint32_t idx;
     vr_backend *backend;
 
-    array_init(&backends, backend_count, sizeof(vr_backend));
+    darray_init(&backends, backend_count, sizeof(vr_backend));
 
     for (idx = 0; idx < backend_count; idx ++) {
-        backend = array_push(&backends);
+        backend = darray_push(&backends);
         vr_backend_init(backend);
         backend->id = idx;
         status = setup_backend(backend);
@@ -117,7 +117,7 @@ backends_init(uint32_t backend_count)
         }
     }
     
-    num_backend_threads = (int)array_n(&backends);
+    num_backend_threads = (int)darray_n(&backends);
 
     return VR_OK;
 }
@@ -131,7 +131,7 @@ backends_run(void)
     thread_count = (uint32_t)num_backend_threads;
 
     for (i = 0; i < thread_count; i ++) {
-        backend = array_get(&backends, i);
+        backend = darray_get(&backends, i);
         vr_thread_start(&backend->vel.thread);
     }
 
@@ -147,7 +147,7 @@ backends_wait(void)
     thread_count = (uint32_t)num_backend_threads;
 
     for (i = 0; i < thread_count; i ++) {
-        backend = array_get(&backends, i);
+        backend = darray_get(&backends, i);
         pthread_join(backend->vel.thread.thread_id, NULL);
     }
 
@@ -159,8 +159,8 @@ backends_deinit(void)
 {
     vr_backend *backend;
 
-    while(array_n(&backends)) {
-        backend = array_pop(&backends);
+    while(darray_n(&backends)) {
+        backend = darray_pop(&backends);
 		vr_backend_deinit(backend);
     }
 }

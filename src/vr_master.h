@@ -5,7 +5,7 @@ typedef struct vr_master {
 
     vr_eventloop vel;
     
-    struct array listens;   /* type: vr_listen */
+    struct darray listens;   /* type: vr_listen */
 
     list *cbsul;    /* Connect back swap unit list */
     pthread_mutex_t cbsullock;   /* swap unit list locker */

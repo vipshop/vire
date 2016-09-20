@@ -19,7 +19,7 @@ typedef struct vr_backend {
     unsigned int rehash_db;
 }vr_backend;
 
-extern struct array backends;
+extern struct darray backends;
 
 int backends_init(uint32_t backend_count);
 int backends_run(void);

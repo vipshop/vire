@@ -1450,7 +1450,7 @@ void clientCommand(client *c) {
 
         str = sdscatsds(str?str:sdsempty(),o);
 
-        if (c->steps >= (array_n(&workers) - 1)) {
+        if (c->steps >= (darray_n(&workers) - 1)) {
             addReplyBulkCBuffer(c,str,sdslen(str));
             c->steps = 0;
             c->taridx = -1;
@@ -1564,7 +1564,7 @@ void clientCommand(client *c) {
             ckd->killed++;
         }
 
-        if (c->steps >= (array_n(&workers) - 1)) {
+        if (c->steps >= (darray_n(&workers) - 1)) {
             /* Reply according to old/new format. */
             if (c->argc == 3) {
                 if (ckd->killed == 0)

@@ -242,7 +242,7 @@ long long emptyDb(void(callback)(void*)) {
     redisDb *db;
 
     for (j = 0; j < server.dbnum; j++) {
-        db = array_get(&server.dbs, (uint32_t)j);
+        db = darray_get(&server.dbs, (uint32_t)j);
         removed += dictSize(db->dict);
         dictEmpty(db->dict,callback);
         dictEmpty(db->expires,callback);
@@ -303,7 +303,7 @@ void flushallCommand(client *c) {
     redisDb *db;
 
     for (idx = 0; idx < server.dbnum; idx ++) {
-        db = array_get(&server.dbs, (uint32_t)idx);
+        db = darray_get(&server.dbs, (uint32_t)idx);
         lockDbWrite(db);
         dictEmpty(db->dict,NULL);
         dictEmpty(db->expires,NULL);
@@ -1359,12 +1359,12 @@ int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkey
 }
 
 int fetchInternalDbByKey(client *c, robj *key) {
-    c->db = array_get(&server.dbs, (hash_crc16(key->ptr,stringObjectLen(key))&0x3FFF)%server.dbinum+c->dictid*server.dbinum);
+    c->db = darray_get(&server.dbs, (hash_crc16(key->ptr,stringObjectLen(key))&0x3FFF)%server.dbinum+c->dictid*server.dbinum);
     return VR_OK;
 }
 
 int fetchInternalDbById(client *c, int idx) {
-    c->db = array_get(&server.dbs, idx+c->dictid*server.dbinum);
+    c->db = darray_get(&server.dbs, idx+c->dictid*server.dbinum);
     return VR_OK;
 }
 
@@ -1373,7 +1373,7 @@ int fetchInternalDbById(client *c, int idx) {
 void tryResizeHashTablesForDb(int dbid) {
     redisDb *db;
 
-    db = array_get(&server.dbs, dbid);
+    db = darray_get(&server.dbs, dbid);
     lockDbWrite(db);
     if (htNeedsResize(db->dict))
         dictResize(db->dict);
@@ -1392,7 +1392,7 @@ void tryResizeHashTablesForDb(int dbid) {
 int incrementallyRehashForDb(int dbid) {
     redisDb *db;
 
-    db = array_get(&server.dbs, dbid);
+    db = darray_get(&server.dbs, dbid);
     lockDbWrite(db);
     
     /* Keys dictionary */
@@ -1472,7 +1472,7 @@ void activeExpireCycle(vr_backend *backend, int type) {
 
     for (j = 0; j < dbs_per_call; j++) {
         int expired;
-        redisDb *db = array_get(&server.dbs, backend->current_db%server.dbnum);
+        redisDb *db = darray_get(&server.dbs, backend->current_db%server.dbnum);
 
         /* Increment the DB now so we are sure if we run out of time
          * in the current DB we'll restart from the next. This allows to

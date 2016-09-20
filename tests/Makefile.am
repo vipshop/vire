@@ -46,7 +46,9 @@ viretest_SOURCES =                      \
 viretest_LDADD = $(top_builddir)/dep/ae/libae.a
 viretest_LDADD += $(top_builddir)/dep/hiredis-0.13.3/libhiredis.a
 viretest_LDADD += $(top_builddir)/dep/darray/libdarray.a
+viretest_LDADD += $(top_builddir)/dep/dmalloc/libdmalloc.a
 viretest_LDADD += $(top_builddir)/dep/util/libdutil.a
+viretest_LDADD += $(top_builddir)/dep/jemalloc-4.2.0/lib/libjemalloc.a
 
 noinst_PROGRAMS += vireabtest
 
@@ -64,7 +66,9 @@ vireabtest_LDADD += $(top_builddir)/dep/hiredis-0.13.3/libhiredis.a
 vireabtest_LDADD += $(top_builddir)/dep/dhashkit/libdhashkit.a
 vireabtest_LDADD += $(top_builddir)/dep/dlist/libdlist.a
 vireabtest_LDADD += $(top_builddir)/dep/darray/libdarray.a
+vireabtest_LDADD += $(top_builddir)/dep/dmalloc/libdmalloc.a
 vireabtest_LDADD += $(top_builddir)/dep/util/libdutil.a
+vireabtest_LDADD += $(top_builddir)/dep/jemalloc-4.2.0/lib/libjemalloc.a
 
 noinst_PROGRAMS += vire-benchmark
 
@@ -78,4 +82,6 @@ vire_benchmark_LDADD += $(top_builddir)/dep/hiredis-0.13.3/libhiredis.a
 vire_benchmark_LDADD += $(top_builddir)/dep/himemcached-0.1.0/libhimemcached.a
 vire_benchmark_LDADD += $(top_builddir)/dep/dlist/libdlist.a
 vire_benchmark_LDADD += $(top_builddir)/dep/darray/libdarray.a
+vire_benchmark_LDADD += $(top_builddir)/dep/dmalloc/libdmalloc.a
 vire_benchmark_LDADD += $(top_builddir)/dep/util/libdutil.a
+vire_benchmark_LDADD += $(top_builddir)/dep/jemalloc-4.2.0/lib/libjemalloc.a

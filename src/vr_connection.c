@@ -285,11 +285,11 @@ conn_send(struct conn *conn, void *buf, size_t nsend)
 }
 
 ssize_t
-conn_sendv(struct conn *conn, struct array *sendv, size_t nsend)
+conn_sendv(struct conn *conn, struct darray *sendv, size_t nsend)
 {
     ssize_t n;
 
-    ASSERT(array_n(sendv) > 0);
+    ASSERT(darray_n(sendv) > 0);
     ASSERT(nsend != 0);
     ASSERT(conn->send_ready);
 

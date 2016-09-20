@@ -1,5 +1,7 @@
 #include <stdlib.h>
 
+#include <dmalloc.h>
+
 #include <darray.h>
 
 darray *
@@ -7,14 +9,14 @@ darray_create(unsigned long long n, size_t size)
 {
     darray *a;
 
-    a = malloc(sizeof(*a));
+    a = dalloc(sizeof(*a));
     if (a == NULL) {
         return NULL;
     }
 
-    a->elem = malloc(n * size);
+    a->elem = dalloc(n * size);
     if (a->elem == NULL) {
-        free(a);
+        dfree(a);
         return NULL;
     }
 
@@ -29,13 +31,13 @@ void
 darray_destroy(darray *a)
 {
     darray_deinit(a);
-    free(a);
+    dfree(a);
 }
 
 int
 darray_init(darray *a, unsigned long long n, size_t size)
 {
-    a->elem = malloc(n * size);
+    a->elem = dalloc(n * size);
     if (a->elem == NULL) {
         return -1;
     }
@@ -51,7 +53,7 @@ void
 darray_deinit(darray *a)
 {
     if (a->elem != NULL) {
-        free(a->elem);
+        dfree(a->elem);
     }
 }
 
@@ -80,7 +82,7 @@ darray_push(darray *a)
 
         /* the array is full; allocate new array */
         size = a->size * a->nalloc;
-        new = realloc(a->elem, 2 * size);
+        new = drealloc(a->elem, 2 * size);
         if (new == NULL) {
             return NULL;
         }

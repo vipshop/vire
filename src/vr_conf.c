@@ -132,8 +132,8 @@ conf_value_dump(conf_value *cv, int log_level)
     if(cv->type == CONF_VALUE_TYPE_STRING){
         log_debug(log_level, "%.*s", sdslen(cv->value), cv->value);
     }else if(cv->type == CONF_VALUE_TYPE_ARRAY){
-        for(i = 0; i < array_n(cv->value); i++){
-            cv_sub = array_get(cv->value, i);
+        for(i = 0; i < darray_n(cv->value); i++){
+            cv_sub = darray_get(cv->value, i);
             conf_value_dump(*cv_sub, log_level);
         }
     }else{
@@ -542,7 +542,7 @@ conf_set_array_sds(void *obj, conf_option *opt, void *data)
     uint8_t *p;
     uint32_t j;
     conf_value **cv_sub, *cv = data;
-    struct array *gt;
+    struct darray *gt;
     sds *str;
 
     if(cv->type != CONF_VALUE_TYPE_STRING && 
@@ -551,7 +551,7 @@ conf_set_array_sds(void *obj, conf_option *opt, void *data)
             opt->name);
         return VR_ERROR;
     } else if (cv->type == CONF_VALUE_TYPE_ARRAY) {
-        cv_sub = array_get(cv->value, j);
+        cv_sub = darray_get(cv->value, j);
         if ((*cv_sub)->type != CONF_VALUE_TYPE_STRING) {
             log_error("conf pool %s in the conf file is not a string array", 
                 opt->name);
@@ -561,20 +561,20 @@ conf_set_array_sds(void *obj, conf_option *opt, void *data)
 
     CONF_WLOCK();
     p = obj;
-    gt = (struct array*)(p + opt->offset);
+    gt = (struct darray*)(p + opt->offset);
 
-    while (array_n(gt) > 0) {
-        str = array_pop(gt);
+    while (darray_n(gt) > 0) {
+        str = darray_pop(gt);
         sdsfree(*str);
     }
 
     if (cv->type == CONF_VALUE_TYPE_STRING) {
-        str = array_push(gt);
+        str = darray_push(gt);
         *str = sdsdup(cv->value);
     } else if (cv->type == CONF_VALUE_TYPE_ARRAY) {
-        for (j = 0; j < array_n(cv->value); j ++) {
-            cv_sub = array_get(cv->value, j);
-            str = array_push(gt);
+        for (j = 0; j < darray_n(cv->value); j ++) {
+            cv_sub = darray_get(cv->value, j);
+            str = darray_push(gt);
             *str = sdsdup((*cv_sub)->value);
         }
     }
@@ -589,7 +589,7 @@ conf_set_commands_need_adminpass(void *obj, conf_option *opt, void *data)
     uint8_t *p;
     uint32_t j;
     conf_value **cv_sub, *cv = data;
-    struct array *gt;
+    struct darray *gt;
     sds *str;
 
     if(cv->type != CONF_VALUE_TYPE_STRING && 
@@ -598,7 +598,7 @@ conf_set_commands_need_adminpass(void *obj, conf_option *opt, void *data)
             opt->name);
         return VR_ERROR;
     } else if (cv->type == CONF_VALUE_TYPE_ARRAY) {
-        cv_sub = array_get(cv->value, j);
+        cv_sub = darray_get(cv->value, j);
         if ((*cv_sub)->type != CONF_VALUE_TYPE_STRING) {
             log_error("conf pool %s in the conf file is not a string array", 
                 opt->name);
@@ -608,20 +608,20 @@ conf_set_commands_need_adminpass(void *obj, conf_option *opt, void *data)
 
     CONF_WLOCK();
     p = obj;
-    gt = (struct array*)(p + opt->offset);
+    gt = (struct darray*)(p + opt->offset);
 
-    while (array_n(gt) > 0) {
-        str = array_pop(gt);
+    while (darray_n(gt) > 0) {
+        str = darray_pop(gt);
         sdsfree(*str);
     }
 
     if (cv->type == CONF_VALUE_TYPE_STRING) {
-        str = array_push(gt);
+        str = darray_push(gt);
         *str = sdsdup(cv->value);
     } else if (cv->type == CONF_VALUE_TYPE_ARRAY) {
-        for (j = 0; j < array_n(cv->value); j ++) {
-            cv_sub = array_get(cv->value, j);
-            str = array_push(gt);
+        for (j = 0; j < darray_n(cv->value); j ++) {
+            cv_sub = darray_get(cv->value, j);
+            str = darray_push(gt);
             *str = sdsdup((*cv_sub)->value);
         }
     }
@@ -635,7 +635,7 @@ conf_get_array_sds(void *obj, conf_option *opt, void *data)
 {
     uint8_t *p;
     uint32_t j;
-    struct array *strs = data;
+    struct darray *strs = data;
     struct array *gt;
     sds *str1, *str2;
 
@@ -645,13 +645,13 @@ conf_get_array_sds(void *obj, conf_option *opt, void *data)
 
     CONF_RLOCK();
     p = obj;
-    gt = (struct array*)(p + opt->offset);
+    gt = (struct darray*)(p + opt->offset);
 
-    ASSERT(array_n(strs) == 0);
+    ASSERT(darray_n(strs) == 0);
 
-    for (j = 0; j < array_n(gt); j ++) {
-        str1 = array_get(gt, j);
-        str2 = array_push(strs);
+    for (j = 0; j < darray_n(gt); j ++) {
+        str1 = darray_get(gt, j);
+        str2 = darray_push(strs);
         *str2 = sdsdup(*str1);
     }
     
@@ -713,7 +713,7 @@ conf_value *conf_value_create(int type)
     cv->value = NULL;
 
     if(cv->type == CONF_VALUE_TYPE_ARRAY){
-        cv->value = array_create(3, sizeof(conf_value*));
+        cv->value = darray_create(3, sizeof(conf_value*));
         if(cv->value == NULL){
             dfree(cv);
             return NULL;
@@ -740,12 +740,12 @@ void conf_value_destroy(conf_value *cv)
         }
     }else if(cv->type == CONF_VALUE_TYPE_ARRAY){
         if(cv->value != NULL){
-            while(array_n(cv->value) > 0){
-                cv_sub = array_pop(cv->value);
+            while(darray_n(cv->value) > 0){
+                cv_sub = darray_pop(cv->value);
                 conf_value_destroy(*cv_sub);
             }
 
-            array_destroy(cv->value);
+            darray_destroy(cv->value);
         }
     }else{
         NOT_REACHED();
@@ -770,12 +770,12 @@ static int conf_server_init(conf_server *cs)
     cs->maxmemory_samples = CONF_UNSET_NUM;
     cs->maxclients = CONF_UNSET_NUM;
     cs->threads = CONF_UNSET_NUM;
-    array_init(&cs->binds,1,sizeof(sds));
+    darray_init(&cs->binds,1,sizeof(sds));
     cs->port = CONF_UNSET_NUM;
     cs->requirepass = CONF_UNSET_PTR;
     cs->adminpass = CONF_UNSET_PTR;
     cs->dir = CONF_UNSET_PTR;
-    array_init(&cs->commands_need_adminpass,1,sizeof(sds));
+    darray_init(&cs->commands_need_adminpass,1,sizeof(sds));
 
     return VR_OK;
 }
@@ -806,11 +806,11 @@ static int conf_server_set_default(conf_server *cs)
     cs->requirepass = CONF_UNSET_PTR;
     cs->adminpass = CONF_UNSET_PTR;
 
-    while (array_n(&cs->binds) > 0) {
-        str = array_pop(&cs->binds);
+    while (darray_n(&cs->binds) > 0) {
+        str = darray_pop(&cs->binds);
         sdsfree(*str);
     }
-    str = array_push(&cs->binds);
+    str = darray_push(&cs->binds);
     *str = sdsnew(CONFIG_DEFAULT_HOST);
     
     cs->port = CONFIG_DEFAULT_SERVER_PORT;
@@ -820,8 +820,8 @@ static int conf_server_set_default(conf_server *cs)
     }
     cs->dir = sdsnew(CONFIG_DEFAULT_DATA_DIR);
 
-    while (array_n(&cs->commands_need_adminpass) > 0) {
-        str = array_pop(&cs->commands_need_adminpass);
+    while (darray_n(&cs->commands_need_adminpass) > 0) {
+        str = darray_pop(&cs->commands_need_adminpass);
         sdsfree(*str);
     }
 
@@ -845,11 +845,11 @@ static void conf_server_deinit(conf_server *cs)
     cs->maxclients = CONF_UNSET_NUM;
     cs->threads = CONF_UNSET_NUM;
 
-    while (array_n(&cs->binds) > 0) {
-        str = array_pop(&cs->binds);
+    while (darray_n(&cs->binds) > 0) {
+        str = darray_pop(&cs->binds);
         sdsfree(*str);
     }
-    array_deinit(&cs->binds);
+    darray_deinit(&cs->binds);
 
     cs->port = CONF_UNSET_NUM;
     
@@ -867,11 +867,11 @@ static void conf_server_deinit(conf_server *cs)
         cs->adminpass = CONF_UNSET_PTR;    
     }
 
-    while (array_n(&cs->commands_need_adminpass) > 0) {
-        str = array_pop(&cs->commands_need_adminpass);
+    while (darray_n(&cs->commands_need_adminpass) > 0) {
+        str = darray_pop(&cs->commands_need_adminpass);
         sdsfree(*str);
     }
-    array_deinit(&cs->commands_need_adminpass);
+    darray_deinit(&cs->commands_need_adminpass);
 }
 
 int
@@ -1015,13 +1015,13 @@ conf_key_value_insert(dict *org, sds key, conf_value *cv)
         cv_old = dictGetVal(de);
         if (cv_old->type != CONF_VALUE_TYPE_ARRAY) {
             cv_new = conf_value_create(CONF_VALUE_TYPE_ARRAY);
-            cv_sub = array_push(cv_new->value);
+            cv_sub = darray_push(cv_new->value);
             *cv_sub = cv_old;
-            cv_sub = array_push(cv_new->value);
+            cv_sub = darray_push(cv_new->value);
             *cv_sub = cv;
             dictSetVal(org,de,cv_new);
         } else {
-            cv_sub = array_push(cv_old->value);
+            cv_sub = darray_push(cv_old->value);
             *cv_sub = cv;
         }
         return 0;
@@ -1470,7 +1470,7 @@ static void configSetCommand(client *c) {
     
         cv = conf_value_create(CONF_VALUE_TYPE_ARRAY);
         for (i = 0; i < fields_count; i ++) {
-            cv_sub = array_push(cv->value);
+            cv_sub = darray_push(cv->value);
             *cv_sub = conf_value_create(CONF_VALUE_TYPE_STRING);
             (*cv_sub)->value = fields[i];
             fields[i] = NULL;
@@ -1538,19 +1538,19 @@ static void addReplyConfOption(client *c,conf_option *cop)
             addReplyBulkSds(c,value);
         }
     } else if (cop->type == CONF_FIELD_TYPE_ARRAYSDS) {
-        struct array values;
+        struct darray values;
         sds value = sdsempty();
         sds *elem;
 
-        array_init(&values,1,sizeof(sds));
+        darray_init(&values,1,sizeof(sds));
         conf_server_get(cop->name,&values);
-        while(array_n(&values) > 0) {
-            elem = array_pop(&values);
+        while(darray_n(&values) > 0) {
+            elem = darray_pop(&values);
             value = sdscatsds(value,*elem);
             value = sdscat(value," ");
             sdsfree(*elem);
         }
-        array_deinit(&values);
+        darray_deinit(&values);
         if (sdslen(value) > 0) sdsrange(value,0,-2);
         addReplyBulkSds(c,value);
     } else {
@@ -1988,56 +1988,56 @@ static void rewriteConfigEnumOption(struct rewriteConfigState *state, char *opti
 
 /* Rewrite the bind option. */
 static void rewriteConfigBindOption(struct rewriteConfigState *state) {
-    struct array values;
+    struct darray values;
     sds *value, line;
     int force = 1;
     char *option = CONFIG_SOPN_BIND;
 
-    array_init(&values,1,sizeof(sds));
+    darray_init(&values,1,sizeof(sds));
     conf_server_get(option,&values);
     /* Nothing to rewrite if we don't have bind addresses. */
-    if (array_n(&values) == 0) {
-        array_deinit(&values);
+    if (darray_n(&values) == 0) {
+        darray_deinit(&values);
         rewriteConfigMarkAsProcessed(state,option);
         return;
     }
 
     /* Rewrite as bind <addr1> <addr2> ... <addrN> */
     line = sdsnew(option);
-    while(array_n(&values) > 0) {
+    while(darray_n(&values) > 0) {
         line = sdscat(line," ");
-        value = array_pop(&values);
+        value = darray_pop(&values);
         line = sdscatsds(line,*value);
         sdsfree(*value);
     }
-    array_deinit(&values);
+    darray_deinit(&values);
 
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
 /* Rewrite the save option. */
 void rewriteConfigCommandsNAPOption(struct rewriteConfigState *state) {
-    struct array values;
+    struct darray values;
     sds *value, line;
     int force = 1;
     char *option = CONFIG_SOPN_COMMANDSNAP;
 
-    array_init(&values,1,sizeof(sds));
+    darray_init(&values,1,sizeof(sds));
     conf_server_get(option,&values);
     /* Nothing to rewrite if we don't have commands that need adminpass. */
-    if (array_n(&values) == 0) {
-        array_deinit(&values);
+    if (darray_n(&values) == 0) {
+        darray_deinit(&values);
         rewriteConfigMarkAsProcessed(state,option);
         return;
     }
 
-    while(array_n(&values) > 0) {
-        value = array_pop(&values);
+    while(darray_n(&values) > 0) {
+        value = darray_pop(&values);
         line = sdscatprintf(sdsempty(),"%s %s",option,*value);
         rewriteConfigRewriteLine(state,option,line,force);
         sdsfree(*value);
     }
-    array_deinit(&values);
+    darray_deinit(&values);
     rewriteConfigMarkAsProcessed(state,option);
 }
 

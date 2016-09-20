@@ -30,7 +30,7 @@ struct connswapunit {
     struct connswapunit *next;
 };
 
-extern struct array workers;
+extern struct darray workers;
 
 int workers_init(uint32_t worker_count);
 int workers_run(void);

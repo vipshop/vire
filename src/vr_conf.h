@@ -102,7 +102,7 @@ typedef struct conf_server {
 
     int           threads;
 
-    struct array  binds;                /* Type: sds */
+    struct darray  binds;                /* Type: sds */
     int           port;
 
     sds           dir;
@@ -112,7 +112,7 @@ typedef struct conf_server {
 
     sds           requirepass;          /* Pass for AUTH command, or NULL */
     sds           adminpass;            /* Pass for ADMIN command, or NULL */
-    struct array  commands_need_adminpass;
+    struct darray  commands_need_adminpass;
 } conf_server;
 
 typedef struct vr_conf {

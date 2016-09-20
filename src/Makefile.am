@@ -8,6 +8,7 @@ AM_CPPFLAGS += -I $(top_srcdir)/dep/dhashkit
 AM_CPPFLAGS += -I $(top_srcdir)/dep/ae
 AM_CPPFLAGS += -I $(top_srcdir)/dep/util
 AM_CPPFLAGS += -I $(top_srcdir)/dep/dmalloc
+AM_CPPFLAGS += -I $(top_srcdir)/dep/darray
 
 AM_CFLAGS = 
 AM_CFLAGS += -fno-strict-aliasing
@@ -35,7 +36,6 @@ sbin_PROGRAMS = vire
 
 vire_SOURCES =                          \
     vr_aof.c vr_aof.h                   \
-    vr_array.c vr_array.h               \
     vr_block.c vr_block.h               \
     vr_client.c vr_client.h             \
     vr_command.c vr_command.h           \
@@ -86,3 +86,4 @@ vire_LDADD += $(top_builddir)/dep/ae/libae.a
 vire_LDADD += $(top_builddir)/dep/dhashkit/libdhashkit.a
 vire_LDADD += $(top_builddir)/dep/jemalloc-4.2.0/lib/libjemalloc.a
 vire_LDADD += $(top_builddir)/dep/dmalloc/libdmalloc.a
+vire_LDADD += $(top_builddir)/dep/darray/libdarray.a

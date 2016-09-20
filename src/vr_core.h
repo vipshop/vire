@@ -39,7 +39,7 @@ typedef int err_t;      /* error type */
 typedef long long mstime_t; /* millisecond time type. */
 
 struct instance;
-struct array;
+struct darray;
 struct conn;
 struct client;
 struct clientBufferLimitsConfig;
@@ -70,11 +70,11 @@ struct vr_worker;
 #include <dlog.h>
 #include <dhashkit.h>
 #include <dmalloc.h>
+#include <darray.h>
 
 #include <vr_util.h>
 #include <vr_signal.h>
 
-#include <vr_array.h>
 #include <vr_sdsalloc.h>
 #include <vr_sds.h>
 #include <vr_ziplist.h>

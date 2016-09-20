@@ -217,14 +217,14 @@ void populateCommandTable(void) {
 }
 
 int populateCommandsNeedAdminpass(void) {
-    struct array commands_need_adminpass;
+    struct darray commands_need_adminpass;
     sds *command_name;
     struct redisCommand *command;
 
-    array_init(&commands_need_adminpass,1,sizeof(sds));
+    darray_init(&commands_need_adminpass,1,sizeof(sds));
     conf_server_get(CONFIG_SOPN_COMMANDSNAP,&commands_need_adminpass);
-    while (array_n(&commands_need_adminpass)) {
-        command_name = array_pop(&commands_need_adminpass);
+    while (darray_n(&commands_need_adminpass)) {
+        command_name = darray_pop(&commands_need_adminpass);
         command = lookupCommand(*command_name);
         if (command == NULL) {
             log_error("Unknow command %s for commands-need-amdminpass",
@@ -234,7 +234,7 @@ int populateCommandsNeedAdminpass(void) {
         command->needadmin = 1;
         sdsfree(*command_name);
     }
-    array_deinit(&commands_need_adminpass);
+    darray_deinit(&commands_need_adminpass);
 
     return VR_OK;
 }
@@ -354,7 +354,7 @@ void call(client *c, int flags) {
         slowlogPushEntryIfNeeded(c->vel,c->argv,c->argc,duration);
     }
     if (flags & CMD_CALL_STATS) {
-        commandStats *cstats = array_get(c->vel->cstable,c->lastcmd->idx);
+        commandStats *cstats = darray_get(c->vel->cstable,c->lastcmd->idx);
         cstats->microseconds += duration;
         cstats->calls++;
     }
@@ -795,7 +795,7 @@ void commandCommand(client *c) {
         getKeysFreeResult(keys);
     } else if (!strcasecmp(c->argv[1]->ptr, "stats") && c->argc == 2) {
         int j;
-        struct array *cstableall;
+        struct darray *cstableall;
         struct array *cstable = c->vel->cstable;
         commandStats *cstats, *cstatsall;
 
@@ -810,16 +810,16 @@ void commandCommand(client *c) {
             c->taridx = worker_get_next_idx(c->curidx);
         }
 
-        for (j = 0; j < array_n(cstable); j ++) {
-            cstats = array_get(cstable, j);
+        for (j = 0; j < darray_n(cstable); j ++) {
+            cstats = darray_get(cstable, j);
             if (!cstats->calls) continue;
             
-            cstatsall = array_get(cstableall, j);
+            cstatsall = darray_get(cstableall, j);
             cstatsall->microseconds += cstats->microseconds;
             cstatsall->calls += cstats->calls;
         }
         
-        if (c->steps >= (array_n(&workers) - 1)) {
+        if (c->steps >= (darray_n(&workers) - 1)) {
             sds command_stats_info;
             void *replylen_node;
             long replylen = 0;
@@ -830,8 +830,8 @@ void commandCommand(client *c) {
             c->flags &= ~CLIENT_JUMP;
             
             replylen_node = addDeferredMultiBulkLength(c);
-            for (j = 0; j < array_n(cstableall); j ++) {
-                cstatsall = array_get(cstableall, j);
+            for (j = 0; j < darray_n(cstableall); j ++) {
+                cstatsall = darray_get(cstableall, j);
                 if (!cstatsall->calls) continue;
                 
                 command_stats_info = sdscatprintf(sdsempty(),
@@ -852,20 +852,20 @@ void commandCommand(client *c) {
     }
 }
 
-struct array *
+struct darray *
 commandStatsTableCreate(void)
 {
     int j;
     commandStats *cstats;
-    struct array *cstatstable;
+    struct darray *cstatstable;
     int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
     
 
-    cstatstable = array_create(numcommands,sizeof(commandStats));
+    cstatstable = darray_create(numcommands,sizeof(commandStats));
     if (cstatstable == NULL) return NULL;
     for (j = 0; j < numcommands; j ++) {
         struct redisCommand *c = redisCommandTable+j;
-        cstats = array_push(cstatstable);
+        cstats = darray_push(cstatstable);
         cstats->name = c->name;
         cstats->microseconds = 0;
         cstats->calls = 0;
@@ -876,8 +876,8 @@ commandStatsTableCreate(void)
 }
 
 void
-commandStatsTableDestroy(struct array *cstatstable)
+commandStatsTableDestroy(struct darray *cstatstable)
 {
     cstatstable->nelem = 0;
-    array_destroy(cstatstable);
+    darray_destroy(cstatstable);
 }

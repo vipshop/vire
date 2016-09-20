@@ -23,16 +23,16 @@ master_init(vr_conf *conf)
     vr_eventloop_init(&master.vel,filelimit);
     master.vel.thread.fun_run = master_thread_run;
 
-    array_init(&master.listens,array_n(&cserver->binds),sizeof(vr_listen*));
+    darray_init(&master.listens,darray_n(&cserver->binds),sizeof(vr_listen*));
 
-    for (j = 0; j < array_n(&cserver->binds); j ++) {
-        host = array_get(&cserver->binds,j);
+    for (j = 0; j < darray_n(&cserver->binds); j ++) {
+        host = darray_get(&cserver->binds,j);
         listen_str = sdsdup(*host);
         listen_str = sdscatfmt(listen_str, ":%i", cserver->port);
-        vlisten = array_push(&master.listens);
+        vlisten = darray_push(&master.listens);
         *vlisten = vr_listen_create(listen_str);
         if (*vlisten == NULL) {
-            array_pop(&master.listens);
+            darray_pop(&master.listens);
             log_error("Create listen %s failed", listen_str);
             sdsfree(listen_str);
             return VR_ERROR;
@@ -40,8 +40,8 @@ master_init(vr_conf *conf)
         sdsfree(listen_str);
     }
 
-    for (j = 0; j < array_n(&master.listens); j ++) {
-        vlisten = array_get(&master.listens, j);
+    for (j = 0; j < darray_n(&master.listens); j ++) {
+        vlisten = darray_get(&master.listens, j);
         status = vr_listen_begin(*vlisten);
         if (status != VR_OK) {
             log_error("Begin listen to %s failed", (*vlisten)->name);
@@ -67,11 +67,11 @@ master_deinit(void)
     
     vr_eventloop_deinit(&master.vel);
 
-    while (array_n(&master.listens) > 0) {
-        vlisten = array_pop(&master.listens);
+    while (darray_n(&master.listens) > 0) {
+        vlisten = darray_pop(&master.listens);
         vr_listen_destroy(*vlisten);
     }
-    array_deinit(&master.listens);
+    darray_deinit(&master.listens);
     
 }
 
@@ -126,7 +126,7 @@ dispatch_conn_exist(client *c, int tid)
 
     cbsul_push(su);
 
-    worker = array_get(&workers, (uint32_t)c->curidx);
+    worker = darray_get(&workers, (uint32_t)c->curidx);
 
     /* Back to master */
     buf[0] = 'b';
@@ -164,7 +164,7 @@ thread_event_process(aeEventLoop *el, int fd, void *privdata, int mask) {
         
         idx = su->num;
         su->num = worker->id;
-        worker = array_get(&workers, (uint32_t)idx);
+        worker = darray_get(&workers, (uint32_t)idx);
         csul_push(worker, su);
 
         /* Jump to the target worker. */
@@ -188,8 +188,8 @@ setup_master(void)
     vr_listen **vlisten;
     vr_worker *worker;
 
-    for (j = 0; j < array_n(&workers); j ++) {
-        worker = array_get(&workers, j);
+    for (j = 0; j < darray_n(&workers); j ++) {
+        worker = darray_get(&workers, j);
         status = aeCreateFileEvent(master.vel.el, worker->socketpairs[0], 
             AE_READABLE, thread_event_process, worker);
         if (status == AE_ERR) {
@@ -198,8 +198,8 @@ setup_master(void)
         }
     }
 
-    for (j = 0; j < array_n(&master.listens); j ++) {
-        vlisten = array_get(&master.listens,j);
+    for (j = 0; j < darray_n(&master.listens); j ++) {
+        vlisten = darray_get(&master.listens,j);
         status = aeCreateFileEvent(master.vel.el, (*vlisten)->sd, AE_READABLE, 
             client_accept, *vlisten);
         if (status == AE_ERR) {

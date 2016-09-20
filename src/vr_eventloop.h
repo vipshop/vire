@@ -45,7 +45,7 @@ typedef struct vr_eventloop {
 
     conf_cache cc; /* Cache the hot config option to improve vire speed. */
 
-    struct array *cstable; /* type: commandStats */
+    struct darray *cstable; /* type: commandStats */
 }vr_eventloop;
 
 int vr_eventloop_init(vr_eventloop *vel, int filelimit);

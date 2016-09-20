@@ -87,7 +87,7 @@ struct vr_server {
     char *configfile;           /* Absolute config file path, or NULL */
     int hz;                     /* serverCron() calls frequency in hertz */
 
-    struct array dbs;           /* database array, type: redisDB */
+    struct darray dbs;           /* database array, type: redisDB */
     int dbnum;                  /* Total number of DBs */
     int dblnum;                 /* Logical number of configured DBs */
     int dbinum;                 /* Number of internal DBs for per logical DB */

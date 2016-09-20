@@ -4,7 +4,7 @@
 static int last_worker_thread = -1;
 static int num_worker_threads;
 
-struct array workers;
+struct darray workers;
 
 static void *worker_thread_run(void *args);
 
@@ -197,7 +197,7 @@ dispatch_conn_new(vr_listen *vlisten, int sd)
     }
     
     int tid = (last_worker_thread + 1) % num_worker_threads;
-    worker = array_get(&workers, (uint32_t)tid);
+    worker = darray_get(&workers, (uint32_t)tid);
 
     last_worker_thread = tid;
 
@@ -360,10 +360,10 @@ workers_init(uint32_t worker_count)
     csui_freelist = NULL;
     pthread_mutex_init(&csui_freelist_lock, NULL);
 
-    array_init(&workers, worker_count, sizeof(vr_worker));
+    darray_init(&workers, worker_count, sizeof(vr_worker));
 
     for (idx = 0; idx < worker_count; idx ++) {
-        worker = array_push(&workers);
+        worker = darray_push(&workers);
         vr_worker_init(worker);
         worker->id = idx;
         status = setup_worker(worker);
@@ -372,7 +372,7 @@ workers_init(uint32_t worker_count)
         }
     }
     
-    num_worker_threads = (int)array_n(&workers);
+    num_worker_threads = (int)darray_n(&workers);
 
     return VR_OK;
 }
@@ -386,7 +386,7 @@ workers_run(void)
     thread_count = (uint32_t)num_worker_threads;
 
     for (i = 0; i < thread_count; i ++) {
-        worker = array_get(&workers, i);
+        worker = darray_get(&workers, i);
         vr_thread_start(&worker->vel.thread);
     }
 
@@ -402,7 +402,7 @@ workers_wait(void)
     thread_count = (uint32_t)num_worker_threads;
 
     for (i = 0; i < thread_count; i ++) {
-        worker = array_get(&workers, i);
+        worker = darray_get(&workers, i);
         pthread_join(worker->vel.thread.thread_id, NULL);
     }
 
@@ -414,8 +414,8 @@ workers_deinit(void)
 {
     vr_worker *worker;
 
-    while(array_n(&workers)) {
-        worker = array_pop(&workers);
+    while(darray_n(&workers)) {
+        worker = darray_pop(&workers);
 		vr_worker_deinit(worker);
     }
 }

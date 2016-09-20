@@ -41,6 +41,6 @@ void conn_deinit(conn_base *cb);
 
 ssize_t conn_recv(struct conn *conn, void *buf, size_t size);
 ssize_t conn_send(struct conn *conn, void *buf, size_t nsend);
-ssize_t conn_sendv(struct conn *conn, struct array *sendv, size_t nsend);
+ssize_t conn_sendv(struct conn *conn, struct darray *sendv, size_t nsend);
 
 #endif
