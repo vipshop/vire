@@ -50,7 +50,6 @@
 
 #define dfree(_p) do {                \
     _dfree(_p, __FILE__, __LINE__);   \
-    (_p) = NULL;                      \
 } while (0)
 
 char *dmalloc_lock_type(void);

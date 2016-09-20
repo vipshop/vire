@@ -66,6 +66,7 @@ struct vr_worker;
 #include <netinet/in.h>
 
 #include <ae.h>
+#include <sds.h>
 #include <dutil.h>
 #include <dlog.h>
 #include <dhashkit.h>
@@ -75,8 +76,6 @@ struct vr_worker;
 #include <vr_util.h>
 #include <vr_signal.h>
 
-#include <vr_sdsalloc.h>
-#include <vr_sds.h>
 #include <vr_ziplist.h>
 #include <vr_zipmap.h>
 #include <vr_list.h>

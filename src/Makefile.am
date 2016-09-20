@@ -8,6 +8,7 @@ AM_CPPFLAGS += -I $(top_srcdir)/dep/dhashkit
 AM_CPPFLAGS += -I $(top_srcdir)/dep/ae
 AM_CPPFLAGS += -I $(top_srcdir)/dep/util
 AM_CPPFLAGS += -I $(top_srcdir)/dep/dmalloc
+AM_CPPFLAGS += -I $(top_srcdir)/dep/sds
 AM_CPPFLAGS += -I $(top_srcdir)/dep/darray
 
 AM_CFLAGS = 
@@ -60,7 +61,6 @@ vire_SOURCES =                          \
     vr_rdb.c vr_rdb.h                   \
     vr_replication.c vr_replication.h   \
     vr_scripting.c vr_scripting.h       \
-    vr_sds.c vr_sds.h vr_sdsalloc.h     \
     vr_server.c vr_server.h             \
     vr_signal.c vr_signal.h             \
     vr_slowlog.c vr_slowlog.h           \
@@ -83,6 +83,7 @@ vire_SOURCES =                          \
     
 vire_LDADD = $(top_builddir)/dep/util/libdutil.a
 vire_LDADD += $(top_builddir)/dep/ae/libae.a
+vire_LDADD += $(top_builddir)/dep/sds/libsds.a
 vire_LDADD += $(top_builddir)/dep/dhashkit/libdhashkit.a
 vire_LDADD += $(top_builddir)/dep/jemalloc-4.2.0/lib/libjemalloc.a
 vire_LDADD += $(top_builddir)/dep/dmalloc/libdmalloc.a

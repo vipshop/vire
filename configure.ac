@@ -236,6 +236,7 @@ AC_CONFIG_FILES([Makefile
                  dep/util/Makefile
                  dep/dhashkit/Makefile
                  dep/dmalloc/Makefile
+                 dep/sds/Makefile
                  dep/ae/Makefile
                  dep/dlist/Makefile
                  dep/darray/Makefile
