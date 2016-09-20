@@ -26,7 +26,7 @@ int vr_replication_init(void)
     repl.repl_backlog_time_limit = CONFIG_DEFAULT_REPL_BACKLOG_TIME_LIMIT;
     repl.repl_no_slaves_since = time(NULL);
 
-    repl.slaves = listCreate();
+    repl.slaves = dlistCreate();
 
     return VR_OK;
 }
@@ -52,10 +52,10 @@ void vr_replication_deinit(void)
 
     if (repl.slaves != NULL) {
         client *slave;
-        while (slave = listPop(repl.slaves)) {
+        while (slave = dlistPop(repl.slaves)) {
             freeClient(slave);
         }
-        listRelease(repl.slaves);
+        dlistRelease(repl.slaves);
         repl.slaves = NULL;
     }
 }
@@ -65,9 +65,9 @@ void vr_replication_deinit(void)
  * waiting for replica acks. Never call it directly, call unblockClient()
  * instead. */
 void unblockClientWaitingReplicas(client *c) {
-    listNode *ln = listSearchKey(c->vel->clients_waiting_acks,c);
+    dlistNode *ln = dlistSearchKey(c->vel->clients_waiting_acks,c);
     ASSERT(ln != NULL);
-    listDelNode(c->vel->clients_waiting_acks,ln);
+    dlistDelNode(c->vel->clients_waiting_acks,ln);
 }
 
 /* ------------------------- MIN-SLAVES-TO-WRITE  --------------------------- */
@@ -76,15 +76,15 @@ void unblockClientWaitingReplicas(client *c) {
  * If the option is active, the server will prevent writes if there are not
  * enough connected slaves with the specified lag (or less). */
 void refreshGoodSlavesCount(void) {
-    listIter li;
-    listNode *ln;
+    dlistIter li;
+    dlistNode *ln;
     int good = 0;
 
     if (!repl.repl_min_slaves_to_write ||
         !repl.repl_min_slaves_max_lag) return;
 
-    listRewind(repl.slaves,&li);
-    while((ln = listNext(&li))) {
+    dlistRewind(repl.slaves,&li);
+    while((ln = dlistNext(&li))) {
         client *slave = ln->value;
         time_t lag = repl.vel.unixtime - slave->repl_ack_time;
 
@@ -274,9 +274,9 @@ void replicationSendAck(void) {
     }
 }
 
-void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
-    listNode *ln;
-    listIter li;
+void replicationFeedMonitors(client *c, dlist *monitors, int dictid, robj **argv, int argc) {
+    dlistNode *ln;
+    dlistIter li;
     int j;
     sds cmdrepr = sdsnew("+");
     robj *cmdobj;
@@ -305,8 +305,8 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     cmdrepr = sdscatlen(cmdrepr,"\r\n",2);
     cmdobj = createObject(OBJ_STRING,cmdrepr);
 
-    listRewind(monitors,&li);
-    while((ln = listNext(&li))) {
+    dlistRewind(monitors,&li);
+    while((ln = dlistNext(&li))) {
         client *monitor = ln->value;
         addReply(monitor,cmdobj);
     }
@@ -359,18 +359,18 @@ void feedReplicationBacklogWithObject(robj *o) {
     feedReplicationBacklog(p,len);
 }
 
-void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
-    listNode *ln;
-    listIter li;
+void replicationFeedSlaves(dlist *slaves, int dictid, robj **argv, int argc) {
+    dlistNode *ln;
+    dlistIter li;
     int j, len;
     char llstr[LONG_STR_SIZE];
 
     /* If there aren't slaves, and there is no backlog buffer to populate,
      * we can return ASAP. */
-    if (repl.repl_backlog == NULL && listLength(slaves) == 0) return;
+    if (repl.repl_backlog == NULL && dlistLength(slaves) == 0) return;
 
     /* We can't have slaves attached and no backlog. */
-    ASSERT(!(listLength(slaves) != 0 && repl.repl_backlog == NULL));
+    ASSERT(!(dlistLength(slaves) != 0 && repl.repl_backlog == NULL));
 
     /* Send SELECT command to every slave if needed. */
     if (repl.slaveseldb != dictid) {
@@ -393,8 +393,8 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         if (repl.repl_backlog) feedReplicationBacklogWithObject(selectcmd);
 
         /* Send it to slaves. */
-        listRewind(slaves,&li);
-        while((ln = listNext(&li))) {
+        dlistRewind(slaves,&li);
+        while((ln = dlistNext(&li))) {
             client *slave = ln->value;
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
             addReply(slave,selectcmd);
@@ -433,8 +433,8 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     }
 
     /* Write the command to every slave. */
-    listRewind(repl.slaves,&li);
-    while((ln = listNext(&li))) {
+    dlistRewind(repl.slaves,&li);
+    while((ln = dlistNext(&li))) {
         client *slave = ln->value;
 
         /* Don't feed slaves that are still waiting for BGSAVE to start */

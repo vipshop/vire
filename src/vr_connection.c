@@ -9,8 +9,8 @@ _conn_get(conn_base *cb)
 {
     struct conn *conn;
 
-    if (cb != NULL && listLength(cb->free_connq) > 0) {
-        conn = listPop(cb->free_connq);
+    if (cb != NULL && dlistLength(cb->free_connq) > 0) {
+        conn = dlistPop(cb->free_connq);
     } else {
         conn = dalloc(sizeof(*conn));
         if (conn == NULL) {
@@ -41,7 +41,7 @@ _conn_get(conn_base *cb)
     conn->done = 0;
 
     if (conn->inqueue == NULL) {
-        conn->inqueue = listCreate();
+        conn->inqueue = dlistCreate();
         if (conn->inqueue == NULL) {
             conn_free(conn);
             return NULL;
@@ -49,7 +49,7 @@ _conn_get(conn_base *cb)
     }
 
     if (conn->outqueue == NULL) {
-        conn->outqueue = listCreate();
+        conn->outqueue = dlistCreate();
         if (conn->outqueue == NULL) {
             conn_free(conn);
             return NULL;
@@ -96,19 +96,19 @@ conn_free(struct conn *conn)
 
     if (conn->inqueue) {
         sds buf;
-        while (buf = listPop(conn->inqueue)) {
+        while (buf = dlistPop(conn->inqueue)) {
             sdsfree(buf);
         }
-        listRelease(conn->inqueue);
+        dlistRelease(conn->inqueue);
         conn->inqueue = NULL;
     }
 
     if (conn->outqueue) {
         sds buf;
-        while (buf = listPop(conn->outqueue)) {
+        while (buf = dlistPop(conn->outqueue)) {
             sdsfree(buf);
         }
-        listRelease(conn->outqueue);
+        dlistRelease(conn->outqueue);
         conn->outqueue = NULL;
     }
     
@@ -137,19 +137,19 @@ conn_put(struct conn *conn)
 
     if (conn->inqueue) {
         sds buf;
-        while (buf = listPop(conn->inqueue)) {
+        while (buf = dlistPop(conn->inqueue)) {
             sdsfree(buf);
         }
     }
 
     if (conn->outqueue) {
         sds buf;
-        while (buf = listPop(conn->outqueue)) {
+        while (buf = dlistPop(conn->outqueue)) {
             sdsfree(buf);
         }
     }
 
-    listPush(cb->free_connq, conn);
+    dlistPush(cb->free_connq, conn);
     cb->ncurr_cconn--;
     cb->ncurr_conn--;
 }
@@ -164,7 +164,7 @@ conn_init(conn_base *cb)
     cb->ncurr_cconn = 0;
     cb->ncurr_cconn = 0;
 
-    cb->free_connq = listCreate();
+    cb->free_connq = dlistCreate();
     if (cb->free_connq == NULL) {
         return VR_ENOMEM;
     }
@@ -178,11 +178,11 @@ conn_deinit(conn_base *cb)
     struct conn *conn;
 
     if (cb->free_connq) {
-        while (conn = listPop(cb->free_connq)) {
+        while (conn = dlistPop(cb->free_connq)) {
             conn_free(conn);
         }
-        ASSERT(listLength(cb->free_connq) == 0);
-        listRelease(cb->free_connq);
+        ASSERT(dlistLength(cb->free_connq) == 0);
+        dlistRelease(cb->free_connq);
     }
 }
 

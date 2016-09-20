@@ -1682,8 +1682,8 @@ int ziplistTest(int argc, char **argv) {
         unsigned char *p;
         char buf[1024];
         int buflen;
-        list *ref;
-        listNode *refnode;
+        dlist *ref;
+        dlistNode *refnode;
 
         /* Hold temp vars from ziplist */
         unsigned char *sstr;
@@ -1692,8 +1692,8 @@ int ziplistTest(int argc, char **argv) {
 
         for (i = 0; i < 20000; i++) {
             zl = ziplistNew();
-            ref = listCreate();
-            listSetFreeMethod(ref,(void (*)(void*))sdsfree);
+            ref = dlistCreate();
+            dlistSetFreeMethod(ref,(void (*)(void*))sdsfree);
             len = rand() % 256;
 
             /* Create lists */
@@ -1722,20 +1722,20 @@ int ziplistTest(int argc, char **argv) {
 
                 /* Add to reference list */
                 if (where == ZIPLIST_HEAD) {
-                    listAddNodeHead(ref,sdsnewlen(buf, buflen));
+                    dlistAddNodeHead(ref,sdsnewlen(buf, buflen));
                 } else if (where == ZIPLIST_TAIL) {
-                    listAddNodeTail(ref,sdsnewlen(buf, buflen));
+                    dlistAddNodeTail(ref,sdsnewlen(buf, buflen));
                 } else {
                     ASSERT(NULL);
                 }
             }
 
-            ASSERT(listLength(ref) == ziplistLen(zl));
+            ASSERT(dlistLength(ref) == ziplistLen(zl));
             for (j = 0; j < len; j++) {
                 /* Naive way to get elements, but similar to the stresser
                  * executed from the Tcl test suite. */
                 p = ziplistIndex(zl,j);
-                refnode = listIndex(ref,j);
+                refnode = dlistIndex(ref,j);
 
                 ret = (int)ziplistGet(p,&sstr,&slen,&sval);
                 ASSERT(ret > 0);
@@ -1746,10 +1746,10 @@ int ziplistTest(int argc, char **argv) {
                     memcpy(buf,sstr,buflen);
                     buf[buflen] = '\0';
                 }
-                ASSERT(memcmp(buf,listNodeValue(refnode),buflen) == 0);
+                ASSERT(memcmp(buf,dlistNodeValue(refnode),buflen) == 0);
             }
             dfree(zl);
-            listRelease(ref);
+            dlistRelease(ref);
         }
         printf("SUCCESS\n\n");
     }

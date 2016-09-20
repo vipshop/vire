@@ -20,7 +20,7 @@ void unblockClient(client *c) {
      * blocking operation, don't add back it into the list multiple times. */
     if (!(c->flags & CLIENT_UNBLOCKED)) {
         c->flags |= CLIENT_UNBLOCKED;
-        listAddNodeTail(c->vel->unblocked_clients,c);
+        dlistAddNodeTail(c->vel->unblocked_clients,c);
     }
 }
 

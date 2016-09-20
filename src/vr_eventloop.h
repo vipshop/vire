@@ -18,9 +18,9 @@ typedef struct vr_eventloop {
 
     uint64_t next_client_id;    /* Next client unique ID. Incremental. */
     struct client *current_client;     /* Current client, only used on crash report */
-    list *clients;              /* List of active clients */
-    list *clients_pending_write;/* There is to write or install handler. */
-    list *clients_to_close;     /* Clients to close asynchronously */
+    dlist *clients;              /* List of active clients */
+    dlist *clients_pending_write;/* There is to write or install handler. */
+    dlist *clients_to_close;     /* Clients to close asynchronously */
 
     int clients_paused;         /* True if clients are currently paused */
     long long clients_pause_end_time; /* Time when we undo clients_paused */
@@ -32,14 +32,14 @@ typedef struct vr_eventloop {
 
     /* Blocked clients */
     unsigned int bpop_blocked_clients; /* Number of clients blocked by lists */
-    list *unblocked_clients;        /* list of clients to unblock before next loop */
+    dlist *unblocked_clients;        /* list of clients to unblock before next loop */
 
     /* Synchronous replication. */
-    list *clients_waiting_acks;     /* Clients waiting in WAIT command. */
+    dlist *clients_waiting_acks;     /* Clients waiting in WAIT command. */
 
     /* Pubsub */
     dict *pubsub_channels;  /* Map channels to list of subscribed clients */
-    list *pubsub_patterns;  /* A list of pubsub_patterns */
+    dlist *pubsub_patterns;  /* A list of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
 

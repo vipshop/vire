@@ -20,26 +20,26 @@ typedef struct watchedKey {
 /* Unwatch all the keys watched by this client. To clean the EXEC dirty
  * flag is up to the caller. */
 void unwatchAllKeys(client *c) {
-    listIter li;
-    listNode *ln;
+    dlistIter li;
+    dlistNode *ln;
 
-    if (listLength(c->watched_keys) == 0) return;
-    listRewind(c->watched_keys,&li);
-    while((ln = listNext(&li))) {
-        list *clients;
+    if (dlistLength(c->watched_keys) == 0) return;
+    dlistRewind(c->watched_keys,&li);
+    while((ln = dlistNext(&li))) {
+        dlist *clients;
         watchedKey *wk;
 
         /* Lookup the watched key -> clients list and remove the client
          * from the list */
-        wk = listNodeValue(ln);
+        wk = dlistNodeValue(ln);
         clients = dictFetchValue(wk->db->watched_keys, wk->key);
         serverAssertWithInfo(c,NULL,clients != NULL);
-        listDelNode(clients,listSearchKey(clients,c));
+        dlistDelNode(clients,dlistSearchKey(clients,c));
         /* Kill the entry at all if this was the only client */
-        if (listLength(clients) == 0)
+        if (dlistLength(clients) == 0)
             dictDelete(wk->db->watched_keys, wk->key);
         /* Remove this watched key from the client->watched list */
-        listDelNode(c->watched_keys,ln);
+        dlistDelNode(c->watched_keys,ln);
         decrRefCount(wk->key);
         dfree(wk);
     }
@@ -121,32 +121,32 @@ void multiCommand(client *c) {
 
 /* Watch for the specified key */
 void watchForKey(client *c, robj *key) {
-    list *clients = NULL;
-    listIter li;
-    listNode *ln;
+    dlist *clients = NULL;
+    dlistIter li;
+    dlistNode *ln;
     watchedKey *wk;
 
     /* Check if we are already watching for this key */
-    listRewind(c->watched_keys,&li);
-    while((ln = listNext(&li))) {
-        wk = listNodeValue(ln);
+    dlistRewind(c->watched_keys,&li);
+    while((ln = dlistNext(&li))) {
+        wk = dlistNodeValue(ln);
         if (wk->db == c->db && equalStringObjects(key,wk->key))
             return; /* Key already watched */
     }
     /* This key is not already watched in this DB. Let's add it */
     clients = dictFetchValue(c->db->watched_keys,key);
     if (!clients) {
-        clients = listCreate();
+        clients = dlistCreate();
         dictAdd(c->db->watched_keys,key,clients);
         incrRefCount(key);
     }
-    listAddNodeTail(clients,c);
+    dlistAddNodeTail(clients,c);
     /* Add the new key to the list of keys watched by this client */
     wk = dalloc(sizeof(*wk));
     wk->key = key;
     wk->db = c->db;
     incrRefCount(key);
-    listAddNodeTail(c->watched_keys,wk);
+    dlistAddNodeTail(c->watched_keys,wk);
 }
 
 void watchCommand(client *c) {
@@ -164,9 +164,9 @@ void watchCommand(client *c) {
 /* "Touch" a key, so that if this key is being WATCHed by some client the
  * next EXEC will fail. */
 void touchWatchedKey(redisDb *db, robj *key) {
-    list *clients;
-    listIter li;
-    listNode *ln;
+    dlist *clients;
+    dlistIter li;
+    dlistNode *ln;
 
     if (dictSize(db->watched_keys) == 0) return;
     clients = dictFetchValue(db->watched_keys, key);
@@ -174,9 +174,9 @@ void touchWatchedKey(redisDb *db, robj *key) {
 
     /* Mark all the clients watching this key as CLIENT_DIRTY_CAS */
     /* Check if we are already watching for this key */
-    listRewind(clients,&li);
-    while((ln = listNext(&li))) {
-        client *c = listNodeValue(ln);
+    dlistRewind(clients,&li);
+    while((ln = dlistNext(&li))) {
+        client *c = dlistNodeValue(ln);
 
         c->flags |= CLIENT_DIRTY_CAS;
     }
@@ -187,16 +187,16 @@ void touchWatchedKey(redisDb *db, robj *key) {
  * be touched. "dbid" is the DB that's getting the flush. -1 if it is
  * a FLUSHALL operation (all the DBs flushed). */
 void touchWatchedKeysOnFlush(int dbid) {
-    listIter li1, li2;
-    listNode *ln;
+    dlistIter li1, li2;
+    dlistNode *ln;
 
     /* For every client, check all the waited keys */
-    listRewind(server.clients,&li1);
-    while((ln = listNext(&li1))) {
-        client *c = listNodeValue(ln);
-        listRewind(c->watched_keys,&li2);
-        while((ln = listNext(&li2))) {
-            watchedKey *wk = listNodeValue(ln);
+    dlistRewind(server.clients,&li1);
+    while((ln = dlistNext(&li1))) {
+        client *c = dlistNodeValue(ln);
+        dlistRewind(c->watched_keys,&li2);
+        while((ln = dlistNext(&li2))) {
+            watchedKey *wk = dlistNodeValue(ln);
 
             /* For every watched key matching the specified DB, if the
              * key exists, mark the client as dirty, as the key will be

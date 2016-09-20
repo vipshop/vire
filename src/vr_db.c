@@ -455,7 +455,7 @@ void keysCommand(client *c) {
  * returned by the dictionary iterator into a list. */
 void scanCallback(void *privdata, const dictEntry *de) {
     void **pd = (void**) privdata;
-    list *keys = pd[0];
+    dlist *keys = pd[0];
     robj *o = pd[1];
     robj *key, *val = NULL;
 
@@ -478,8 +478,8 @@ void scanCallback(void *privdata, const dictEntry *de) {
         serverPanic("Type not handled in SCAN callback.");
     }
 
-    listAddNodeTail(keys, key);
-    if (val) listAddNodeTail(keys, val);
+    dlistAddNodeTail(keys, key);
+    if (val) dlistAddNodeTail(keys, val);
 }
 
 /* Try to parse a SCAN cursor stored at object 'o':
@@ -514,8 +514,8 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
  * of every element on the Hash. */
 void scanGenericCommand(client *c, int scantype) {
     int i, j;
-    list *keys = listCreate();
-    listNode *node, *nextnode;
+    dlist *keys = dlistCreate();
+    dlistNode *node, *nextnode;
     long count = 10;
     sds pat = NULL;
     int patlen = 0, use_pattern = 0;
@@ -649,13 +649,13 @@ scan_retry:
             cursor = dictScan(ht, cursor, scanCallback, privdata);
         } while (cursor &&
               maxiterations-- &&
-              listLength(keys) < (unsigned long)count);
+              dlistLength(keys) < (unsigned long)count);
     } else if (o->type == OBJ_SET) {
         int pos = 0;
         int64_t ll;
 
         while(intsetGet(o->ptr,pos++,&ll))
-            listAddNodeTail(keys,createStringObjectFromLongLong(ll));
+            dlistAddNodeTail(keys,createStringObjectFromLongLong(ll));
         cursor = 0;
     } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
         unsigned char *p = ziplistIndex(o->ptr,0);
@@ -665,7 +665,7 @@ scan_retry:
 
         while(p) {
             ziplistGet(p,&vstr,&vlen,&vll);
-            listAddNodeTail(keys,
+            dlistAddNodeTail(keys,
                 (vstr != NULL) ? createStringObject((char*)vstr,vlen) :
                                  createStringObjectFromLongLong(vll));
             p = ziplistNext(o->ptr,p);
@@ -694,10 +694,10 @@ scan_retry:
     }
 
     /* Step 3: Filter elements. */
-    node = listFirst(keys);
+    node = dlistFirst(keys);
     while (node) {
-        robj *kobj = listNodeValue(node);
-        nextnode = listNextNode(node);
+        robj *kobj = dlistNodeValue(node);
+        nextnode = dlistNextNode(node);
         int filter = 0;
 
         /* Filter element if it does not match the pattern. */
@@ -721,7 +721,7 @@ scan_retry:
         /* Remove the element and its associted value if needed. */
         if (filter) {
             freeObject(kobj);
-            listDelNode(keys, node);
+            dlistDelNode(keys, node);
         }
 
         /* If this is a hash or a sorted set, we have a flat list of
@@ -729,11 +729,11 @@ scan_retry:
          * value, or skip it if it was not filtered: we only match keys. */
         if (o && (o->type == OBJ_ZSET || o->type == OBJ_HASH)) {
             node = nextnode;
-            nextnode = listNextNode(node);
+            nextnode = dlistNextNode(node);
             if (filter) {
-                kobj = listNodeValue(node);
+                kobj = dlistNodeValue(node);
                 freeObject(kobj);
-                listDelNode(keys, node);
+                dlistDelNode(keys, node);
             }
         }
         node = nextnode;
@@ -743,17 +743,17 @@ scan_retry:
     addReplyMultiBulkLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
-    addReplyMultiBulkLen(c, listLength(keys));
-    while ((node = listFirst(keys)) != NULL) {
-        robj *kobj = listNodeValue(node);
+    addReplyMultiBulkLen(c, dlistLength(keys));
+    while ((node = dlistFirst(keys)) != NULL) {
+        robj *kobj = dlistNodeValue(node);
         addReplyBulk(c, kobj);
         freeObject(kobj);
-        listDelNode(keys, node);
+        dlistDelNode(keys, node);
     }
 
 cleanup:
-    listSetFreeMethod(keys,freeObjectVoid);
-    listRelease(keys);
+    dlistSetFreeMethod(keys,freeObjectVoid);
+    dlistRelease(keys);
 }
 
 /* The SCAN command completely relies on scanGenericCommand. */

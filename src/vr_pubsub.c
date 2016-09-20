@@ -4,8 +4,8 @@
  * 0 if the client was not subscribed to the specified channel. */
 int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
     dictEntry *de;
-    list *clients;
-    listNode *ln;
+    dlist *clients;
+    dlistNode *ln;
     int retval = 0;
 
     /* Remove the channel from the client -> channels hash table */
@@ -17,10 +17,10 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
         de = dictFind(c->vel->pubsub_channels,channel);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
-        ln = listSearchKey(clients,c);
+        ln = dlistSearchKey(clients,c);
         serverAssertWithInfo(c,NULL,ln != NULL);
-        listDelNode(clients,ln);
-        if (listLength(clients) == 0) {
+        dlistDelNode(clients,ln);
+        if (dlistLength(clients) == 0) {
             /* Free the list and associated hash entry at all if this was
              * the latest client, so that it will be possible to abuse
              * Redis PUBSUB creating millions of channels. */
@@ -33,7 +33,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
         addReply(c,shared.unsubscribebulk);
         addReplyBulk(c,channel);
         addReplyLongLong(c,dictSize(c->pubsub_channels)+
-                       listLength(c->pubsub_patterns));
+                       dlistLength(c->pubsub_patterns));
 
     }
     decrRefCount(channel); /* it is finally safe to release it */
@@ -58,7 +58,7 @@ int pubsubUnsubscribeAllChannels(client *c, int notify) {
         addReply(c,shared.unsubscribebulk);
         addReply(c,shared.nullbulk);
         addReplyLongLong(c,dictSize(c->pubsub_channels)+
-                       listLength(c->pubsub_patterns));
+                       dlistLength(c->pubsub_patterns));
     }
     dictReleaseIterator(di);
     return count;
@@ -67,18 +67,18 @@ int pubsubUnsubscribeAllChannels(client *c, int notify) {
 /* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was not subscribed to the specified channel. */
 int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
-    listNode *ln;
+    dlistNode *ln;
     pubsubPattern pat;
     int retval = 0;
 
     incrRefCount(pattern); /* Protect the object. May be the same we remove */
-    if ((ln = listSearchKey(c->pubsub_patterns,pattern)) != NULL) {
+    if ((ln = dlistSearchKey(c->pubsub_patterns,pattern)) != NULL) {
         retval = 1;
-        listDelNode(c->pubsub_patterns,ln);
+        dlistDelNode(c->pubsub_patterns,ln);
         pat.client = c;
         pat.pattern = pattern;
-        ln = listSearchKey(c->vel->pubsub_patterns,&pat);
-        listDelNode(c->vel->pubsub_patterns,ln);
+        ln = dlistSearchKey(c->vel->pubsub_patterns,&pat);
+        dlistDelNode(c->vel->pubsub_patterns,ln);
     }
     /* Notify the client */
     if (notify) {
@@ -86,7 +86,7 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
         addReply(c,shared.punsubscribebulk);
         addReplyBulk(c,pattern);
         addReplyLongLong(c,dictSize(c->pubsub_channels)+
-                       listLength(c->pubsub_patterns));
+                       dlistLength(c->pubsub_patterns));
     }
     decrRefCount(pattern);
     return retval;
@@ -95,12 +95,12 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
 /* Unsubscribe from all the patterns. Return the number of patterns the
  * client was subscribed from. */
 int pubsubUnsubscribeAllPatterns(client *c, int notify) {
-    listNode *ln;
-    listIter li;
+    dlistNode *ln;
+    dlistIter li;
     int count = 0;
 
-    listRewind(c->pubsub_patterns,&li);
-    while ((ln = listNext(&li)) != NULL) {
+    dlistRewind(c->pubsub_patterns,&li);
+    while ((ln = dlistNext(&li)) != NULL) {
         robj *pattern = ln->value;
 
         count += pubsubUnsubscribePattern(c,pattern,notify);
@@ -111,7 +111,7 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
         addReply(c,shared.punsubscribebulk);
         addReply(c,shared.nullbulk);
         addReplyLongLong(c,dictSize(c->pubsub_channels)+
-                       listLength(c->pubsub_patterns));
+                       dlistLength(c->pubsub_patterns));
     }
     return count;
 }
@@ -125,7 +125,7 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
  * 0 if the client was already subscribed to that channel. */
 int pubsubSubscribeChannel(client *c, robj *channel) {
     dictEntry *de;
-    list *clients = NULL;
+    dlist *clients = NULL;
     int retval = 0;
 
     /* Add the channel to the client -> channels hash table */
@@ -135,13 +135,13 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
         /* Add the client to the channel -> list of clients hash table */
         de = dictFind(c->vel->pubsub_channels,channel);
         if (de == NULL) {
-            clients = listCreate();
+            clients = dlistCreate();
             dictAdd(c->vel->pubsub_channels,channel,clients);
             incrRefCount(channel);
         } else {
             clients = dictGetVal(de);
         }
-        listAddNodeTail(clients,c);
+        dlistAddNodeTail(clients,c);
     }
     /* Notify the client */
     addReply(c,shared.mbulkhdr[3]);
@@ -162,7 +162,7 @@ void subscribeCommand(client *c) {
 /* Return the number of channels + patterns a client is subscribed to. */
 int clientSubscriptionsCount(client *c) {
     return dictSize(c->pubsub_channels)+
-           listLength(c->pubsub_patterns);
+           dlistLength(c->pubsub_patterns);
 }
 
 void unsubscribeCommand(client *c) {
@@ -181,15 +181,15 @@ void unsubscribeCommand(client *c) {
 int pubsubSubscribePattern(client *c, robj *pattern) {
     int retval = 0;
 
-    if (listSearchKey(c->pubsub_patterns,pattern) == NULL) {
+    if (dlistSearchKey(c->pubsub_patterns,pattern) == NULL) {
         retval = 1;
         pubsubPattern *pat;
-        listAddNodeTail(c->pubsub_patterns,pattern);
+        dlistAddNodeTail(c->pubsub_patterns,pattern);
         incrRefCount(pattern);
         pat = dalloc(sizeof(*pat));
         pat->pattern = getDecodedObject(pattern);
         pat->client = c;
-        listAddNodeTail(c->vel->pubsub_patterns,pat);
+        dlistAddNodeTail(c->vel->pubsub_patterns,pat);
     }
     /* Notify the client */
     addReply(c,shared.mbulkhdr[3]);
@@ -223,18 +223,18 @@ void punsubscribeCommand(client *c) {
 int pubsubPublishMessage(robj *channel, robj *message) {
     int receivers = 0;
     dictEntry *de;
-    listNode *ln;
-    listIter li;
+    dlistNode *ln;
+    dlistIter li;
 
     /* Send to clients listening for that channel */
     de = dictFind(server.pubsub_channels,channel);
     if (de) {
-        list *list = dictGetVal(de);
-        listNode *ln;
-        listIter li;
+        dlist *list = dictGetVal(de);
+        dlistNode *ln;
+        dlistIter li;
 
-        listRewind(list,&li);
-        while ((ln = listNext(&li)) != NULL) {
+        dlistRewind(list,&li);
+        while ((ln = dlistNext(&li)) != NULL) {
             client *c = ln->value;
 
             addReply(c,shared.mbulkhdr[3]);
@@ -245,10 +245,10 @@ int pubsubPublishMessage(robj *channel, robj *message) {
         }
     }
     /* Send to clients listening to matching channels */
-    if (listLength(server.pubsub_patterns)) {
-        listRewind(server.pubsub_patterns,&li);
+    if (dlistLength(server.pubsub_patterns)) {
+        dlistRewind(server.pubsub_patterns,&li);
         channel = getDecodedObject(channel);
-        while ((ln = listNext(&li)) != NULL) {
+        while ((ln = dlistNext(&li)) != NULL) {
             pubsubPattern *pat = ln->value;
 
             if (stringmatchlen((char*)pat->pattern->ptr,

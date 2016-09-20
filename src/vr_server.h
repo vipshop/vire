@@ -79,7 +79,7 @@ typedef struct readyList {
 
 struct vr_server {
     aeEventLoop *el;
-    list *clients;
+    dlist *clients;
     
     /* General */
     pid_t pid;                  /* Main process pid. */
@@ -122,7 +122,7 @@ struct vr_server {
     
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
 
-    list *monitors;    /* List of slaves and MONITORs */
+    dlist *monitors;    /* List of slaves and MONITORs */
 
     time_t starttime;       /* Server start time */
 
@@ -150,7 +150,7 @@ struct vr_server {
     off_t aof_current_size;         /* AOF current size. */
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
     pid_t aof_child_pid;            /* PID if rewriting process */
-    list *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */
+    dlist *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */
     sds aof_buf;      /* AOF buffer, written before entering the event loop */
     int aof_fd;       /* File descriptor of currently selected AOF file */
     int aof_selected_db; /* Currently selected DB in AOF */
@@ -214,14 +214,14 @@ struct vr_server {
     int lua_always_replicate_commands; /* Default replication type. */
 
     /* Blocked clients */
-    list *ready_keys;        /* List of readyList structures for BLPOP & co */
+    dlist *ready_keys;        /* List of readyList structures for BLPOP & co */
 
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
 
     /* Pubsub */
     dict *pubsub_channels;  /* Map channels to list of subscribed clients */
-    list *pubsub_patterns;  /* A list of pubsub_patterns */
+    dlist *pubsub_patterns;  /* A list of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
 

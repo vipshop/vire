@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include <dmalloc.h>
+
 #include <dlist.h>
 #include <dmtqueue.h>
 #include <dlockqueue.h>
@@ -10,7 +12,7 @@ dlockqueue *dlockqueue_create(void)
 {
     dlockqueue *lqueue;
 
-    lqueue = malloc(sizeof(*lqueue));
+    lqueue = dalloc(sizeof(*lqueue));
     if (lqueue == NULL) {
         return NULL;
     }
@@ -109,7 +111,7 @@ void dlockqueue_destroy(void *q)
 
     pthread_mutex_destroy(&lqueue->lmutex);
 
-    free(lqueue);
+    dfree(lqueue);
 }
 
 long long dlockqueue_length(void *q)

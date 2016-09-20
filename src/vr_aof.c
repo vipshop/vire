@@ -2,13 +2,13 @@
 
 /* Return the current size of the AOF rewrite buffer. */
 unsigned long aofRewriteBufferSize(void) {
-    listNode *ln;
-    listIter li;
+    dlistNode *ln;
+    dlistIter li;
     unsigned long size = 0;
 
-    listRewind(server.aof_rewrite_buf_blocks,&li);
-    while((ln = listNext(&li))) {
-        aofrwblock *block = listNodeValue(ln);
+    dlistRewind(server.aof_rewrite_buf_blocks,&li);
+    while((ln = dlistNext(&li))) {
+        aofrwblock *block = dlistNodeValue(ln);
         size += block->used;
     }
     return size;
@@ -80,7 +80,7 @@ sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
  * rewrite. We send pieces of our AOF differences buffer so that the final
  * write when the child finishes the rewrite will be small. */
 void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
-    listNode *ln;
+    dlistNode *ln;
     aofrwblock *block;
     ssize_t nwritten;
     UNUSED(el);
@@ -89,7 +89,7 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(mask);
 
     while(1) {
-        ln = listFirst(server.aof_rewrite_buf_blocks);
+        ln = dlistFirst(server.aof_rewrite_buf_blocks);
         block = ln ? ln->value : NULL;
         if (server.aof_stop_sending_diff || !block) {
             aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,
@@ -103,13 +103,13 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
             memmove(block->buf,block->buf+nwritten,block->used-nwritten);
             block->used -= nwritten;
         }
-        if (block->used == 0) listDelNode(server.aof_rewrite_buf_blocks,ln);
+        if (block->used == 0) dlistDelNode(server.aof_rewrite_buf_blocks,ln);
     }
 }
 
 /* Append data to the AOF rewrite buffer, allocating new blocks if needed. */
 void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
-    listNode *ln = listLast(server.aof_rewrite_buf_blocks);
+    dlistNode *ln = dlistLast(server.aof_rewrite_buf_blocks);
     aofrwblock *block = ln ? ln->value : NULL;
 
     while(len) {
@@ -132,11 +132,11 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
             block = dalloc(sizeof(*block));
             block->free = AOF_RW_BUF_BLOCK_SIZE;
             block->used = 0;
-            listAddNodeTail(server.aof_rewrite_buf_blocks,block);
+            dlistAddNodeTail(server.aof_rewrite_buf_blocks,block);
 
             /* Log every time we cross more 10 or 100 blocks, respectively
              * as a notice or warning. */
-            numblocks = listLength(server.aof_rewrite_buf_blocks);
+            numblocks = dlistLength(server.aof_rewrite_buf_blocks);
             if (((numblocks+1) % 10) == 0) {
                 int level = ((numblocks+1) % 100) == 0 ? LOG_WARN :
                                                          LOG_NOTICE;

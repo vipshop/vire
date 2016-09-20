@@ -53,25 +53,25 @@ vr_eventloop_init(vr_eventloop *vel, int filelimit)
         return VR_ERROR;
     }
 
-    vel->clients = listCreate();
+    vel->clients = dlistCreate();
     if (vel->clients == NULL) {
         log_error("create list failed: out of memory");
         return VR_ENOMEM;
     }
 
-    vel->clients_pending_write = listCreate();
+    vel->clients_pending_write = dlistCreate();
     if (vel->clients_pending_write == NULL) {
         log_error("create list failed: out of memory");
         return VR_ENOMEM;
     }
 
-    vel->clients_to_close = listCreate();
+    vel->clients_to_close = dlistCreate();
     if (vel->clients_to_close == NULL) {
         log_error("create list failed: out of memory");
         return VR_ENOMEM;
     }
 
-    vel->unblocked_clients = listCreate();
+    vel->unblocked_clients = dlistCreate();
     if (vel->unblocked_clients == NULL) {
         log_error("create list failed: out of memory");
         return VR_ENOMEM;
@@ -106,33 +106,33 @@ vr_eventloop_deinit(vr_eventloop *vel)
 
     if (vel->clients != NULL) {
         client *c;
-        while (c = listPop(vel->clients)) {
+        while (c = dlistPop(vel->clients)) {
             freeClient(c);
         }
-        listRelease(vel->clients);
+        dlistRelease(vel->clients);
         vel->clients = NULL;
     }
 
     if (vel->clients_pending_write != NULL) {
         client *c;
-        while (c = listPop(vel->clients_pending_write)) {}
-        listRelease(vel->clients_pending_write);
+        while (c = dlistPop(vel->clients_pending_write)) {}
+        dlistRelease(vel->clients_pending_write);
         vel->clients_pending_write = NULL;
     }
 
     if (vel->clients_to_close != NULL) {
         client *c;
-        while (c = listPop(vel->clients_to_close)) {
+        while (c = dlistPop(vel->clients_to_close)) {
             freeClient(c);
         }
-        listRelease(vel->clients_to_close);
+        dlistRelease(vel->clients_to_close);
         vel->clients_to_close = NULL;
     }
 
     if (vel->unblocked_clients != NULL) {
         client *c;
-        while (c = listPop(vel->unblocked_clients)) {}
-        listRelease(vel->unblocked_clients);
+        while (c = dlistPop(vel->unblocked_clients)) {}
+        dlistRelease(vel->unblocked_clients);
         vel->unblocked_clients = NULL;
     }
 

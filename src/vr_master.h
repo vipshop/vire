@@ -7,7 +7,7 @@ typedef struct vr_master {
     
     struct darray listens;   /* type: vr_listen */
 
-    list *cbsul;    /* Connect back swap unit list */
+    dlist *cbsul;    /* Connect back swap unit list */
     pthread_mutex_t cbsullock;   /* swap unit list locker */
 }vr_master;
 

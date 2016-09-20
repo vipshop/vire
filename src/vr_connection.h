@@ -2,7 +2,7 @@
 #define _VR_CONNECTION_H_
 
 typedef struct conn_base {
-    list *free_connq;           /* free conn q */
+    dlist *free_connq;           /* free conn q */
     uint64_t ntotal_conn;       /* total # connections counter from start */
     uint32_t ncurr_conn;        /* current # connections */
     uint32_t ncurr_cconn;       /* current # client connections */
@@ -29,8 +29,8 @@ struct conn {
     unsigned            eof:1;           /* eof? aka passive close? */
     unsigned            done:1;          /* done? aka close? */
 
-    list                *inqueue;        /* incoming request queue */
-    list                *outqueue;       /* outputing response queue */
+    dlist                *inqueue;        /* incoming request queue */
+    dlist                *outqueue;       /* outputing response queue */
 };
 
 struct conn *conn_get(conn_base *cb);

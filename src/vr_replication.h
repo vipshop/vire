@@ -49,7 +49,7 @@ struct vr_replication {
     int role;               /* Master/slave? */
 
     /* Replication (master) */
-    list *slaves;           /* List of slaves */
+    dlist *slaves;           /* List of slaves */
     int slaveseldb;                 /* Last SELECTed DB in replication output */
     long long master_repl_offset;   /* Global replication offset */
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
@@ -107,8 +107,8 @@ char *replicationGetSlaveName(client *c);
 void replconfCommand(client *c);
 void putSlaveOnline(client *slave);
 void replicationSendAck(void);
-void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
-void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
+void replicationFeedMonitors(client *c, dlist *monitors, int dictid, robj **argv, int argc);
+void replicationFeedSlaves(dlist *slaves, int dictid, robj **argv, int argc);
 void feedReplicationBacklogWithObject(robj *o);
 void feedReplicationBacklog(void *ptr, size_t len);
 

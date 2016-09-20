@@ -72,13 +72,13 @@ struct vr_worker;
 #include <dhashkit.h>
 #include <dmalloc.h>
 #include <darray.h>
+#include <dlist.h>
 
 #include <vr_util.h>
 #include <vr_signal.h>
 
 #include <vr_ziplist.h>
 #include <vr_zipmap.h>
-#include <vr_list.h>
 #include <vr_dict.h>
 #include <vr_rbtree.h>
 #include <vr_intset.h>

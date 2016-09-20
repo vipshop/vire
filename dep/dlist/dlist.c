@@ -1,5 +1,7 @@
 #include <stdlib.h>
 
+#include <dmalloc.h>
+
 #include <dlist.h>
 
 /* Create a new list. The created list can be freed with
@@ -11,7 +13,7 @@ dlist *dlistCreate(void)
 {
     struct dlist *list;
 
-    if ((list = malloc(sizeof(*list))) == NULL)
+    if ((list = dalloc(sizeof(*list))) == NULL)
         return NULL;
     list->head = list->tail = NULL;
     list->len = 0;
@@ -34,10 +36,10 @@ void dlistRelease(dlist *list)
     while(len--) {
         next = current->next;
         if (list->free) list->free(current->value);
-        free(current);
+        dfree(current);
         current = next;
     }
-    free(list);
+    dfree(list);
 }
 
 /* Add a new node to the list, to head, containing the specified 'value'
@@ -50,7 +52,7 @@ dlist *dlistAddNodeHead(dlist *list, void *value)
 {
     dlistNode *node;
 
-    if ((node = malloc(sizeof(*node))) == NULL)
+    if ((node = dalloc(sizeof(*node))) == NULL)
         return NULL;
     node->value = value;
     if (list->len == 0) {
@@ -76,7 +78,7 @@ dlist *dlistAddNodeTail(dlist *list, void *value)
 {
     dlistNode *node;
 
-    if ((node = malloc(sizeof(*node))) == NULL)
+    if ((node = dalloc(sizeof(*node))) == NULL)
         return NULL;
     node->value = value;
     if (list->len == 0) {
@@ -95,7 +97,7 @@ dlist *dlistAddNodeTail(dlist *list, void *value)
 dlist *dlistInsertNode(dlist *list, dlistNode *old_node, void *value, int after) {
     dlistNode *node;
 
-    if ((node = malloc(sizeof(*node))) == NULL)
+    if ((node = dalloc(sizeof(*node))) == NULL)
         return NULL;
     node->value = value;
     if (after) {
@@ -136,19 +138,19 @@ void dlistDelNode(dlist *list, dlistNode *node)
     else
         list->tail = node->prev;
     if (list->free) list->free(node->value);
-    free(node);
+    dfree(node);
     list->len--;
 }
 
 /* Returns a list iterator 'iter'. After the initialization every
- * call to listNext() will return the next element of the list.
+ * call to dlistNext() will return the next element of the list.
  *
  * This function can't fail. */
-dlistIter *listGetIterator(dlist *list, int direction)
+dlistIter *dlistGetIterator(dlist *list, int direction)
 {
     dlistIter *iter;
 
-    if ((iter = malloc(sizeof(*iter))) == NULL) return NULL;
+    if ((iter = dalloc(sizeof(*iter))) == NULL) return NULL;
     if (direction == AL_START_HEAD)
         iter->next = list->head;
     else
@@ -159,7 +161,7 @@ dlistIter *listGetIterator(dlist *list, int direction)
 
 /* Release the iterator memory */
 void dlistReleaseIterator(dlistIter *iter) {
-    free(iter);
+    dfree(iter);
 }
 
 /* Create an iterator in the list private iterator structure */
@@ -175,15 +177,15 @@ void dlistRewindTail(dlist *list, dlistIter *li) {
 
 /* Return the next element of an iterator.
  * It's valid to remove the currently returned element using
- * listDelNode(), but not to remove other elements.
+ * dlistDelNode(), but not to remove other elements.
  *
  * The function returns a pointer to the next element of the list,
  * or NULL if there are no more elements, so the classical usage patter
  * is:
  *
- * iter = listGetIterator(list,<direction>);
- * while ((node = listNext(iter)) != NULL) {
- *     doSomethingWith(listNodeValue(node));
+ * iter = dlistGetIterator(list,<direction>);
+ * while ((node = dlistNext(iter)) != NULL) {
+ *     doSomethingWith(dlistNodeValue(node));
  * }
  *
  * */

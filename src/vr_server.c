@@ -164,7 +164,7 @@ void
 dictListDestructor(void *privdata, void *val)
 {
     DICT_NOTUSED(privdata);
-    listRelease((list*)val);
+    dlistRelease((dlist*)val);
 }
 
 /* Hash type hash table (note that small hashes are represented with ziplists) */
@@ -347,9 +347,9 @@ init_server(struct instance *nci)
         redisDbInit(db);
     }
 
-    server.clients = listCreate();
+    server.clients = dlistCreate();
     
-    server.monitors = listCreate();
+    server.monitors = dlistCreate();
 
     server.loading = 0;
 
@@ -359,7 +359,7 @@ init_server(struct instance *nci)
 
     server.stop_writes_on_bgsave_err = 0;
 
-    server.ready_keys = listCreate();
+    server.ready_keys = dlistCreate();
 
     server.system_memory_size = dalloc_get_memory_size();
 

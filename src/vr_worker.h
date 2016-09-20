@@ -8,7 +8,7 @@ typedef struct vr_worker {
     
     int socketpairs[2];         /*0: belong to master thread, 1: belong to myself*/
     
-    list *csul;    /* Connect swap unit list */
+    dlist *csul;    /* Connect swap unit list */
     pthread_mutex_t csullock;   /* swap unit list locker */
 
     /* Some global state in order to continue the work incrementally 

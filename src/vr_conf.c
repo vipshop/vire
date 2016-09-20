@@ -1614,13 +1614,13 @@ static void rewriteConfigAppendLine(struct rewriteConfigState *state, sds line) 
 
 /* Populate the option -> list of line numbers map. */
 static void rewriteConfigAddLineNumberToOption(struct rewriteConfigState *state, sds option, int linenum) {
-    list *l = dictFetchValue(state->option_to_line,option);
+    dlist *l = dictFetchValue(state->option_to_line,option);
 
     if (l == NULL) {
-        l = listCreate();
+        l = dlistCreate();
         dictAdd(state->option_to_line,sdsdup(option),l);
     }
-    listAddNodeTail(l,(void*)(long)linenum);
+    dlistAddNodeTail(l,(void*)(long)linenum);
 }
 
 dictType optionToLineDictType = {
@@ -1733,7 +1733,7 @@ static void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const
  * in any way. */
 static void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force) {
     sds o = sdsnew(option);
-    list *l = dictFetchValue(state->option_to_line,o);
+    dlist *l = dictFetchValue(state->option_to_line,o);
 
     rewriteConfigMarkAsProcessed(state,option);
 
@@ -1745,13 +1745,13 @@ static void rewriteConfigRewriteLine(struct rewriteConfigState *state, const cha
     }
 
     if (l) {
-        listNode *ln = listFirst(l);
+        dlistNode *ln = dlistFirst(l);
         int linenum = (long) ln->value;
 
         /* There are still lines in the old configuration file we can reuse
          * for this option. Replace the line with the new one. */
-        listDelNode(l,ln);
-        if (listLength(l) == 0) dictDelete(state->option_to_line,o);
+        dlistDelNode(l,ln);
+        if (dlistLength(l) == 0) dictDelete(state->option_to_line,o);
         sdsfree(state->lines[linenum]);
         state->lines[linenum] = line;
     } else {
@@ -1787,7 +1787,7 @@ static void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
     dictEntry *de;
 
     while((de = dictNext(di)) != NULL) {
-        list *l = dictGetVal(de);
+        dlist *l = dictGetVal(de);
         sds option = dictGetKey(de);
 
         /* Don't blank lines about options the rewrite process
@@ -1797,13 +1797,13 @@ static void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
             continue;
         }
 
-        while(listLength(l)) {
-            listNode *ln = listFirst(l);
+        while(dlistLength(l)) {
+            dlistNode *ln = dlistFirst(l);
             int linenum = (long) ln->value;
 
             sdsfree(state->lines[linenum]);
             state->lines[linenum] = sdsempty();
-            listDelNode(l,ln);
+            dlistDelNode(l,ln);
         }
     }
     dictReleaseIterator(di);

@@ -1,5 +1,7 @@
 #include <stdlib.h>
 
+#include <dmalloc.h>
+
 #include <dlist.h>
 #include <dmtqueue.h>
 #include <dlockqueue.h>
@@ -9,7 +11,7 @@ dmtqueue *dmtqueue_create(void)
 {
     dmtqueue *q;
 
-    q = malloc(sizeof(*q));
+    q = dalloc(sizeof(*q));
     if (q == NULL) {
         return NULL;
     }
@@ -33,7 +35,7 @@ void dmtqueue_destroy(dmtqueue *q)
         q->destroy(q->l);
     }
 
-    free(q);
+    dfree(q);
 }
 
 long long dmtqueue_push(dmtqueue *q, void *value)

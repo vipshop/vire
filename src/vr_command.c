@@ -310,7 +310,7 @@ void call(client *c, int flags) {
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
      * not generated from reading an AOF. */
-    if (listLength(server.monitors) &&
+    if (dlistLength(server.monitors) &&
         !server.loading &&
         !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)))
     {
@@ -593,7 +593,7 @@ int processCommand(client *c) {
     } else {
         call(c,CMD_CALL_FULL);
         c->woff = repl.master_repl_offset;
-        if (listLength(server.ready_keys))
+        if (dlistLength(server.ready_keys))
             handleClientsBlockedOnLists();
     }
 

@@ -68,7 +68,7 @@ void
 csul_push(vr_worker *worker, struct connswapunit *su)
 {
     pthread_mutex_lock(&worker->csullock);
-    listPush(worker->csul, su);
+    dlistPush(worker->csul, su);
     pthread_mutex_unlock(&worker->csullock);
 }
 
@@ -78,7 +78,7 @@ csul_pop(vr_worker *worker)
     struct connswapunit *su = NULL;
 
     pthread_mutex_lock(&worker->csullock);
-    su = listPop(worker->csul);
+    su = dlistPop(worker->csul);
     pthread_mutex_unlock(&worker->csullock);
     
     return su;
@@ -142,7 +142,7 @@ vr_worker_init(vr_worker *worker)
         return VR_ERROR;
     }
 
-    worker->csul = listCreate();
+    worker->csul = dlistCreate();
     if (worker->csul == NULL) {
         log_error("create list failed: out of memory");
         return VR_ENOMEM;
@@ -170,7 +170,7 @@ vr_worker_deinit(vr_worker *worker)
     }
 
     if (worker->csul != NULL) {
-        listRelease(worker->csul);
+        dlistRelease(worker->csul);
         worker->csul = NULL;
     }
 }

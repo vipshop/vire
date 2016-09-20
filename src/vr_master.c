@@ -49,7 +49,7 @@ master_init(vr_conf *conf)
         }
     }
 
-    master.cbsul = listCreate();
+    master.cbsul = dlistCreate();
     if (master.cbsul == NULL) {
         log_error("Create list failed: out of memory");
         return VR_ENOMEM;
@@ -89,7 +89,7 @@ static void
 cbsul_push(struct connswapunit *su)
 {
     pthread_mutex_lock(&master.cbsullock);
-    listPush(master.cbsul, su);
+    dlistPush(master.cbsul, su);
     pthread_mutex_unlock(&master.cbsullock);
 }
 
@@ -99,7 +99,7 @@ cbsul_pop(void)
     struct connswapunit *su = NULL;
 
     pthread_mutex_lock(&master.cbsullock);
-    su = listPop(master.cbsul);
+    su = dlistPop(master.cbsul);
     pthread_mutex_unlock(&master.cbsullock);
     
     return su;

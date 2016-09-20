@@ -678,7 +678,7 @@ void rpoplpushCommand(client *c) {
  * timeout */
 void blockForKeys(client *c, robj **keys, int numkeys, mstime_t timeout, robj *target) {
     dictEntry *de;
-    list *l;
+    dlist *l;
     int j;
 
     c->bpop.timeout = timeout;
@@ -697,14 +697,14 @@ void blockForKeys(client *c, robj **keys, int numkeys, mstime_t timeout, robj *t
             int retval;
 
             /* For every key we take a list of clients blocked for it */
-            l = listCreate();
+            l = dlistCreate();
             retval = dictAdd(c->db->blocking_keys,keys[j],l);
             incrRefCount(keys[j]);
             serverAssertWithInfo(c,keys[j],retval == DICT_OK);
         } else {
             l = dictGetVal(de);
         }
-        listAddNodeTail(l,c);
+        dlistAddNodeTail(l,c);
     }
     blockClient(c,BLOCKED_LIST);
 }
@@ -714,7 +714,7 @@ void blockForKeys(client *c, robj **keys, int numkeys, mstime_t timeout, robj *t
 void unblockClientWaitingData(client *c) {
     dictEntry *de;
     dictIterator *di;
-    list *l;
+    dlist *l;
 
     serverAssertWithInfo(c,NULL,dictSize(c->bpop.keys) != 0);
     di = dictGetIterator(c->bpop.keys);
@@ -725,9 +725,9 @@ void unblockClientWaitingData(client *c) {
         /* Remove this client from the list of clients waiting for this key. */
         l = dictFetchValue(c->db->blocking_keys,key);
         serverAssertWithInfo(c,key,l != NULL);
-        listDelNode(l,listSearchKey(l,c));
+        dlistDelNode(l,dlistSearchKey(l,c));
         /* If the list is empty we need to remove it to avoid wasting memory */
-        if (listLength(l) == 0)
+        if (dlistLength(l) == 0)
             dictDelete(c->db->blocking_keys,key);
     }
     dictReleaseIterator(di);
@@ -762,7 +762,7 @@ void signalListAsReady(redisDb *db, robj *key) {
     rl->key = key;
     rl->db = db;
     incrRefCount(key);
-    listAddNodeTail(server.ready_keys,rl);
+    dlistAddNodeTail(server.ready_keys,rl);
 
     /* We also add the key in the db->ready_keys dictionary in order
      * to avoid adding it multiple times into a list with a simple O(1)
@@ -852,18 +852,18 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
  * again as a result of serving BRPOPLPUSH we can have new blocking clients
  * to serve because of the PUSH side of BRPOPLPUSH. */
 void handleClientsBlockedOnLists(void) {
-    while(listLength(server.ready_keys) != 0) {
-        list *l;
+    while(dlistLength(server.ready_keys) != 0) {
+        dlist *l;
 
         /* Point server.ready_keys to a fresh list and save the current one
          * locally. This way as we run the old list we are free to call
          * signalListAsReady() that may push new elements in server.ready_keys
          * when handling clients blocked into BRPOPLPUSH. */
         l = server.ready_keys;
-        server.ready_keys = listCreate();
+        server.ready_keys = dlistCreate();
 
-        while(listLength(l) != 0) {
-            listNode *ln = listFirst(l);
+        while(dlistLength(l) != 0) {
+            dlistNode *ln = dlistFirst(l);
             readyList *rl = ln->value;
 
             /* First of all remove this key from db->ready_keys so that
@@ -880,11 +880,11 @@ void handleClientsBlockedOnLists(void) {
                  * this key, from the first blocked to the last. */
                 de = dictFind(rl->db->blocking_keys,rl->key);
                 if (de) {
-                    list *clients = dictGetVal(de);
-                    int numclients = listLength(clients);
+                    dlist *clients = dictGetVal(de);
+                    int numclients = dlistLength(clients);
 
                     while(numclients--) {
-                        listNode *clientnode = listFirst(clients);
+                        dlistNode *clientnode = dlistFirst(clients);
                         client *receiver = clientnode->value;
                         robj *dstkey = receiver->bpop.target;
                         int where = (receiver->lastcmd &&
@@ -926,9 +926,9 @@ void handleClientsBlockedOnLists(void) {
             /* Free this item. */
             decrRefCount(rl->key);
             dfree(rl);
-            listDelNode(l,ln);
+            dlistDelNode(l,ln);
         }
-        listRelease(l); /* We have the new list on place at this point. */
+        dlistRelease(l); /* We have the new list on place at this point. */
     }
 }
 
