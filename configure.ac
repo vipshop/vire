@@ -5,7 +5,7 @@ m4_define([VR_PATCH], 0)
 m4_define([VR_BUGS], [diguo58@gmail.com])
 
 # Initialize autoconf
-AC_PREREQ([2.64])
+AC_PREREQ([2.63])
 AC_INIT([vire], [VR_MAJOR.VR_MINOR.VR_PATCH], [VR_BUGS])
 AC_CONFIG_SRCDIR([src/vr.c])
 AC_CONFIG_AUX_DIR([config])
