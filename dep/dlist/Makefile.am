@@ -5,6 +5,7 @@ if !OS_SOLARIS
 AM_CPPFLAGS += -D_GNU_SOURCE
 endif
 AM_CPPFLAGS += -I $(top_srcdir)/dep/util
+AM_CPPFLAGS += -I $(top_srcdir)/dep/jemalloc-4.2.0/include
 AM_CPPFLAGS += -I $(top_srcdir)/dep/dmalloc
 
 AM_CFLAGS = -Wall -Wshadow

@@ -7,6 +7,7 @@ endif
 AM_CPPFLAGS += -I $(top_srcdir)/dep/dhashkit
 AM_CPPFLAGS += -I $(top_srcdir)/dep/ae
 AM_CPPFLAGS += -I $(top_srcdir)/dep/util
+AM_CPPFLAGS += -I $(top_srcdir)/dep/jemalloc-4.2.0/include
 AM_CPPFLAGS += -I $(top_srcdir)/dep/dmalloc
 AM_CPPFLAGS += -I $(top_srcdir)/dep/sds
 AM_CPPFLAGS += -I $(top_srcdir)/dep/darray
