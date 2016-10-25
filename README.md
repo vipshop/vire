@@ -186,6 +186,7 @@ A quick checklist:
 #### HyperLogLog
 
 + pfadd
++ pfcount
 
 ## License
 

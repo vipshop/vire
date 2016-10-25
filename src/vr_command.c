@@ -175,7 +175,8 @@ struct redisCommand redisCommandTable[] = {
     {"zremrangebylex",zremrangebylexCommand,4,"w",0,NULL,1,1,1,0,0},
     {"zscan",zscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
     /* HyperLogLog */
-    {"pfadd",pfaddCommand,-2,"wmF",0,NULL,1,1,1,0,0}
+    {"pfadd",pfaddCommand,-2,"wmF",0,NULL,1,1,1,0,0},
+    {"pfcount",pfcountCommand,-2,"r",0,NULL,1,-1,1,0,0}
 };
 
 /* Populates the Redis Command Table starting from the hard coded list

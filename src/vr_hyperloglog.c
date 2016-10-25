@@ -1177,6 +1177,7 @@ void pfcountCommand(client *c) {
     robj *o;
     struct hllhdr *hdr;
     uint64_t card;
+    int expired;
 
     /* Case 1: multi-key keys, cardinality of the union.
      *
@@ -1193,16 +1194,26 @@ void pfcountCommand(client *c) {
         registers = max + HLL_HDR_SIZE;
         for (j = 1; j < c->argc; j++) {
             /* Check type and size. */
+            fetchInternalDbByKey(c,c->argv[j]);
+            lockDbRead(c->db);
             robj *o = lookupKeyRead(c->db,c->argv[j]);
-            if (o == NULL) continue; /* Assume empty HLL for non existing var.*/
-            if (isHLLObjectOrReply(c,o) != VR_OK) return;
-
+            if (o == NULL) {
+                unlockDb(c->db);
+                continue; /* Assume empty HLL for non existing var.*/
+            }
+            if (isHLLObjectOrReply(c,o) != VR_OK) {
+                unlockDb(c->db);
+                return;
+            }
             /* Merge with this HLL with our 'max' HHL by setting max[i]
              * to MAX(max[i],hll[i]). */
             if (hllMerge(registers,o) == VR_ERROR) {
+                unlockDb(c->db);
                 addReplySds(c,sdsnew(invalid_hll_err));
                 return;
             }
+
+            unlockDb(c->db);
         }
 
         /* Compute cardinality of the resulting set. */
@@ -1214,13 +1225,19 @@ void pfcountCommand(client *c) {
      *
      * The user specified a single key. Either return the cached value
      * or compute one and update the cache. */
-    o = lookupKeyWrite(c->db,c->argv[1],NULL);
+    fetchInternalDbByKey(c,c->argv[1]);
+    lockDbWrite(c->db);
+    o = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (o == NULL) {
         /* No key? Cardinality is zero since no element was added, otherwise
          * we would have a key as HLLADD creates it as a side effect. */
         addReply(c,shared.czero);
     } else {
-        if (isHLLObjectOrReply(c,o) != VR_OK) return;
+        if (isHLLObjectOrReply(c,o) != VR_OK) {
+            unlockDb(c->db);
+            if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
+            return;
+        }
         o = dbUnshareStringValue(c->db,c->argv[1],o);
 
         /* Check if the cached cardinality is valid. */
@@ -1240,6 +1257,8 @@ void pfcountCommand(client *c) {
             /* Recompute it and update the cached value. */
             card = hllCount(hdr,&invalid);
             if (invalid) {
+                unlockDb(c->db);
+                if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
                 addReplySds(c,sdsnew(invalid_hll_err));
                 return;
             }
@@ -1260,6 +1279,9 @@ void pfcountCommand(client *c) {
         }
         addReplyLongLong(c,card);
     }
+
+    unlockDb(c->db);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
 /* PFMERGE dest src1 src2 src3 ... srcN => OK */
