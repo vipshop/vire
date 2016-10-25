@@ -1,0 +1,17 @@
+ 2016-10-25  deep011  <diguo58@gmail.com>
+    * vire: version 1.0.0 release
+      vire (pronounced "vip-redis") is a multithread redis(based on redis-3.2.0) maintains in vipshop.
+      multi-threads support.
+      command type CONNECTION supported: ping,quit,echo,select,auth,admin.
+      command type SERVER supported: info,flushall,flushdb,time,dbsize,command,config,client,slowlog.
+      command type KEY supported: del,exists,ttl,pttl,expire,expireat,pexpire,pexpireat,persist,randomkey,type,keys,scan,object.
+      command type STRING supported: get,set,setnx,setex,psetex,incr,decr,incrby,decrby,append,strlen,getset,incrbyfloat,setbit,getbit,setrange,getrange,bitcount,bitpos,mget,mset.
+      command type HASH supported: hset,hget,hlen,hdel,hexists,hkeys,hvals,hgetall,hincrby,hincrbyfloat,hmget,hmset,hsetnx,hstrlen,hscan.
+      command type LIST supported: rpush,lpush,lrange,rpop,lpop,llen,lrem,ltrim,lindex,lset.
+      command type SET supported: sadd,smembers,scard,srem,spop,sismember,sscan,sunion,sunionstore,sdiff,sdiffstore,sinter,sinterstore.
+      command type SORTEDSET supported: zadd,zincrby,zrange,zrevrange,zrem,zcard,zcount,zrangebyscore,zrevrangebyscore,zrank,zrevrank,zscore,zremrangebyscore,zremrangebyrank,zremrangebylex,zscan.
+      command type HYPERLOGLOG supported: pfadd,pfcount.
+      config option added(used for config file and 'config get/set' command): port,databases,internal-dbs-per-databases,requirepass,adminpass,commands-need-adminpass,maxclients,maxmemory,maxmemory-policy,maxmemory-samples,max-time-complexity-limit,slowlog-log-slower-than,slowlog-max-len.
+      viretest added that is for unit test.
+      vireabtest added that is for compare command execution and data consistency with redis-3.2.0.
+      vire-benchmark added that is modified from redis-benchmark but multi-threads supported and pressure test vire.
