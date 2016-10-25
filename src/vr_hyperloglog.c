@@ -1276,6 +1276,7 @@ void pfcountCommand(client *c) {
              * we need to propagate the change. */
             signalModifiedKey(c->db,c->argv[1]);
             server.dirty++;
+            c->vel->dirty++;
         }
         addReplyLongLong(c,card);
     }

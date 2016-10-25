@@ -1296,6 +1296,61 @@ error:
     return 0;
 }
 
+static int simple_test_cmd_pfadd_pfcount(vire_instance *vi)
+{
+    char *key = "test_cmd_pfadd_pfcount-key";
+    char *value = "test_cmd_pfadd_pfcount-value";
+    char *MESSAGE = "PFADD/PFCOUNT simple test";
+    redisReply * reply = NULL;
+    int n = 0, count = 20329, repeat;
+
+    while (repeat < 2) {
+        int expect_count;
+        reply = redisCommand(vi->ctx, "pfadd %s %s%d", key, value, n++);
+        if (reply == NULL || reply->type != REDIS_REPLY_INTEGER) {
+            goto error;
+        }
+        freeReplyObject(reply);
+        if (n >= count) {
+            repeat++;
+            n = 0;
+        }
+
+        if (repeat == 0) {
+            expect_count = n;
+        } else {
+            expect_count = count;
+        }
+        
+        reply = redisCommand(vi->ctx, "pfcount %s", key);
+        if (reply == NULL || reply->type != REDIS_REPLY_INTEGER) {
+            goto error;
+        }
+        if (reply->integer != (long long)expect_count) {
+            float mistake = ((float)expect_count-(float)reply->integer)/(float)expect_count;
+            if (mistake < -0.02 || mistake > 0.02) {
+                vrt_scnprintf(errmsg, LOG_MAX_LEN, "pfadd %d different elements is not approximated pfcount returned %lld, mistake %f", 
+                    expect_count, reply->integer, mistake);
+                goto error;
+            }
+        }
+        freeReplyObject(reply);
+    }
+
+    show_test_result(VRT_TEST_OK,MESSAGE,errmsg);
+
+    return 1;
+
+error:
+
+    if (reply) freeReplyObject(reply);
+
+    show_test_result(VRT_TEST_ERR,MESSAGE,errmsg);
+    errmsg[0] = '\0';
+
+    return 0;
+}
+
 int simple_test(void)
 {
     vire_instance *vi;
@@ -1331,6 +1386,8 @@ int simple_test(void)
     ok_count+=simple_test_cmd_hget_hset(vi); all_count++;
     ok_count+=simple_test_cmd_hlen(vi); all_count++;
     ok_count+=simple_test_cmd_hdel(vi); all_count++;
+    /* HyperLogLog */
+    ok_count+=simple_test_cmd_pfadd_pfcount(vi); all_count++;
     
     vire_instance_destroy(vi);
 
