@@ -1,6 +1,6 @@
 # Define the package version numbers and the bug reporting address
-m4_define([VR_MAJOR], 0)
-m4_define([VR_MINOR], 1)
+m4_define([VR_MAJOR], 1)
+m4_define([VR_MINOR], 0)
 m4_define([VR_PATCH], 0)
 m4_define([VR_BUGS], [diguo58@gmail.com])
 
