@@ -66,17 +66,14 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
 
     setKey(c->db,key,dupStringObject(val),NULL);
-    c->db->dirty++;
     if (expire) setExpire(c->db,key,dmsec_now()+milliseconds);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
     if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
         "expire",key,c->db->id);
     addReply(c, ok_reply ? ok_reply : shared.ok);
-    /* Check if this is a Fake client for AOF loading? */
-    if (c->conn && c->conn->sd > 0) {
-        c->vel->dirty++;
-        feedAppendOnlyFileIfNeeded(c->cmd, c->db, argv, argc);
-    }
+    
+    propagateIfNeededForClient(c, argv, argc, 1);
+
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
@@ -446,14 +443,15 @@ void incrDecrCommand(client *c, long long incr) {
     }
     value += incr;
 
-    if (o && o->refcount == 1 && o->encoding == OBJ_ENCODING_INT &&
+    if (o && o->encoding == OBJ_ENCODING_INT &&
         (value < 0 || value >= OBJ_SHARED_INTEGERS) &&
         value >= LONG_MIN && value <= LONG_MAX)
     {
+        ASSERT(o->refcount == 1);
         new = o;
         o->ptr = (void*)((long)value);
     } else {
-        new = createStringObjectFromLongLong(value);
+        new = createStringObjectFromLongLongUnconstant(value);
         if (o) {
             dbOverwrite(c->db,c->argv[1],new);
         } else {
@@ -462,10 +460,10 @@ void incrDecrCommand(client *c, long long incr) {
     }
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
-    c->vel->dirty++;
     addReply(c,shared.colon);
     addReply(c,new);
     addReply(c,shared.crlf);
+    propagateIfNeededForClient(c, c->argv, c->argc, 1);
     
 end:
     unlockDb(c->db);
@@ -527,7 +525,7 @@ void incrbyfloatCommand(client *c) {
      * will not create differences in replicas or after an AOF restart. */
     aux = createStringObject("SET",3);
     rewriteClientCommandArgument(c,0,aux);
-    aux = dupStringObjectUnconstant(new);
+    aux = dupStringObjectIfUnconstant(new);
     rewriteClientCommandArgument(c,2,aux);
 
 end:

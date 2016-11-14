@@ -188,7 +188,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
 
     serverAssertWithInfo(NULL,key,de != NULL);
 
-    rdbSaveKeyIfNeeded(db,de,key->ptr,val,0);
+    rdbSaveKeyIfNeeded(db,de,key->ptr,val,1);
     
     dictReplace(db->dict, key->ptr, val);
 }
@@ -498,15 +498,15 @@ void scanCallback(void *privdata, const dictEntry *de) {
         key = createStringObject(sdskey, sdslen(sdskey));
     } else if (o->type == OBJ_SET) {
         key = dictGetKey(de);
-        key = dupStringObjectUnconstant(key);
+        key = dupStringObjectIfUnconstant(key);
     } else if (o->type == OBJ_HASH) {
         key = dictGetKey(de);
-        key = dupStringObjectUnconstant(key);
+        key = dupStringObjectIfUnconstant(key);
         val = dictGetVal(de);
-        val = dupStringObjectUnconstant(val);
+        val = dupStringObjectIfUnconstant(val);
     } else if (o->type == OBJ_ZSET) {
         key = dictGetKey(de);
-        key = dupStringObjectUnconstant(key);
+        key = dupStringObjectIfUnconstant(key);
         val = createStringObjectFromLongDouble(*(double*)dictGetVal(de),0);
     } else {
         serverPanic("Type not handled in SCAN callback.");
@@ -1120,7 +1120,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         c->vel->dirty++;
 
         /* Replicate/AOF this as an explicit DEL. */
-        aux = dupStringObjectUnconstant(key);
+        aux = dupStringObjectIfUnconstant(key);
         rewriteClientCommandVector(c,2,shared.del,aux);
         signalModifiedKey(c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);

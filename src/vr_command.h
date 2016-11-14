@@ -104,6 +104,7 @@ int redisOpArrayAppend(redisOpArray *oa, struct redisCommand *cmd, int dbid, rob
 void redisOpArrayFree(redisOpArray *oa);
 
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
+void propagateIfNeededForClient(struct client *c, robj **argv, int argc, int dirty);
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int target);
 void forceCommandPropagation(struct client *c, int flags);
 void preventCommandPropagation(struct client *c);

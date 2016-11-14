@@ -657,6 +657,18 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
         replicationFeedSlaves(repl.slaves,dbid,argv,argc);
 }
 
+void propagateIfNeededForClient(client *c, robj **argv, int argc, int dirty)
+{
+    /* Check if this is a Fake client for AOF loading? */
+    if (!c->conn || c->conn->sd < -1) {
+        return;
+    }
+
+    c->vel->dirty += dirty;
+    c->db->dirty += dirty;
+    feedAppendOnlyFileIfNeeded(c->cmd, c->db, argv, argc);
+}
+
 /* Used inside commands to schedule the propagation of additional commands
  * after the current command is propagated to AOF / Replication.
  *
@@ -679,7 +691,7 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
 
     argvcopy = dalloc(sizeof(robj*)*(size_t)argc);
     for (j = 0; j < argc; j++) {
-        argvcopy[j] = dupStringObjectUnconstant(argv[j]);
+        argvcopy[j] = dupStringObjectIfUnconstant(argv[j]);
     }
     redisOpArrayAppend(&server.also_propagate,cmd,dbid,argvcopy,argc,target);
 }

@@ -203,8 +203,8 @@ int hashTypeSet(robj *o, robj *field, robj *value) {
         if (hashTypeLength(o) > server.hash_max_ziplist_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT);
     } else if (o->encoding == OBJ_ENCODING_HT) {
-        field_new = dupStringObjectUnconstant(field);
-        value_new = dupStringObjectUnconstant(value);
+        field_new = dupStringObjectIfUnconstant(field);
+        value_new = dupStringObjectIfUnconstant(value);
         if (dictReplace(o->ptr, field_new, value_new)) { /* Insert */
             /* Do nothing */
         } else { /* Update */

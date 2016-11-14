@@ -232,7 +232,7 @@ void setTypeConvert(robj *setobj, int enc) {
         /* To add the elements we extract integers and create redis objects */
         si = setTypeInitIterator(setobj);
         while (setTypeNext(si,&element,&intele) != -1) {
-            element = createStringObjectFromLongLongNoConstant(intele);
+            element = createStringObjectFromLongLongUnconstant(intele);
             serverAssertWithInfo(NULL,element,
                 dictAdd(d,element,NULL) == DICT_OK);
             element->version = setobj->version;
@@ -277,12 +277,7 @@ void saddCommand(client *c) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[1],c->db->id);
     }
-    /* Check if this is a Fake client for AOF loading? */
-    if (c->conn && c->conn->sd > 0) {
-        c->db->dirty += added;
-        feedAppendOnlyFileIfNeeded(c->cmd, c->db, c->argv, c->argc);
-    }
-    c->vel->dirty += added;
+    propagateIfNeededForClient(c,c->argv,c->argc,added);
     addReplyLongLong(c,added);
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
@@ -318,13 +313,8 @@ void sremCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_SET,"srem",key,c->db->id);
         if (keyremoved)
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
-        c->vel->dirty += deleted;
     }
-    /* Check if this is a Fake client for AOF loading? */
-    if (c->conn && c->conn->sd > 0) {
-        c->db->dirty += deleted;
-        feedAppendOnlyFileIfNeeded(c->cmd, c->db, c->argv, c->argc);
-    }
+    propagateIfNeededForClient(c,c->argv,c->argc,deleted);
     addReplyLongLong(c,deleted);
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
@@ -511,7 +501,7 @@ void spopWithCountCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
 
         /* Propagate this command as an DEL operation */
-        aux = dupStringObjectUnconstant(key);
+        aux = dupStringObjectIfUnconstant(key);
         rewriteClientCommandVector(c,2,shared.del,aux);
         signalModifiedKey(c->db,key);
         c->vel->dirty++;
@@ -547,7 +537,7 @@ void spopWithCountCommand(client *c) {
             if (encoding == OBJ_ENCODING_INTSET) {
                 objele = createStringObjectFromLongLong(llele);
             } else {
-                objele = dupStringObjectUnconstant(objele);
+                objele = dupStringObjectIfUnconstant(objele);
             }
 
             /* Return the element to the client and remove from the set. */
@@ -654,7 +644,7 @@ void spopCommand(client *c) {
         rdbSaveKeyIfNeeded(c->db,NULL,key->ptr,set,0);
         set->ptr = intsetRemove(set->ptr,llele,NULL);
     } else {
-        ele = dupStringObjectUnconstant(ele);
+        ele = dupStringObjectIfUnconstant(ele);
         setTypeRemove(c->db,key,set,ele);
     }
 
@@ -662,7 +652,7 @@ void spopCommand(client *c) {
 
     /* Replicate/AOF this command as an SREM operation */
     aux1 = createStringObject("SREM",4);
-    aux2 = dupStringObjectUnconstant(key);
+    aux2 = dupStringObjectIfUnconstant(key);
     rewriteClientCommandVector(c,3,aux1,aux2,ele);
 
     /* Add the element to the reply */
@@ -673,16 +663,9 @@ void spopCommand(client *c) {
         dbDelete(c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
     }
-
-    /* Check if this is a Fake client for AOF loading? */
-    if (c->conn && c->conn->sd > 0) {
-        c->db->dirty ++;
-        feedAppendOnlyFileIfNeeded(c->cmd, c->db, c->argv, c->argc);
-    }
-    
+    propagateIfNeededForClient(c,c->argv,c->argc,1);
     /* Set has been modified */
     signalModifiedKey(c->db,key);
-    c->vel->dirty++;
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }

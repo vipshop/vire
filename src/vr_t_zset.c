@@ -433,12 +433,12 @@ int zslParseLexRangeItem(robj *item, robj **dest, int *ex) {
     case '+':
         if (c[1] != '\0') return VR_ERROR;
         *ex = 0;
-        *dest = dupStringObjectUnconstant(shared.maxstring);
+        *dest = dupStringObjectIfUnconstant(shared.maxstring);
         return VR_OK;
     case '-':
         if (c[1] != '\0') return VR_ERROR;
         *ex = 0;
-        *dest = dupStringObjectUnconstant(shared.minstring);
+        *dest = dupStringObjectIfUnconstant(shared.minstring);
         return VR_OK;
     case '(':
         *ex = 1;

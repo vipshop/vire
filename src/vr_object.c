@@ -82,7 +82,7 @@ robj *createStringObjectFromLongLong(long long value) {
     return o;
 }
 
-robj *createStringObjectFromLongLongNoConstant(long long value) {
+robj *createStringObjectFromLongLongUnconstant(long long value) {
     robj *o;
     if (value >= LONG_MIN && value <= LONG_MAX) {
         o = createObject(OBJ_STRING, NULL);
@@ -166,7 +166,7 @@ robj *dupStringObject(robj *o) {
     }
 }
 
-robj *dupStringObjectUnconstant(robj *o) {
+robj *dupStringObjectIfUnconstant(robj *o) {
     if (o->constant) return o;
     return dupStringObject(o);
 }

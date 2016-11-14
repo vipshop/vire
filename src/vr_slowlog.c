@@ -35,7 +35,7 @@ slowlogEntry *slowlogCreateEntry(robj **argv, int argc, long long duration) {
                     sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);
                 se->argv[j] = createObject(OBJ_STRING,s);
             } else {
-                se->argv[j] = dupStringObjectUnconstant(argv[j]);
+                se->argv[j] = dupStringObjectIfUnconstant(argv[j]);
             }
         }
     }

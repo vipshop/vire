@@ -1614,7 +1614,7 @@ void clientCommand(client *c) {
             }
         }
         if (c->name) freeObject(c->name);
-        c->name = dupStringObjectUnconstant(c->argv[2]);
+        c->name = dupStringObjectIfUnconstant(c->argv[2]);
         addReply(c,shared.ok);
         return;
     } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
