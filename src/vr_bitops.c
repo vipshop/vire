@@ -488,7 +488,7 @@ void setbitCommand(client *c) {
     ((uint8_t*)o->ptr)[byte] = byteval;
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
-    c->vel->dirty++;
+    propagateIfNeededForClient(c, c->argv, c->argc, 1);
     addReply(c, bitval ? shared.cone : shared.czero);
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
