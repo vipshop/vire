@@ -247,6 +247,9 @@ robj *dbRandomKey(redisDb *db) {
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
 int dbDelete(redisDb *db, robj *key) {
+
+    rdbSaveKeyIfNeeded(db,NULL,key->ptr,NULL,1);
+
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
@@ -359,7 +362,7 @@ void delCommand(client *c) {
             signalModifiedKey(c->db,c->argv[j]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,
                 "del",c->argv[j],c->db->id);
-            c->vel->dirty++;
+            propagateIfNeededForClient(c, c->argv, c->argc, 1);
             deleted++;
         }
         unlockDb(c->db);
