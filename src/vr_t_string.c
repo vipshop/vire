@@ -209,10 +209,14 @@ void getsetCommand(client *c) {
 end:
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
-    if (exist)
-        update_stats_add(c->vel->stats, keyspace_hits, 1);
-    else
-        update_stats_add(c->vel->stats, keyspace_misses, 1);
+
+    /* This maybe a Fake client, so we need to check the eventloop exist or not. */
+    if (c->vel) {
+        if (exist)
+            update_stats_add(c->vel->stats, keyspace_hits, 1);
+        else
+            update_stats_add(c->vel->stats, keyspace_misses, 1);
+    }
 }
 
 void setrangeCommand(client *c) {

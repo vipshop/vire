@@ -1794,6 +1794,7 @@ static client *createFakeClient(void) {
 
     selectDb(c,0);
     c->conn = NULL;
+    c->vel = NULL;
     c->name = NULL;
     c->querybuf = sdsempty();
     c->querybuf_peak = 0;
