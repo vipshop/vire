@@ -405,24 +405,32 @@ void msetGenericCommand(client *c, int nx) {
 void msetCommand(client *c) {
     int j;
     int expired = 0, expired_total = 0;
+    robj *subargv[3];
 
     if ((c->argc % 2) == 0) {
         addReplyError(c,"wrong number of arguments for MSET");
         return;
     }
 
+    subargv[0] = createStringObject("SET",3);
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
         fetchInternalDbByKeyForClient(c,c->argv[j]);
         lockDbWrite(c->db);
         setKey(c->db,c->argv[j],dupStringObject(c->argv[j+1]),&expired);
+
+        subargv[1] = c->argv[j];
+        subargv[2] = c->argv[j+1];
+        propagateIfNeededForClient(c,subargv,3,1);
+        
         unlockDb(c->db);
         if (expired) expired_total ++;
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
-
+    
+    freeObject(subargv[0]);
+    
     if (expired_total) update_stats_add(c->vel->stats,expiredkeys,expired_total);
-    c->vel->dirty += (c->argc-1)/2;
     addReply(c, shared.ok);
 }
 
