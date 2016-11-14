@@ -564,7 +564,7 @@ void appendCommand(client *c) {
     }
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"append",c->argv[1],c->db->id);
-    c->vel->dirty++;
+    propagateIfNeededForClient(c, c->argv, c->argc, 1);
     addReplyLongLong(c,totlen);
 
 end:
