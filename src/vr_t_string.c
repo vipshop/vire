@@ -273,8 +273,6 @@ void setrangeCommand(client *c) {
             return;
         }
 
-        rdbSaveKeyIfNeeded(c->db,NULL,c->argv[1]->ptr,o,1);
-
         /* Return when the resulting string exceeds allowed size */
         if (checkStringLength(c,offset+sdslen(value)) != VR_OK) {
             unlockDb(c->db);
@@ -284,11 +282,14 @@ void setrangeCommand(client *c) {
 
         /* Create a copy when the object is shared or encoded. */
         o = dbUnshareStringValue(c->db,c->argv[1],o);
+
+        rdbSaveKeyIfNeeded(c->db,NULL,c->argv[1]->ptr,o,1);
     }
 
     if (sdslen(value) > 0) {
         o->ptr = sdsgrowzero(o->ptr,offset+sdslen(value));
         memcpy((char*)o->ptr+offset,value,sdslen(value));
+        
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,
             "setrange",c->argv[1],c->db->id);
@@ -461,7 +462,7 @@ void incrDecrCommand(client *c, long long incr) {
         (value < 0 || value >= OBJ_SHARED_INTEGERS) &&
         value >= LONG_MIN && value <= LONG_MAX)
     {
-        ASSERT(o->refcount == 1);
+        ASSERT(o->refcount == -1);
         new = o;
         o->ptr = (void*)((long)value);
     } else {

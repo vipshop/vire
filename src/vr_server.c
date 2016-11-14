@@ -624,6 +624,8 @@ int freeMemoryIfNeeded(vr_eventloop *vel) {
             /* Finally remove the selected key. */
             if (bestkey) {
                 robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
+                
+                propagateExpire(db,keyobj);
                 dbDelete(db,keyobj);
                 freeObject(keyobj);
                 keys_freed++;

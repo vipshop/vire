@@ -1022,13 +1022,9 @@ void propagateExpire(redisDb *db, robj *key) {
 
     argv[0] = shared.del;
     argv[1] = key;
-    incrRefCount(argv[0]);
-    incrRefCount(argv[1]);
-
-    replicationFeedSlaves(repl.slaves,db->id,argv,2);
-
-    decrRefCount(argv[0]);
-    decrRefCount(argv[1]);
+    
+    db->dirty ++;
+    feedAppendOnlyFileIfNeeded(server.delCommand, db, argv, 2);
 }
 
 /* Check if the key exists in the db and had expired */
@@ -1072,7 +1068,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
     if (now <= when) return 0;
 
     /* Delete the key */
-    //propagateExpire(db,key);
+    propagateExpire(db,key);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,
         "expired",key,db->id);
     return dbDelete(db,key);
@@ -1116,31 +1112,28 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
      *
      * Instead we take the other branch of the IF statement setting an expire
      * (possibly in the past) and wait for an explicit DEL from the master. */
-    if (when <= vr_msec_now() && !server.loading && !repl.masterhost) {
+    if (when <= dmsec_now() && !server.loading && !repl.masterhost) {
         robj *aux;
 
         serverAssertWithInfo(c,key,dbDelete(c->db,key));
-        c->vel->dirty++;
 
         /* Replicate/AOF this as an explicit DEL. */
         aux = dupStringObjectIfUnconstant(key);
         rewriteClientCommandVector(c,2,shared.del,aux);
-        signalModifiedKey(c->db,key);
+        
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
-        unlockDb(c->db);
-        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
-        addReply(c, shared.cone);
-        return;
     } else {
+        rdbSaveKeyIfNeeded(c->db,NULL,key->ptr,NULL,0);
         setExpire(c->db,key,when);
-        addReply(c,shared.cone);
-        signalModifiedKey(c->db,key);
+        
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
-        unlockDb(c->db);
-        if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
-        c->vel->dirty++;
-        return;
     }
+
+    signalModifiedKey(c->db,key);
+    propagateIfNeededForClient(c,c->argv,c->argc,1);
+    unlockDb(c->db);
+    addReply(c, shared.cone);
+    if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
 
 void expireCommand(client *c) {
@@ -1619,6 +1612,8 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     if (now > t) {
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
+
+        propagateExpire(db,keyobj);
         dbDelete(db,keyobj);
         freeObject(keyobj);
         return 1;

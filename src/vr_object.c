@@ -465,6 +465,8 @@ robj *getDecodedObject(robj *o) {
     } else {
         serverPanic("Unknown encoding type");
     }
+
+    return o;
 }
 
 /* Compare two string objects via strcmp() or strcoll() depending on flags.

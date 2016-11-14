@@ -576,7 +576,7 @@ int rdbSaveKeyIfNeeded(redisDb *db, dictEntry *de, sds key, robj *val, int dump_
     if (val == NULL) {
         ASSERT(de != NULL);
         val = dictGetVal(de);
-    } else {
+    } else if (de) {
         ASSERT(val == dictGetVal(de));
     }
     ASSERT(val != NULL);
@@ -1746,6 +1746,9 @@ static int rdbLoadData(char *filename)
         if (repl.masterhost == NULL && expiretime != -1 && expiretime < now) {
             freeObject(key);
             freeObject(val);
+            
+            /* Read type. */
+            if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
             continue;
         }
 
