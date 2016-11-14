@@ -75,6 +75,7 @@ A quick checklist:
 + config
 + client
 + slowlog
++ bgsave
 
 #### Key
 
