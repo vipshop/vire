@@ -517,7 +517,6 @@ void incrbyfloatCommand(client *c) {
         dbAdd(c->db,c->argv[1],new);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id);
-    c->vel->dirty++;
     addReplyBulk(c,new);
 
     /* Always replicate INCRBYFLOAT as a SET command with the final value
@@ -527,7 +526,8 @@ void incrbyfloatCommand(client *c) {
     rewriteClientCommandArgument(c,0,aux);
     aux = dupStringObjectIfUnconstant(new);
     rewriteClientCommandArgument(c,2,aux);
-
+    propagateIfNeededForClient(c, c->argv, c->argc, 1);
+    
 end:
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);

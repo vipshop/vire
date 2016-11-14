@@ -188,9 +188,9 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
 
     serverAssertWithInfo(NULL,key,de != NULL);
 
-    rdbSaveKeyIfNeeded(db,de,key->ptr,val,1);
+    rdbSaveKeyIfNeeded(db,de,key->ptr,NULL,1);
     
-    dictReplace(db->dict, key->ptr, val);
+    dictReplace(db->dict,key->ptr,val);
 }
 
 /* High level Set operation. This function can be used in order to set

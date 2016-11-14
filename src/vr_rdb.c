@@ -175,7 +175,7 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags) {
         memcpy(p,buf,len);
         return p;
     } else if (encode) {
-        return createStringObjectFromLongLong(val);
+        return createStringObjectFromLongLongUnconstant(val);
     } else {
         return createObject(OBJ_STRING,sdsfromlonglong(val));
     }
@@ -732,7 +732,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
             znode = zslInsert(zs->zsl,score,ele);
             dictAdd(zs->dict,ele,&znode->score);
-            incrRefCount(ele); /* added to skiplist */
         }
 
         /* Convert *after* loading, since sorted sets are not stored ordered. */

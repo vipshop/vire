@@ -374,6 +374,7 @@ robj *tryObjectEncoding(robj *o) {
     long value;
     sds s = o->ptr;
     size_t len;
+    int unconstant = 1;
 
     /* Make sure this is a string object, the only type we encode
      * in this function. Other types use encoded memory efficient
@@ -402,7 +403,7 @@ robj *tryObjectEncoding(robj *o) {
         if (/*(server.maxmemory == 0 ||
              (server.maxmemory_policy != MAXMEMORY_VOLATILE_LRU &&
               server.maxmemory_policy != MAXMEMORY_ALLKEYS_LRU)) && */
-            value >= 0 &&
+            !unconstant && value >= 0 &&
             value < OBJ_SHARED_INTEGERS)
         {
             freeObject(o);
