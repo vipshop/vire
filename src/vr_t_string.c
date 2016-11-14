@@ -204,7 +204,7 @@ void getsetCommand(client *c) {
     }
 
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
-    c->vel->dirty++;
+    propagateIfNeededForClient(c, c->argv, c->argc, 1);
     
 end:
     unlockDb(c->db);
