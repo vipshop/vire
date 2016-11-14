@@ -273,6 +273,8 @@ void setrangeCommand(client *c) {
             return;
         }
 
+        rdbSaveKeyIfNeeded(c->db,NULL,c->argv[1]->ptr,o,1);
+
         /* Return when the resulting string exceeds allowed size */
         if (checkStringLength(c,offset+sdslen(value)) != VR_OK) {
             unlockDb(c->db);
@@ -290,7 +292,7 @@ void setrangeCommand(client *c) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,
             "setrange",c->argv[1],c->db->id);
-        c->vel->dirty++;
+        propagateIfNeededForClient(c, c->argv, c->argc, 1);
     }
     addReplyLongLong(c,sdslen(o->ptr));
     unlockDb(c->db);
