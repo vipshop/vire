@@ -96,8 +96,8 @@ struct vr_replication {
 
 extern struct vr_replication repl;
 
-int vr_replication_init(void);
-void vr_replication_deinit(void);
+int replicationInit(void);
+void replicationDeinit(void);
 
 void unblockClientWaitingReplicas(client *c);
 void refreshGoodSlavesCount(void);

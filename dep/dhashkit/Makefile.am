@@ -11,6 +11,7 @@ libdhashkit_a_SOURCES =	\
 	dhashkit.h		    \
 	dcrc16.c			\
 	dcrc32.c			\
+    dcrc64.c			\
 	dfnv.c			    \
 	dhsieh.c			\
 	djenkins.c		    \

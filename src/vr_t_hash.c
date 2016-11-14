@@ -463,7 +463,7 @@ void hsetCommand(client *c) {
     robj *o;
     int expired = 0;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1],&expired)) == NULL) {
         unlockDb(c->db);
@@ -485,7 +485,7 @@ void hsetnxCommand(client *c) {
     robj *o;
     int expired = 0;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1],&expired)) == NULL) {
         unlockDb(c->db);
@@ -519,7 +519,7 @@ void hmsetCommand(client *c) {
         return;
     }
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1],&expired)) == NULL) {
         unlockDb(c->db);
@@ -547,7 +547,7 @@ void hincrbyCommand(client *c) {
 
     if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != VR_OK) return;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1],&expired)) == NULL) goto end;
     if ((current = hashTypeGetObject(o,c->argv[2])) != NULL) {
@@ -589,7 +589,7 @@ void hincrbyfloatCommand(client *c) {
 
     if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != VR_OK) return;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1],&expired)) == NULL) {
         unlockDb(c->db);
@@ -671,7 +671,7 @@ static void addHashFieldToReply(client *c, robj *o, robj *field) {
 void hgetCommand(client *c) {
     robj *o;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL) {
         unlockDb(c->db);
@@ -692,7 +692,7 @@ void hmgetCommand(client *c) {
     robj *o;
     int i;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     /* Don't abort when the key cannot be found. Non-existing keys are empty
      * hashes, where HMGET should respond with a series of null bulks. */
@@ -724,7 +724,7 @@ void hdelCommand(client *c) {
     int j, deleted = 0, keyremoved = 0;
     int expired = 0;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero,&expired)) == NULL ||
         checkType(c,o,OBJ_HASH)) {
@@ -761,7 +761,7 @@ void hdelCommand(client *c) {
 void hlenCommand(client *c) {
     robj *o;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
         unlockDb(c->db);
@@ -781,7 +781,7 @@ void hlenCommand(client *c) {
 void hstrlenCommand(client *c) {
     robj *o;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
         unlockDb(c->db);
@@ -829,7 +829,7 @@ void genericHgetallCommand(client *c, int flags) {
     int multiplier = 0;
     int length, count = 0;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL) {
         unlockDb(c->db);
@@ -880,7 +880,7 @@ void hgetallCommand(client *c) {
 void hexistsCommand(client *c) {
     robj *o;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
         unlockDb(c->db);

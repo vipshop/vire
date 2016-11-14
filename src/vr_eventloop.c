@@ -35,6 +35,7 @@ vr_eventloop_init(vr_eventloop *vel, int filelimit)
     vel->pubsub_patterns = NULL;
     vel->notify_keyspace_events = 0;
     vel->cstable = NULL;
+    vel->loading_cache = 0;
 
     vel->el = aeCreateEventLoop(filelimit);
     if (vel->el == NULL) {

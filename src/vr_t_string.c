@@ -34,7 +34,7 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given */
 #define OBJ_SET_PX (1<<3)     /* Set if time in ms in given */
 
-void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
+void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply, robj **argv, int argc) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
     int expired = 0;
     int exist;
@@ -49,7 +49,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
     }
 
-    fetchInternalDbByKey(c,key);
+    fetchInternalDbByKeyForClient(c,key);
     lockDbWrite(c->db);
     if (lookupKeyWrite(c->db,key,&expired) == NULL)
         exist = 0;
@@ -65,13 +65,18 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         return;
     }
 
-    setKey(c->db,key,dupStringObjectUnconstant(val),NULL);
-    c->vel->dirty++;
-    if (expire) setExpire(c->db,key,vr_msec_now()+milliseconds);
+    setKey(c->db,key,dupStringObject(val),NULL);
+    c->db->dirty++;
+    if (expire) setExpire(c->db,key,dmsec_now()+milliseconds);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
     if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
         "expire",key,c->db->id);
     addReply(c, ok_reply ? ok_reply : shared.ok);
+    /* Check if this is a Fake client for AOF loading? */
+    if (c->conn && c->conn->sd > 0) {
+        c->vel->dirty++;
+        feedAppendOnlyFileIfNeeded(c->cmd, c->db, argv, argc);
+    }
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
@@ -120,22 +125,22 @@ void setCommand(client *c) {
     }
 
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
+    setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL,c->argv,c->argc);
 }
 
 void setnxCommand(client *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setGenericCommand(c,OBJ_SET_NX,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero);
+    setGenericCommand(c,OBJ_SET_NX,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero,c->argv,c->argc);
 }
 
 void setexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
-    setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_SECONDS,NULL,NULL);
+    setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_SECONDS,NULL,NULL,c->argv,c->argc);
 }
 
 void psetexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
-    setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
+    setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL,c->argv,c->argc);
 }
 
 int getGenericCommand(client *c) {
@@ -157,7 +162,7 @@ int getGenericCommand(client *c) {
 void getCommand(client *c) {
     robj *o;
 
-    fetchInternalDbByKey(c,c->argv[1]);
+    fetchInternalDbByKeyForClient(c,c->argv[1]);
     lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL) {
         unlockDb(c->db);
@@ -183,12 +188,12 @@ void getsetCommand(client *c) {
     key = c->argv[1];
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     
-    fetchInternalDbByKey(c,key);
+    fetchInternalDbByKeyForClient(c,key);
     lockDbWrite(c->db);
     val = lookupKeyWriteOrReply(c,key,shared.nullbulk,&expired);
     if (val == NULL) {
         exist = 0;
-        dbAdd(c->db,key,dupStringObjectUnconstant(c->argv[2]));
+        dbAdd(c->db,key,dupStringObject(c->argv[2]));
     } else {    
         exist = 1;
         if (val->type != OBJ_STRING) {
@@ -197,7 +202,7 @@ void getsetCommand(client *c) {
         }
 
         addReplyBulk(c,val);
-        dbOverwrite(c->db,key,dupStringObjectUnconstant(c->argv[2]));
+        dbOverwrite(c->db,key,dupStringObject(c->argv[2]));
         removeExpire(c->db,key);
     }
 
@@ -227,7 +232,7 @@ void setrangeCommand(client *c) {
         return;
     }
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     o = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (o == NULL) {
@@ -302,7 +307,7 @@ void getrangeCommand(client *c) {
     if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != VR_OK)
         return;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptybulk)) == NULL) {
         unlockDb(c->db);
@@ -345,7 +350,7 @@ void mgetCommand(client *c) {
 
     addReplyMultiBulkLen(c,c->argc-1);
     for (j = 1; j < c->argc; j++) {
-        fetchInternalDbByKey(c,c->argv[j]);
+        fetchInternalDbByKeyForClient(c,c->argv[j]);
         lockDbRead(c->db);
         robj *o = lookupKeyRead(c->db,c->argv[j]);
         if (o == NULL) {
@@ -405,9 +410,9 @@ void msetCommand(client *c) {
 
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        fetchInternalDbByKey(c,c->argv[j]);
+        fetchInternalDbByKeyForClient(c,c->argv[j]);
         lockDbWrite(c->db);
-        setKey(c->db,c->argv[j],dupStringObjectUnconstant(c->argv[j+1]),&expired);
+        setKey(c->db,c->argv[j],dupStringObject(c->argv[j+1]),&expired);
         unlockDb(c->db);
         if (expired) expired_total ++;
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
@@ -427,7 +432,7 @@ void incrDecrCommand(client *c, long long incr) {
     robj *o, *new;
     int expired = 0;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     o = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (o != NULL && checkType(c,o,OBJ_STRING)) goto end;
@@ -494,7 +499,7 @@ void incrbyfloatCommand(client *c) {
     robj *o, *new, *aux;
     int expired = 0;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     o = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (o != NULL && checkType(c,o,OBJ_STRING)) goto end;
@@ -535,13 +540,13 @@ void appendCommand(client *c) {
     robj *o, *append;
     int expired = 0;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     o = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (o == NULL) {
         /* Create the key */
         c->argv[2] = tryObjectEncoding(c->argv[2]);
-        dbAdd(c->db,c->argv[1],dupStringObjectUnconstant(c->argv[2]));
+        dbAdd(c->db,c->argv[1],dupStringObject(c->argv[2]));
         totlen = stringObjectLen(c->argv[2]);
     } else {    
         /* Key exists, check type */
@@ -572,7 +577,7 @@ end:
 void strlenCommand(client *c) {
     robj *o;
     
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
         unlockDb(c->db);

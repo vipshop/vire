@@ -32,6 +32,31 @@
 #elif defined(HAVE_ATOMIC)
 #else
 pthread_mutex_t atomic_locker = PTHREAD_MUTEX_INITIALIZER;
+
+long long add_with_lock(long long *value, long long n)
+{
+    long long sum;
+    pthread_mutex_lock(&atomic_locker);
+    sum = *value + n;
+    *value = sum;
+    pthread_mutex_unlock(&atomic_locker);
+    return sum;
+}
+
+int compare_exchange_with_lock(long long *value, long long old, long long new)
+{
+    pthread_mutex_lock(&atomic_locker);
+    if (*value == old) {
+        *value = new;
+        pthread_mutex_unlock(&atomic_locker);
+        return 1;
+    } else {
+        pthread_mutex_unlock(&atomic_locker);
+        return 0
+    }
+
+    return 0;
+}
 #endif
 
 void

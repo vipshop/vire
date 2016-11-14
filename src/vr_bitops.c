@@ -468,7 +468,7 @@ void setbitCommand(client *c) {
         return;
     }
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     if ((o = lookupStringForBitCommand(c,bitoffset,&expired)) == NULL) { 
         unlockDb(c->db);
@@ -505,7 +505,7 @@ void getbitCommand(client *c) {
     if (getBitOffsetFromArgument(c,c->argv[2],&bitoffset,0,0) != VR_OK)
         return;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
         unlockDb(c->db);
@@ -712,7 +712,7 @@ void bitcountCommand(client *c) {
     unsigned char *p;
     char llbuf[32];
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     /* Lookup, check for type, and return 0 for non existing keys. */
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
@@ -795,7 +795,7 @@ void bitposCommand(client *c) {
         return;
     }
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     /* If the key does not exist, from our point of view it is an infinite
      * array of 0 bits. If the user is looking for the fist clear bit return 0,

@@ -1235,7 +1235,7 @@ void zaddGenericCommand(client *c, int flags) {
             != VR_OK) goto cleanup;
     }
    
-    fetchInternalDbByKey(c, key);
+    fetchInternalDbByKeyForClient(c, key);
     lockDbWrite(c->db);
     /* Lookup the key and create the sorted set if does not exist. */
     zobj = lookupKeyWrite(c->db,key,&expired);
@@ -1339,7 +1339,7 @@ void zaddGenericCommand(client *c, int flags) {
                 }
                 processed++;
             } else if (!xx) {
-                ele = dupStringObjectUnconstant(ele);
+                ele = dupStringObject(ele);
                 znode = zslInsert(zs->zsl,score,ele);
                 serverAssertWithInfo(c,NULL,dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
                 c->vel->dirty++;
@@ -1387,7 +1387,7 @@ void zremCommand(client *c) {
     int deleted = 0, keyremoved = 0, j;
     int expired = 0;
 
-    fetchInternalDbByKey(c, key);
+    fetchInternalDbByKeyForClient(c, key);
     lockDbWrite(c->db);
     if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero,&expired)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) {
@@ -1481,7 +1481,7 @@ void zremrangeGenericCommand(client *c, int rangetype) {
         }
     }
 
-    fetchInternalDbByKey(c, key);
+    fetchInternalDbByKeyForClient(c, key);
     lockDbWrite(c->db);
     /* Step 2: Lookup & range sanity checks if needed. */
     if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero,&expired)) == NULL ||
@@ -2146,7 +2146,7 @@ void zrangeGenericCommand(client *c, int reverse) {
         return;
     }
 
-    fetchInternalDbByKey(c, key);
+    fetchInternalDbByKeyForClient(c, key);
     lockDbRead(c->db);
     if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL) {
         unlockDb(c->db);
@@ -2297,7 +2297,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
         }
     }
 
-    fetchInternalDbByKey(c, key);
+    fetchInternalDbByKeyForClient(c, key);
     lockDbRead(c->db);
     /* Ok, lookup the key and get the range */
     if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL) {
@@ -2473,7 +2473,7 @@ void zcountCommand(client *c) {
         return;
     }
 
-    fetchInternalDbByKey(c, key);
+    fetchInternalDbByKeyForClient(c, key);
     lockDbRead(c->db);
     /* Lookup the sorted set */
     if ((zobj = lookupKeyReadOrReply(c, key, shared.czero)) == NULL) {
@@ -2819,7 +2819,7 @@ void zcardCommand(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
 
-    fetchInternalDbByKey(c, key);
+    fetchInternalDbByKeyForClient(c, key);
     lockDbRead(c->db);
     if ((zobj = lookupKeyReadOrReply(c,key,shared.czero)) == NULL) {
         unlockDb(c->db);
@@ -2842,7 +2842,7 @@ void zscoreCommand(client *c) {
     robj *zobj;
     double score;
 
-    fetchInternalDbByKey(c, key);
+    fetchInternalDbByKeyForClient(c, key);
     lockDbRead(c->db);
     if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL) {
         unlockDb(c->db);
@@ -2871,7 +2871,7 @@ void zrankGenericCommand(client *c, int reverse) {
     unsigned long llen;
     unsigned long rank;
 
-    fetchInternalDbByKey(c, key);
+    fetchInternalDbByKeyForClient(c, key);
     lockDbRead(c->db);
     if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL) {
         unlockDb(c->db);

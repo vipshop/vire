@@ -8,6 +8,14 @@ struct vr_server server; /* server global state */
 /* Our shared "common" objects */
 struct sharedObjectsStruct shared;
 
+
+/* Global vars that are actually used as constants. The following double
+ * values are used for double on-disk serialization, and are initialized
+ * at runtime to avoid strange compiler optimizations. */
+
+double R_Zero, R_PosInf, R_NegInf, R_Nan;
+
+
 unsigned int
 dictStrHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
@@ -323,14 +331,21 @@ init_server(struct instance *nci)
     server.execCommand = lookupCommandByCString("exec");
 
     conf = conf_create(nci->conf_filename);
-
+    server.configfile = getAbsolutePath(nci->conf_filename);
+    
     ret = populateCommandsNeedAdminpass();
     if (ret != VR_OK) {
         log_error("Populate need adminpass commands failed");
         return VR_ERROR;
     }
 
-    server.configfile = getAbsolutePath(nci->conf_filename);
+    /* Set the work directory. */
+    if (chdir(conf->cserver.dir) == -1) {
+        log_warn("Can't chdir to '%s': %s",
+            conf->cserver.dir, strerror(errno));
+        exit(1);
+    }
+    
     server.hz = 10;
     server.dblnum = cserver->databases;
     server.dbinum = cserver->internal_dbs_per_databases;
@@ -344,7 +359,7 @@ init_server(struct instance *nci)
 
     for (i = 0; i < server.dbnum; i ++) {
         db = darray_push(&server.dbs);
-        redisDbInit(db);
+        redisDbInit(db, i);
     }
 
     server.clients = dlistCreate();
@@ -355,7 +370,7 @@ init_server(struct instance *nci)
 
     server.lua_timedout = 0;
 
-    server.aof_state = AOF_OFF;
+    server.aof_state = 0;
 
     server.stop_writes_on_bgsave_err = 0;
 
@@ -363,9 +378,13 @@ init_server(struct instance *nci)
 
     server.system_memory_size = dalloc_get_memory_size();
 
+    server.rdb_is_generating = 0;
+    server.rdb_filename = "dump.rdb";
     server.rdb_child_pid = -1;
     server.aof_child_pid = -1;
-
+    server.aof_fsync_policy = CONFIG_DEFAULT_AOF_FSYNC;
+    server.aof_load_truncated = 1;
+        
     server.hash_max_ziplist_entries = OBJ_HASH_MAX_ZIPLIST_ENTRIES;
     server.hash_max_ziplist_value = OBJ_HASH_MAX_ZIPLIST_VALUE;
     server.list_max_ziplist_size = OBJ_LIST_MAX_ZIPLIST_SIZE;
@@ -377,10 +396,17 @@ init_server(struct instance *nci)
 
     server.notify_keyspace_events = 0;
 
+    persistenceInit();
     slowlogInit();
-    vr_replication_init();
+    replicationInit();
     
     createSharedObjects();
+
+    /* Double constants initialization */
+    R_Zero = 0.0;
+    R_PosInf = 1.0/R_Zero;
+    R_NegInf = -1.0/R_Zero;
+    R_Nan = R_Zero/R_Zero;
 
     server.port = cserver->port;
     
@@ -398,7 +424,7 @@ init_server(struct instance *nci)
         return VR_ERROR;
     }
 
-    ret = backends_init(1);
+    ret = backends_init(3);
     if (ret != VR_OK) {
         log_error("Init backend threads failed");
         return VR_ERROR;
@@ -901,6 +927,81 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
             );
     }
 
+    /* Persistence */
+    if (allsections || defsections || !strcasecmp(section,"persistence")) {
+        int loading_copy, rdb_is_generating_copy;
+        off_t loading_loaded_bytes_copy, loading_total_bytes_copy;
+        long long loading_start_time_copy, rdb_save_time_last_copy;
+        long long last_rdb_saved_time_copy, rdb_save_time_start_copy;
+        long long dirty_all = 0;
+
+        PERSIS_LOCK();
+        loading_copy = loading;
+        rdb_is_generating_copy = rdb_is_generating;
+        loading_loaded_bytes_copy = loading_loaded_bytes;
+        loading_total_bytes_copy = loading_total_bytes;
+        loading_start_time_copy = loading_start_time;
+        rdb_save_time_last_copy = rdb_save_time_last;
+        last_rdb_saved_time_copy = last_rdb_saved_time;
+        rdb_save_time_start_copy = rdb_save_time_start;
+        PERSIS_UNLOCK();
+
+        for (j = 0; j < server.dbnum; j++) {
+            redisDb *db = darray_get(&server.dbs, j);
+            lockDbRead(db);
+            dirty_all += db->dirty;
+            unlockDb(db);
+        }
+        
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+            "# Persistence\r\n"
+            "loading:%d\r\n"
+            "rdb_changes_since_last_save:%lld\r\n"
+            "rdb_bgsave_in_progress:%d\r\n"
+            "rdb_last_save_time:%jd\r\n"
+            "rdb_last_bgsave_time_sec:%jd\r\n"
+            "rdb_current_bgsave_time_sec:%jd\r\n",
+            loading_copy,
+            dirty_all,
+            rdb_is_generating_copy,
+            (intmax_t)last_rdb_saved_time_copy,
+            (intmax_t)rdb_save_time_last_copy,
+            (intmax_t)((rdb_is_generating_copy == 0) ?
+                -1 : (dmsec_now()-rdb_save_time_start_copy)/1000LL));
+
+        if (loading_copy) {
+            double perc;
+            long long eta, elapsed;
+            off_t remaining_bytes;
+            
+            remaining_bytes = loading_total_bytes_copy - loading_loaded_bytes_copy;
+            
+            perc = ((double)loading_loaded_bytes_copy /
+                   (loading_total_bytes_copy+1)) * 100;
+
+            elapsed = dmsec_now()-loading_start_time_copy;
+            if (elapsed == 0) {
+                eta = 1; /* A fake 1 second figure if we don't have
+                            enough info */
+            } else {
+                eta = (elapsed*remaining_bytes)/(loading_loaded_bytes_copy+1);
+            }
+
+            info = sdscatprintf(info,
+                "loading_start_time:%jd\r\n"
+                "loading_total_bytes:%llu\r\n"
+                "loading_loaded_bytes:%llu\r\n"
+                "loading_loaded_perc:%.2f%%\r\n"
+                "loading_eta_seconds:%jd\r\n",
+                (intmax_t) loading_start_time_copy,
+                (unsigned long long) loading_total_bytes_copy,
+                (unsigned long long) loading_loaded_bytes_copy,
+                perc,
+                (intmax_t)eta/1000LL);
+        }
+    }
+    
     /* Stats */
     if (allsections || defsections || !strcasecmp(section,"stats")) {
         uint32_t idx;

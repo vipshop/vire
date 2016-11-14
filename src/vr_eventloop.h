@@ -45,6 +45,8 @@ typedef struct vr_eventloop {
 
     conf_cache cc; /* Cache the hot config option to improve vire speed. */
 
+    int loading_cache; /* We are loading data from disk if true, cached from server.loading. */
+
     struct darray *cstable; /* type: commandStats */
 }vr_eventloop;
 

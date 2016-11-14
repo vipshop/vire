@@ -18,15 +18,20 @@ vr_backend_init(vr_backend *backend)
     }
 
     backend->id = 0;
+    darray_null(&backend->dbs);
+    
     backend->current_db = 0;
     backend->timelimit_exit = 0;
     backend->last_fast_cycle = 0;
     backend->resize_db = 0;
     backend->rehash_db = 0;
+    backend->dump_db = 0;
 
     vr_eventloop_init(&backend->vel, 10);
     backend->vel.thread.fun_run = backend_thread_run;
     backend->vel.thread.data = backend;
+
+    darray_init(&backend->dbs, 10, sizeof(redisDb*));
     
     return VR_OK;
 }
@@ -39,6 +44,9 @@ vr_backend_deinit(vr_backend *backend)
     }
 
     vr_eventloop_deinit(&backend->vel);
+
+    backend->dbs.nelem = 0;
+    darray_deinit(&backend->dbs);
 }
 
 static int
@@ -65,9 +73,23 @@ backend_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     databasesCron(backend);
 
-    /* Update the config cache */
+    /* Update the cache fields */
     run_with_period(1000, vel->cronloops) {
         conf_cache_update(&vel->cc);
+
+        if (vel->loading_cache == 1) {
+            PERSIS_LOCK();
+            vel->loading_cache = loading;
+            PERSIS_UNLOCK();
+        }
+    }
+
+    run_with_period(100, vel->cronloops) {
+        void *job;
+        while ((job = dmtqueue_pop(fsync_jobs)) != NULL) {
+            int fd = (int)job;
+            aof_fsync(fd);
+        }
     }
     
     vel->cronloops ++;
@@ -115,9 +137,17 @@ backends_init(uint32_t backend_count)
         if (status != VR_OK) {
             exit(1);
         }
+        backend->vel.loading_cache = 1; /* This will be consistent with server.loading in the cron. */
     }
     
     num_backend_threads = (int)darray_n(&backends);
+
+    for (idx = 0; idx < server.dbnum; idx ++) {
+        redisDb **db;
+        backend = darray_get(&backends, idx%num_backend_threads);
+        db = darray_push(&backend->dbs);
+        *db = darray_get(&server.dbs, idx);
+    }
 
     return VR_OK;
 }

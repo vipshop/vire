@@ -14,6 +14,7 @@ robj *createObject(int type, void *ptr) {
     o->ptr = ptr;
     o->constant = 0;
     o->refcount = -1;
+    o->version = 0;
     o->lru = 0;
     return o;
 }
@@ -36,6 +37,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     o->ptr = sh+1;
     o->constant = 0;
     o->refcount = -1;
+    o->version = 0;
     o->lru = 0;
 
     sh->len = len;
@@ -77,6 +79,19 @@ robj *createStringObjectFromLongLong(long long value) {
             o = createObject(OBJ_STRING,sdsfromlonglong(value));
         }
     }
+    return o;
+}
+
+robj *createStringObjectFromLongLongNoConstant(long long value) {
+    robj *o;
+    if (value >= LONG_MIN && value <= LONG_MAX) {
+        o = createObject(OBJ_STRING, NULL);
+        o->encoding = OBJ_ENCODING_INT;
+        o->ptr = (void*)((long)value);
+    } else {
+        o = createObject(OBJ_STRING,sdsfromlonglong(value));
+    }
+    
     return o;
 }
 
@@ -721,7 +736,7 @@ void objectCommand(client *c) {
     robj *o;
 
     if (!strcasecmp(c->argv[1]->ptr,"encoding") && c->argc == 3) {
-        fetchInternalDbByKey(c,c->argv[2]);
+        fetchInternalDbByKeyForClient(c,c->argv[2]);
         lockDbRead(c->db);
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) {
@@ -730,8 +745,37 @@ void objectCommand(client *c) {
         }
         addReplyBulkCString(c,strEncoding(o->encoding));
         unlockDb(c->db);
+    } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 3) {
+        sds reply = sdsempty();
+        fetchInternalDbByKeyForClient(c,c->argv[2]);
+        lockDbRead(c->db);
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
+                == NULL) {
+            unlockDb(c->db);
+            return;
+        }
+
+        reply = sdscatfmt(reply, "Encoding: %s", strEncoding(o->encoding));
+        switch (o->encoding) {
+        case OBJ_ENCODING_RAW:
+        case OBJ_ENCODING_INT:
+        case OBJ_ENCODING_HT:
+
+            break;
+        case OBJ_ENCODING_QUICKLIST:
+        {
+            quicklist *ql = o->ptr;
+            reply = sdscatfmt(reply, ", count: %u, len: %u, fill: %i, compress: %u", ql->count, ql->len, ql->fill, ql->compress);
+            break;
+        }
+        default:
+
+            break;
+        }
+        addReplyBulkSds(c,reply);
+        unlockDb(c->db);
     } else if (!strcasecmp(c->argv[1]->ptr,"idletime") && c->argc == 3) {
-        fetchInternalDbByKey(c,c->argv[2]);
+        fetchInternalDbByKeyForClient(c,c->argv[2]);
         lockDbRead(c->db);
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) {

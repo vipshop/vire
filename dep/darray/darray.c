@@ -102,6 +102,9 @@ darray_pop(darray *a)
 {
     void *elem;
 
+    if (a->nelem == 0)
+        return NULL;
+
     a->nelem--;
     elem = (char *)a->elem + a->size * a->nelem;
 

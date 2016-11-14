@@ -22,6 +22,9 @@ typedef struct quicklistNode {
     unsigned int recompress : 1; /* was this node previous compressed? */
     unsigned int attempted_compress : 1; /* node can't compress; too small */
     unsigned int extra : 10; /* more bits to steal for future usage */
+
+    unsigned int index; /* Node index used to dump rdb */
+    long long version;  /* Version used to dump rdb */
 } quicklistNode;
 
 /* quicklistLZF is a 4+N byte struct holding 'sz' followed by 'compressed'.

@@ -1,10 +1,11 @@
 #ifndef _VR_AOF_H_
 #define _VR_AOF_H_
 
-/* AOF states */
-#define AOF_OFF 0             /* AOF is off */
-#define AOF_ON 1              /* AOF is on */
-#define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
+/* Append only defines */
+#define AOF_FSYNC_NO 0
+#define AOF_FSYNC_ALWAYS 1
+#define AOF_FSYNC_EVERYSEC 2
+#define CONFIG_DEFAULT_AOF_FSYNC AOF_FSYNC_EVERYSEC
 
 #define AOF_AUTOSYNC_BYTES (1024*1024*32) /* fdatasync every 32MB */
 
@@ -29,11 +30,13 @@ typedef struct aofrwblock {
     char buf[AOF_RW_BUF_BLOCK_SIZE];
 } aofrwblock;
 
-unsigned long aofRewriteBufferSize(void);
-void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask);
+void writeAppendOnlyFile(redisDb *db);
+void flushAppendOnlyFile(redisDb *db, int force);
+
 sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, robj *seconds);
 sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv);
-void aofRewriteBufferAppend(unsigned char *s, unsigned long len);
-void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc);
+void feedAppendOnlyFileIfNeeded(struct redisCommand *cmd, redisDb *db, robj **argv, int argc);
+
+int loadAppendOnlyFile(char *filename);
 
 #endif

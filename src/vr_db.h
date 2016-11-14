@@ -1,6 +1,11 @@
 #ifndef _VR_DB_H_
 #define _VR_DB_H_
 
+struct bigkeyDumpHelper;
+
+#define DB_FLAGS_DUMPING (1<<0)
+#define DB_FLAGS_DUMP_FIRST_STEP (1<<1)
+
 /* To improve the quality of the LRU approximation we take a set of keys
  * that are good candidate for eviction across freeMemoryIfNeeded() calls.
  *
@@ -27,14 +32,37 @@ typedef struct redisDb {
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
 
-    pthread_rwlock_t rwl;       /* read write lock */
+    sds rdb_filename;
+    sds rdb_tmpfilename;
+    long long version;
+    int flags;
+    void *rdb_cached;
+    void *cursor_key;
+    long long dirty;            /* Changes to DB from the last save. */
+    long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
+    
+    sds aof_filename;           /* Name of the AOF file for this db. */
+    int aof_enabled;            /* If aof file write enabled. */
+    int aof_fd;                 /* File descriptor of currently AOF file. */
+    sds aof_buf;                /* AOF buffer, written before entering the event loop. */
+    off_t aof_current_size;     /* AOF current size. */
+    long long aof_flush_postponed_start;    /* Time in second of postponed AOF flush. */
+    unsigned long aof_delayed_fsync;    /* Delayed AOF fsync() counter. */
+    long long aof_last_fsync;    /* Time in second of last fsync(). */
+    int aof_last_write_status;   /* VR_OK or VR_ERROR */
+    int aof_last_write_errno;    /* Valid if aof_last_write_status is ERR */
+    int aof_last_write_error_log;   /* Time in second of the last write error message in log for this aof file. */
+
+    struct bigkeyDumpHelper *bkdhelper; /* Used to dump the big keys to rdb file. */
+
+    pthread_rwlock_t rwl;        /* Read Write lock for this db. */
 } redisDb;
 
 extern dictType dbDictType;
 extern dictType keyptrDictType;
 extern dictType keylistDictType;
 
-int redisDbInit(redisDb *db);
+int redisDbInit(redisDb *db, int idx);
 int redisDbDeinit(redisDb *db);
 
 int lockDbRead(redisDb *db);
@@ -99,11 +127,14 @@ int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 
-int fetchInternalDbByKey(struct client *c, robj *key);
-int fetchInternalDbById(struct client *c, int idx);
+redisDb *fetchInternalDbByKey(int logic_dbid, robj *key);
+redisDb *fetchInternalDbById(int logic_dbid, int idx);
 
-void tryResizeHashTablesForDb(int dbid);
-int incrementallyRehashForDb(int dbid);
+int fetchInternalDbByKeyForClient(struct client *c, robj *key);
+int fetchInternalDbByIdForClient(struct client *c, int idx);
+
+void tryResizeHashTablesForDb(redisDb *db);
+int incrementallyRehashForDb(redisDb *db);
 void activeExpireCycle(vr_backend *backend, int type);
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now);
 void databasesCron(vr_backend *backend);

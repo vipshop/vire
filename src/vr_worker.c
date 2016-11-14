@@ -370,6 +370,7 @@ workers_init(uint32_t worker_count)
         if (status != VR_OK) {
             exit(1);
         }
+        worker->vel.loading_cache = 1; /* This will be consistent with server.loading in the cron. */
     }
     
     num_worker_threads = (int)darray_n(&workers);
@@ -468,21 +469,18 @@ worker_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         vel->resident_set_size = dalloc_get_rss();
     }
 
-    /* Record the max memory used since the server was started. */
-    /*stat_used_memory = dalloc_used_memory();
-    update_stats_get(vel->stats, peak_memory, &stats_peak_memory);
-    if (stat_used_memory > stats_peak_memory) {
-        update_stats_set(vel->stats, peak_memory, stat_used_memory);
-    }*/
-
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue(vel);
 
-    //databasesCron(worker);
-
-    /* Update the config cache */
+    /* Update the cached fields */
     run_with_period(1000, vel->cronloops) {
         conf_cache_update(&vel->cc);
+
+        if (vel->loading_cache == 1) {
+            PERSIS_LOCK();
+            vel->loading_cache = loading;
+            PERSIS_UNLOCK();
+        }
     }
     
     vel->cronloops ++;

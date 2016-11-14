@@ -79,6 +79,7 @@ struct redisCommand redisCommandTable[] = {
     {"config",configCommand,-2,"lat",0,NULL,0,0,0,0,0},
     {"client",clientCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"slowlog",slowlogCommand,-2,"a",0,NULL,0,0,0,0,0},
+    {"bgsave",bgsaveCommand,1,"a",0,NULL,0,0,0,0,0},
     /* Key */
     {"del",delCommand,-2,"w",0,NULL,1,-1,1,0,0},
     {"exists",existsCommand,-2,"rF",0,NULL,1,-1,1,0,0},
@@ -563,7 +564,7 @@ int processCommand(client *c) {
 
     /* Loading DB? Return an error if the command has not the
      * CMD_LOADING flag. */
-    if (server.loading && !(c->cmd->flags & CMD_LOADING)) {
+    if (c->vel->loading_cache && !(c->cmd->flags & CMD_LOADING)) {
         addReply(c, shared.loadingerr);
         return VR_OK;
     }
@@ -652,8 +653,6 @@ void redisOpArrayFree(redisOpArray *oa) {
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
 {
-    if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
-        feedAppendOnlyFile(cmd,dbid,argv,argc);
     if (flags & PROPAGATE_REPL)
         replicationFeedSlaves(repl.slaves,dbid,argv,argc);
 }

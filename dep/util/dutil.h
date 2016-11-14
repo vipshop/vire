@@ -122,34 +122,50 @@ int string_match(const char *pattern, const char *string, int nocase);
 #if defined(__ATOMIC_RELAXED)
 #define atomic_add(_value, _n) __atomic_add_fetch(&_value, (_n), __ATOMIC_RELAXED)
 #define atomic_sub(_value, _n) __atomic_sub_fetch(&_value, (_n), __ATOMIC_RELAXED)
+#define atomic_or(_value, _n) __atomic_or_fetch(&_value, (_n), __ATOMIC_RELAXED)
+#define atomic_and(_value, _n) __atomic_and_fetch(&_value, (_n), __ATOMIC_RELAXED)
 #define atomic_set(_value, _n) __atomic_store_n(&_value, (_n), __ATOMIC_RELAXED)
 #define atomic_get(_value, _v) do {                 \
     __atomic_load(&_value, _v, __ATOMIC_RELAXED);   \
 } while(0)
+#define atomic_compare_exchange(_value, _old, _new) __atomic_compare_exchange_n(&_value, &_old, _new, 1, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED)
 
 #define ATOMIC_LOCK_TYPE "__ATOMIC_RELAXED"
 /* GCC version >= 4.1 */
 #elif defined(HAVE_ATOMIC)
 #define atomic_add(_value, _n) __sync_add_and_fetch(&_value, (_n))
 #define atomic_sub(_value, _n) __sync_sub_and_fetch(&_value, (_n))
+#define atomic_or(_value, _n) __sync_or_and_fetch(&_value, (_n))
+#define atomic_and(_value, _n) __sync_and_and_fetch(&_value, (_n))
 #define atomic_set(_value, _n) __sync_lock_test_and_set(&_value, (_n))
 #define atomic_get(_value, _v) do {                 \
     (*_v) = __sync_add_and_fetch(&_value, 0);       \
 } while(0)
+#define atomic_compare_exchange(_value, _old, _new) __sync_bool_compare_and_swap(&_value, _old, _new)
 
 #define ATOMIC_LOCK_TYPE "HAVE_ATOMIC"
 #else
 extern pthread_mutex_t atomic_locker;
 
+long long add_with_lock(long long *value, long long n);
 #define atomic_add(_value, _n) do {         \
-    pthread_mutex_lock(&atomic_locker);     \
-    _value += (_n);                         \
-    pthread_mutex_unlock(&atomic_locker);   \
-} while(0)
+    add_with_lock(&_value, _n)
 
 #define atomic_sub(_value, _n) do {         \
     pthread_mutex_lock(&atomic_locker);     \
     _value -= (_n);                         \
+    pthread_mutex_unlock(&atomic_locker);   \
+} while(0)
+
+#define atomic_or(_value, _n) do {          \
+    pthread_mutex_lock(&atomic_locker);     \
+    _value |= (_n);                         \
+    pthread_mutex_unlock(&atomic_locker);   \
+} while(0)
+
+#define atomic_and(_value, _n) do {         \
+    pthread_mutex_lock(&atomic_locker);     \
+    _value &= (_n);                         \
     pthread_mutex_unlock(&atomic_locker);   \
 } while(0)
 
@@ -164,6 +180,10 @@ extern pthread_mutex_t atomic_locker;
     (*_v) = _value;                         \
     pthread_mutex_unlock(&atomic_locker);   \
 } while(0)
+
+int compare_exchange_with_lock(long long *value, long long old, long long new);
+#define atomic_compare_exchange(_value, _old, _new) \
+    compare_exchange_with_lock(&_value, _old, _new)
 
 #define ATOMIC_LOCK_TYPE "pthread_mutex_lock"
 #endif

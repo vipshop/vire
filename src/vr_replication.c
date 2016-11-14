@@ -2,7 +2,7 @@
 
 struct vr_replication repl;
 
-int vr_replication_init(void)
+int replicationInit(void)
 {
     vr_eventloop_init(&repl.vel,1000);
 
@@ -31,7 +31,7 @@ int vr_replication_init(void)
     return VR_OK;
 }
 
-void vr_replication_deinit(void)
+void replicationDeinit(void)
 {
     vr_eventloop_deinit(&repl.vel);
 

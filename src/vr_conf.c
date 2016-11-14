@@ -113,6 +113,10 @@ static conf_option conf_server_options[] = {
       CONF_FIELD_TYPE_ARRAYSDS, 1,
       conf_set_commands_need_adminpass, conf_get_array_sds,
       offsetof(conf_server, commands_need_adminpass) },
+    { (char *)CONFIG_SOPN_DIR,
+      CONF_FIELD_TYPE_SDS, 1,
+      conf_set_work_dir, conf_get_sds,
+      offsetof(conf_server, dir) },
     { NULL, NULL, 0 }
 };
 
@@ -395,6 +399,29 @@ conf_set_password(void *obj, conf_option *opt, void *data)
     if (*gt != NULL) sdsfree(*gt);
     if (sdslen(cv->value) == 0) *gt = NULL;
     else *gt = sdsnewlen(cv->value, sdslen(cv->value));
+    conf->version ++;
+    CONF_UNLOCK();
+    return VR_OK;
+}
+
+int
+conf_set_work_dir(void *obj, conf_option *opt, void *data)
+{
+    uint8_t *p;
+    conf_value *cv = data;
+    sds *gt;
+
+    if(cv->type != CONF_VALUE_TYPE_STRING){
+        log_error("conf pool %s in the conf file is not a string", 
+            opt->name);
+        return VR_ERROR;
+    }
+
+    CONF_WLOCK();
+    p = obj;
+    gt = (sds*)(p + opt->offset);
+
+    *gt = getAbsolutePath((char*)(cv->value));
     conf->version ++;
     CONF_UNLOCK();
     return VR_OK;
@@ -784,6 +811,7 @@ static int conf_server_set_default(conf_server *cs)
 {
     sds *str;
     conf_option *opt;
+    char buf[1024];
 
     if(cs == NULL){
         return VR_ERROR;
@@ -818,7 +846,9 @@ static int conf_server_set_default(conf_server *cs)
     if (cs->dir != CONF_UNSET_PTR) {
         sdsfree(cs->dir);
     }
-    cs->dir = sdsnew(CONFIG_DEFAULT_DATA_DIR);
+    if (getcwd(buf,sizeof(buf)) == NULL)
+        buf[0] = '\0';
+    cs->dir = sdsnew(buf);
 
     while (darray_n(&cs->commands_need_adminpass) > 0) {
         str = darray_pop(&cs->commands_need_adminpass);
@@ -2102,7 +2132,7 @@ static int rewriteConfig(char *path) {
 
 void configCommand(client *c) {
     /* Only allow CONFIG GET while loading. */
-    if (server.loading && strcasecmp(c->argv[1]->ptr,"get")) {
+    if (c->vel->loading_cache && strcasecmp(c->argv[1]->ptr,"get")) {
         addReplyError(c,"Only CONFIG GET is allowed during loading");
         return;
     }

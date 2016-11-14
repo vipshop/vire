@@ -133,7 +133,7 @@ int prepareClientToWrite(client *c) {
     if ((c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_MASTER_FORCE_REPLY)) return VR_ERROR;
 
-    if (c->conn->sd <= 0) return VR_ERROR; /* Fake client for AOF loading. */
+    if (c->conn == NULL || c->conn->sd <= 0) return VR_ERROR; /* Fake client for AOF loading. */
 
     /* Schedule the client to write the output buffers to the socket only
      * if not already done (there were no pending writes already and the client

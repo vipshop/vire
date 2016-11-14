@@ -493,12 +493,14 @@ vr_run(struct instance *nci)
             " Set this value to the number of cores in your machine or less.");
     }
 
-    /* run the threads */
+    loadDataFromDisk();
+
+    /* Run the threads. */
     master_run();
     workers_run();
     backends_run();
 
-    /* wait for the threads finish */
+    /* Wait for the threads finish. */
     workers_wait();
     backends_wait();
 }

@@ -50,6 +50,7 @@ uint32_t hash_md5(const char *key, size_t key_length);
 uint32_t hash_crc16(const char *key, size_t key_length);
 uint32_t hash_crc32(const char *key, size_t key_length);
 uint32_t hash_crc32a(const char *key, size_t key_length);
+uint64_t hash_crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 uint32_t hash_fnv1_64(const char *key, size_t key_length);
 uint32_t hash_fnv1a_64(const char *key, size_t key_length);
 uint32_t hash_fnv1_32(const char *key, size_t key_length);

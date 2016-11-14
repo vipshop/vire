@@ -1,7 +1,7 @@
 #ifndef _VR_T_STRING_H_
 #define _VR_T_STRING_H_
 
-void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply);
+void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply, robj **argv, int argc);
 void setCommand(client *c);
 void setnxCommand(client *c);
 void setexCommand(client *c);

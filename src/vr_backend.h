@@ -6,6 +6,8 @@ typedef struct vr_backend {
     int id;
     vr_eventloop vel;
 
+    darray dbs; /* Dbs this backend thread is responsible for. */
+
     /* Some global state in order to continue the work incrementally 
        * across calls for activeExpireCycle() to expire some keys. */
     unsigned int current_db;    /* Last DB tested. */
@@ -17,6 +19,8 @@ typedef struct vr_backend {
        * cron loop iteration for databasesCron() to resize and reshash db. */
     unsigned int resize_db;
     unsigned int rehash_db;
+
+    unsigned int dump_db;
 }vr_backend;
 
 extern struct darray backends;

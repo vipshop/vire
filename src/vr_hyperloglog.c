@@ -1127,7 +1127,7 @@ void pfaddCommand(client *c) {
     int updated = 0, j;
     int expired = 0;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     o = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (o == NULL) {
@@ -1194,7 +1194,7 @@ void pfcountCommand(client *c) {
         registers = max + HLL_HDR_SIZE;
         for (j = 1; j < c->argc; j++) {
             /* Check type and size. */
-            fetchInternalDbByKey(c,c->argv[j]);
+            fetchInternalDbByKeyForClient(c,c->argv[j]);
             lockDbRead(c->db);
             robj *o = lookupKeyRead(c->db,c->argv[j]);
             if (o == NULL) {
@@ -1225,7 +1225,7 @@ void pfcountCommand(client *c) {
      *
      * The user specified a single key. Either return the cached value
      * or compute one and update the cache. */
-    fetchInternalDbByKey(c,c->argv[1]);
+    fetchInternalDbByKeyForClient(c,c->argv[1]);
     lockDbWrite(c->db);
     o = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (o == NULL) {

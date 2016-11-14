@@ -21,12 +21,13 @@ robj *setTypeCreate(robj *value) {
  *
  * If the value was already member of the set, nothing is done and 0 is
  * returned, otherwise the new element is added and 1 is returned. */
-int setTypeAdd(robj *subject, robj *value) {
+int setTypeAdd(redisDb *db, robj *subject, robj *value) {
     long long llval;
     robj *obj;
     if (subject->encoding == OBJ_ENCODING_HT) {
-        obj = dupStringObjectUnconstant(value);
+        obj = dupStringObject(value);
         if (dictAdd(subject->ptr,obj,NULL) == DICT_OK) {
+            if (db) obj->version = db->version;
             return 1;
         } else {
             freeObject(obj);
@@ -45,11 +46,12 @@ int setTypeAdd(robj *subject, robj *value) {
         } else {
             /* Failed to get integer from object, convert to regular set. */
             setTypeConvert(subject,OBJ_ENCODING_HT);
-            obj = dupStringObjectUnconstant(value);
+            obj = dupStringObject(value);
             /* The set *was* an intset and this value is not integer
              * encodable, so dictAdd should always work. */
             serverAssertWithInfo(NULL,obj,
                 dictAdd(subject->ptr,obj,NULL) == DICT_OK);
+            if (db) obj->version = db->version;
             return 1;
         }
     } else {
@@ -58,14 +60,16 @@ int setTypeAdd(robj *subject, robj *value) {
     return 0;
 }
 
-int setTypeRemove(robj *setobj, robj *value) {
+int setTypeRemove(redisDb *db, robj *key, robj *setobj, robj *value) {
     long long llval;
     if (setobj->encoding == OBJ_ENCODING_HT) {
+        if (db) rdbSaveHashTypeSetValIfNeeded(db,NULL,key->ptr,setobj,value);
         if (dictDelete(setobj->ptr,value) == DICT_OK) {
             if (htNeedsResize(setobj->ptr)) dictResize(setobj->ptr);
             return 1;
         }
     } else if (setobj->encoding == OBJ_ENCODING_INTSET) {
+        if (db) rdbSaveKeyIfNeeded(db,NULL,key->ptr,setobj,0);
         if (isObjectRepresentableAsLongLong(value,&llval) == VR_OK) {
             int success;
             setobj->ptr = intsetRemove(setobj->ptr,llval,&success);
@@ -228,9 +232,10 @@ void setTypeConvert(robj *setobj, int enc) {
         /* To add the elements we extract integers and create redis objects */
         si = setTypeInitIterator(setobj);
         while (setTypeNext(si,&element,&intele) != -1) {
-            element = createStringObjectFromLongLong(intele);
+            element = createStringObjectFromLongLongNoConstant(intele);
             serverAssertWithInfo(NULL,element,
                 dictAdd(d,element,NULL) == DICT_OK);
+            element->version = setobj->version;
         }
         setTypeReleaseIterator(si);
 
@@ -247,11 +252,12 @@ void saddCommand(client *c) {
     int j, added = 0;
     int expired = 0;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     set = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (set == NULL) {
         set = setTypeCreate(c->argv[2]);
+        set->version = c->db->version;
         dbAdd(c->db,c->argv[1],set);
     } else {
         if (set->type != OBJ_SET) {
@@ -262,13 +268,19 @@ void saddCommand(client *c) {
         }
     }
 
+    rdbSaveKeyIfNeeded(c->db, NULL, c->argv[1]->ptr, set,0);
     for (j = 2; j < c->argc; j++) {
         c->argv[j] = tryObjectEncoding(c->argv[j]);
-        if (setTypeAdd(set,c->argv[j])) added++;
+        if (setTypeAdd(c->db,set,c->argv[j])) added++;
     }
     if (added) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[1],c->db->id);
+    }
+    /* Check if this is a Fake client for AOF loading? */
+    if (c->conn && c->conn->sd > 0) {
+        c->db->dirty += added;
+        feedAppendOnlyFileIfNeeded(c->cmd, c->db, c->argv, c->argc);
     }
     c->vel->dirty += added;
     addReplyLongLong(c,added);
@@ -277,13 +289,14 @@ void saddCommand(client *c) {
 }
 
 void sremCommand(client *c) {
-    robj *set;
+    robj *key, *set;
     int j, deleted = 0, keyremoved = 0;
     int expired = 0;
-    
-    fetchInternalDbByKey(c, c->argv[1]);
+
+    key = c->argv[1];
+    fetchInternalDbByKeyForClient(c, key);
     lockDbWrite(c->db);
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.czero,&expired)) == NULL ||
+    if ((set = lookupKeyWriteOrReply(c,key,shared.czero,&expired)) == NULL ||
         checkType(c,set,OBJ_SET)) {
         unlockDb(c->db);
         if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
@@ -291,22 +304,26 @@ void sremCommand(client *c) {
     }
 
     for (j = 2; j < c->argc; j++) {
-        if (setTypeRemove(set,c->argv[j])) {
+        if (setTypeRemove(c->db,key,set,c->argv[j])) {
             deleted++;
             if (setTypeSize(set) == 0) {
-                dbDelete(c->db,c->argv[1]);
+                dbDelete(c->db,key);
                 keyremoved = 1;
                 break;
             }
         }
     }
     if (deleted) {
-        signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_SET,"srem",c->argv[1],c->db->id);
+        signalModifiedKey(c->db,key);
+        notifyKeyspaceEvent(NOTIFY_SET,"srem",key,c->db->id);
         if (keyremoved)
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
-                                c->db->id);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
         c->vel->dirty += deleted;
+    }
+    /* Check if this is a Fake client for AOF loading? */
+    if (c->conn && c->conn->sd > 0) {
+        c->db->dirty += deleted;
+        feedAppendOnlyFileIfNeeded(c->cmd, c->db, c->argv, c->argc);
     }
     addReplyLongLong(c,deleted);
     unlockDb(c->db);
@@ -337,7 +354,7 @@ void smoveCommand(client *c) {
     }
 
     /* If the element cannot be removed from the src set, return 0. */
-    if (!setTypeRemove(srcset,ele)) {
+    if (!setTypeRemove(c->db,c->argv[1],srcset,ele)) {
         addReply(c,shared.czero);
         return;
     }
@@ -359,7 +376,7 @@ void smoveCommand(client *c) {
     }
 
     /* An extra key has changed when ele was successfully added to dstset */
-    if (setTypeAdd(dstset,ele)) {
+    if (setTypeAdd(c->db,dstset,ele)) {
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[2],c->db->id);
     }
@@ -369,7 +386,7 @@ void smoveCommand(client *c) {
 void sismemberCommand(client *c) {
     robj *set;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
         unlockDb(c->db);
@@ -394,7 +411,7 @@ void sismemberCommand(client *c) {
 void scardCommand(client *c) {
     robj *o;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL) {
         unlockDb(c->db);
@@ -441,7 +458,7 @@ void smembersGenericCommand(client *c, robj *set)
 void spopWithCountCommand(client *c) {
     long l;
     unsigned long count, size;
-    robj *set;
+    robj *key, *set;
     int expired = 0;
 
     /* Get the count argument */
@@ -453,11 +470,12 @@ void spopWithCountCommand(client *c) {
         return;
     }
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    key = c->argv[1];
+    fetchInternalDbByKeyForClient(c, key);
     lockDbWrite(c->db);
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a set. Otherwise, return nil */
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.emptymultibulk,&expired))
+    if ((set = lookupKeyWriteOrReply(c,key,shared.emptymultibulk,&expired))
         == NULL || checkType(c,set,OBJ_SET)) {
         unlockDb(c->db);
         if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
@@ -476,7 +494,7 @@ void spopWithCountCommand(client *c) {
     size = setTypeSize(set);
 
     /* Generate an SPOP keyspace notification */
-    notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_SET,"spop",key,c->db->id);
     c->vel->dirty += count;
 
     /* CASE 1:
@@ -489,13 +507,13 @@ void spopWithCountCommand(client *c) {
         smembersGenericCommand(c, set);
 
         /* Delete the set as it is now empty */
-        dbDelete(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+        dbDelete(c->db,key);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
 
         /* Propagate this command as an DEL operation */
-        aux = dupStringObjectUnconstant(c->argv[1]);
+        aux = dupStringObjectUnconstant(key);
         rewriteClientCommandVector(c,2,shared.del,aux);
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c->db,key);
         c->vel->dirty++;
         unlockDb(c->db);
         if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
@@ -507,7 +525,7 @@ void spopWithCountCommand(client *c) {
      * which is common to both the code paths. */
     robj *propargv[3];
     propargv[0] = createStringObject("SREM",4);
-    propargv[1] = c->argv[1];
+    propargv[1] = key;
     addReplyMultiBulkLen(c,count);
 
     /* Common iteration vars. */
@@ -534,7 +552,7 @@ void spopWithCountCommand(client *c) {
 
             /* Return the element to the client and remove from the set. */
             addReplyBulk(c,objele);
-            setTypeRemove(set,objele);
+            setTypeRemove(c->db,key,set,objele);
 
             /* Replicate/AOF this command as an SREM operation */
             propargv[2] = objele;
@@ -553,6 +571,10 @@ void spopWithCountCommand(client *c) {
      * release it. */
         robj *newset = NULL;
 
+        /* Dump this key complete at one time. */
+        rdbSaveKeyIfNeeded(c->db,NULL,key->ptr,set,1);
+        ASSERT(set->version == c->db->version);
+        
         /* Create a new set with just the remaining elements. */
         while(remaining--) {
             encoding = setTypeRandomElement(set,&objele,&llele);
@@ -560,8 +582,8 @@ void spopWithCountCommand(client *c) {
                 objele = createStringObjectFromLongLong(llele);
             
             if (!newset) newset = setTypeCreate(objele);
-            setTypeAdd(newset,objele);
-            setTypeRemove(set,objele);
+            setTypeAdd(c->db,newset,objele);
+            setTypeRemove(NULL,key,set,objele);
             if (encoding == OBJ_ENCODING_INTSET)
                 freeObject(objele);
         }
@@ -584,7 +606,7 @@ void spopWithCountCommand(client *c) {
         setTypeReleaseIterator(si);
 
         /* Assign the new set as the key value. */
-        dbOverwrite(c->db,c->argv[1],newset);
+        dbOverwrite(c->db,key,newset);
     }
 
     /* Don't propagate the command itself even if we incremented the
@@ -598,7 +620,7 @@ void spopWithCountCommand(client *c) {
 }
 
 void spopCommand(client *c) {
-    robj *set, *ele, *aux1, *aux2;
+    robj *key, *set, *ele, *aux1, *aux2;
     int64_t llele;
     int encoding;
     int expired = 0;
@@ -611,11 +633,12 @@ void spopCommand(client *c) {
         return;
     }
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    key = c->argv[1];
+    fetchInternalDbByKeyForClient(c, key);
     lockDbWrite(c->db);
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a set */
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk,&expired)) == NULL ||
+    if ((set = lookupKeyWriteOrReply(c,key,shared.nullbulk,&expired)) == NULL ||
         checkType(c,set,OBJ_SET)) {
         unlockDb(c->db);
         if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
@@ -628,17 +651,18 @@ void spopCommand(client *c) {
     /* Remove the element from the set */
     if (encoding == OBJ_ENCODING_INTSET) {
         ele = createStringObjectFromLongLong(llele);
+        rdbSaveKeyIfNeeded(c->db,NULL,key->ptr,set,0);
         set->ptr = intsetRemove(set->ptr,llele,NULL);
     } else {
         ele = dupStringObjectUnconstant(ele);
-        setTypeRemove(set,ele);
+        setTypeRemove(c->db,key,set,ele);
     }
 
-    notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_SET,"spop",key,c->db->id);
 
     /* Replicate/AOF this command as an SREM operation */
     aux1 = createStringObject("SREM",4);
-    aux2 = dupStringObjectUnconstant(c->argv[1]);
+    aux2 = dupStringObjectUnconstant(key);
     rewriteClientCommandVector(c,3,aux1,aux2,ele);
 
     /* Add the element to the reply */
@@ -646,12 +670,18 @@ void spopCommand(client *c) {
 
     /* Delete the set if it's empty */
     if (setTypeSize(set) == 0) {
-        dbDelete(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+        dbDelete(c->db,key);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
     }
 
+    /* Check if this is a Fake client for AOF loading? */
+    if (c->conn && c->conn->sd > 0) {
+        c->db->dirty ++;
+        feedAppendOnlyFileIfNeeded(c->cmd, c->db, c->argv, c->argc);
+    }
+    
     /* Set has been modified */
-    signalModifiedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,key);
     c->vel->dirty++;
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
@@ -826,7 +856,7 @@ void srandmemberCommand(client *c) {
 void smembersCommand(client *c) {
     robj *set;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk);
     if (set == NULL) {
@@ -868,14 +898,14 @@ void sinterGenericCommand(client *c, robj **setkeys,
     unsigned long min_len_idx = 0;
 
     for (j = 0; j < setnum; j++) {
-        fetchInternalDbByKey(c,setkeys[j]);
+        fetchInternalDbByKeyForClient(c,setkeys[j]);
         lockDbRead(c->db);
         setobj = lookupKeyRead(c->db,setkeys[j]);
         if (!setobj) {
             unlockDb(c->db);
             update_stats_add(c->vel->stats,keyspace_misses,1);
             if (dstkey) {
-                fetchInternalDbByKey(c,dstkey);
+                fetchInternalDbByKeyForClient(c,dstkey);
                 lockDbWrite(c->db);
                 if (dbDelete(c->db,dstkey)) {
                     signalModifiedKey(c->db,dstkey);
@@ -904,7 +934,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
     }
 
     min_len_set = createIntsetObject();
-    fetchInternalDbByKey(c,setkeys[min_len_idx]);
+    fetchInternalDbByKeyForClient(c,setkeys[min_len_idx]);
     lockDbRead(c->db);
     setobj = lookupKeyRead(c->db,setkeys[min_len_idx]);
     if (!setobj) {
@@ -919,7 +949,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
     }
     si = setTypeInitIterator(setobj);
     while((eleobj = setTypeNextObject(si)) != NULL) {
-        setTypeAdd(min_len_set,eleobj);
+        setTypeAdd(NULL,min_len_set,eleobj);
         if (si->encoding == OBJ_ENCODING_INTSET) 
             freeObject(eleobj); /* free this object for intset type */
     }
@@ -935,7 +965,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
     while((encoding = setTypeNext(si,&eleobj,&intobj)) != -1) {
         for (j = 0; j < setnum; j++) {
             if (j == min_len_idx) continue;
-            fetchInternalDbByKey(c,setkeys[j]);
+            fetchInternalDbByKeyForClient(c,setkeys[j]);
             lockDbRead(c->db);
             setobj = lookupKeyRead(c->db,setkeys[j]);
             if (!setobj) {
@@ -1002,10 +1032,10 @@ void sinterGenericCommand(client *c, robj **setkeys,
         if (j == setnum) {
             if (encoding == OBJ_ENCODING_INTSET) {
                 eleobj = createStringObjectFromLongLong(intobj);
-                setTypeAdd(dstset,eleobj);
+                setTypeAdd(NULL,dstset,eleobj);
                 freeObject(eleobj);
             } else {
-                setTypeAdd(dstset,eleobj);
+                setTypeAdd(NULL,dstset,eleobj);
             }
             cardinality ++;
         }
@@ -1015,13 +1045,23 @@ void sinterGenericCommand(client *c, robj **setkeys,
 
 done:
     if (dstkey) {
-        fetchInternalDbByKey(c,dstkey);
+        fetchInternalDbByKeyForClient(c,dstkey);
         lockDbWrite(c->db);
         /* Store the resulting set into the target, if the intersection
             * is not an empty set. */
         int deleted = dbDelete(c->db,dstkey);
         if (dstset && setTypeSize(dstset) > 0) {
             dbAdd(c->db,dstkey,dstset);
+             /* Update all the values' version in the set. */
+            dstset->version = c->db->version;
+            if (dstset->encoding == OBJ_ENCODING_HT) {
+                dictIterator *di = dictGetIterator(dstset->ptr);
+                dictEntry *de;
+                while ((de = dictNext(di)) != NULL) {
+                    robj *ele = dictGetVal(de);
+                    ele->version = dstset->version;
+                }
+            }
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(NOTIFY_SET,"sinterstore",
                 dstkey,c->db->id);
@@ -1076,7 +1116,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     long long first_length = 0;
 
     for (j = 0; j < setnum; j++) {
-        fetchInternalDbByKey(c,setkeys[j]);
+        fetchInternalDbByKeyForClient(c,setkeys[j]);
         lockDbRead(c->db);
         setobj = lookupKeyRead(c->db,setkeys[j]);
         if (!setobj) {
@@ -1120,12 +1160,12 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
      * is not NULL (that is, we are inside an SUNIONSTORE operation) then
      * this set object will be the resulting object to set into the target key*/
     dstset = createIntsetObject();
-
+    
     if (op == SET_OP_UNION) {
         /* Union is trivial, just add every element of every set to the
          * temporary set. */
         for (j = 0; j < setnum; j++) {
-            fetchInternalDbByKey(c,setkeys[j]);
+            fetchInternalDbByKeyForClient(c,setkeys[j]);
             lockDbRead(c->db);
             setobj = lookupKeyRead(c->db,setkeys[j]);
 
@@ -1141,7 +1181,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
             si = setTypeInitIterator(setobj);
             while((ele = setTypeNextObject(si)) != NULL) {
-                if (setTypeAdd(dstset,ele)) cardinality++;
+                if (setTypeAdd(NULL,dstset,ele)) cardinality++;
                 if (si->encoding == OBJ_ENCODING_INTSET)
                     freeObject(ele); /* free this object for intset type */
             }
@@ -1160,7 +1200,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         robj *first_set;
         
         first_set = createIntsetObject();
-        fetchInternalDbByKey(c,setkeys[0]);
+        fetchInternalDbByKeyForClient(c,setkeys[0]);
         lockDbRead(c->db);
         setobj = lookupKeyRead(c->db,setkeys[0]);
         if (!setobj) {
@@ -1176,7 +1216,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
         si = setTypeInitIterator(setobj);
         while((ele = setTypeNextObject(si)) != NULL) {
-            setTypeAdd(first_set,ele);
+            setTypeAdd(NULL,first_set,ele);
             if (si->encoding == OBJ_ENCODING_INTSET) 
                 freeObject(ele); /* free this object for intset type */
         }
@@ -1186,7 +1226,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         si = setTypeInitIterator(first_set);
         while((ele = setTypeNextObject(si)) != NULL) {
             for (j = 1; j < setnum; j++) {
-                fetchInternalDbByKey(c,setkeys[j]);
+                fetchInternalDbByKeyForClient(c,setkeys[j]);
                 lockDbRead(c->db);
                 setobj = lookupKeyRead(c->db,setkeys[j]);
                 if (!setobj) {
@@ -1211,7 +1251,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
             if (j == setnum) {
                 /* There is no other set with this element. Add it. */
-                setTypeAdd(dstset,ele);
+                setTypeAdd(NULL,dstset,ele);
                 cardinality++;
             }
 
@@ -1229,7 +1269,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             * This is O(N) where N is the sum of all the elements in every
             * set. */
         for (j = 0; j < setnum; j++) {
-            fetchInternalDbByKey(c,setkeys[0]);
+            fetchInternalDbByKeyForClient(c,setkeys[0]);
             lockDbRead(c->db);
             setobj = lookupKeyRead(c->db,setkeys[0]);
             if (!setobj) {
@@ -1250,9 +1290,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             si = setTypeInitIterator(setobj);
             while((ele = setTypeNextObject(si)) != NULL) {
                 if (j == 0) {
-                    if (setTypeAdd(dstset,ele)) cardinality++;
+                    if (setTypeAdd(NULL,dstset,ele)) cardinality++;
                 } else {
-                    if (setTypeRemove(dstset,ele)) cardinality--;
+                    if (setTypeRemove(NULL,NULL,dstset,ele)) cardinality--;
                 }
                 if (si->encoding == OBJ_ENCODING_INTSET) 
                     freeObject(ele); /* free this object for intset type */
@@ -1282,13 +1322,23 @@ done:
         setTypeReleaseIterator(si);
         freeObject(dstset);
     } else {
-        fetchInternalDbByKey(c,dstkey);
+        fetchInternalDbByKeyForClient(c,dstkey);
         lockDbWrite(c->db);
         /* If we have a target key where to store the resulting set
          * create this key with the result set inside */
         int deleted = dbDelete(c->db,dstkey);
         if (setTypeSize(dstset) > 0) {
             dbAdd(c->db,dstkey,dstset);
+            /* Update all the values' version in the set. */
+            dstset->version = c->db->version;
+            if (dstset->encoding == OBJ_ENCODING_HT) {
+                dictIterator *di = dictGetIterator(dstset->ptr);
+                dictEntry *de;
+                while ((de = dictNext(di)) != NULL) {
+                    ele = dictGetVal(de);
+                    ele->version = dstset->version;
+                }
+            }
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(NOTIFY_SET,
                 op == SET_OP_UNION ? "sunionstore" : "sdiffstore",

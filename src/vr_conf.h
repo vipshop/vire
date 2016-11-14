@@ -174,6 +174,7 @@ int conf_get_array_sds(void *obj, conf_option *opt, void *data);
 
 int conf_set_sds(void *obj, conf_option *opt, void *data);
 int conf_set_password(void *obj, conf_option *opt, void *data);
+int conf_set_work_dir(void *obj, conf_option *opt, void *data);
 int conf_set_int(void *obj, conf_option *opt, void *data);
 int conf_set_longlong(void *obj, conf_option *opt, void *data);
 int conf_set_yesorno(void *obj, conf_option *opt, void *data);

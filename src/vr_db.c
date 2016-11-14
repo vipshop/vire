@@ -10,7 +10,7 @@ dictType dbDictType = {
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructor,          /* key destructor */
-    dictObjectDestructor   /* val destructor */
+    dictObjectDestructor        /* val destructor */
 };
 
 /* Db->expires */
@@ -52,7 +52,7 @@ static struct evictionPoolEntry *evictionPoolAlloc(void) {
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
-int redisDbInit(redisDb *db)
+int redisDbInit(redisDb *db, int idx)
 {
     db->dict = dictCreate(&dbDictType,NULL);
     db->expires = dictCreate(&keyptrDictType,NULL);
@@ -60,7 +60,31 @@ int redisDbInit(redisDb *db)
     db->ready_keys = dictCreate(&setDictType,NULL);
     db->watched_keys = dictCreate(&keylistDictType,NULL);
     db->eviction_pool = evictionPoolAlloc();
+    db->id = idx;
     db->avg_ttl = 0;
+
+    db->rdb_filename = sdsempty();
+    db->rdb_tmpfilename = sdsempty();
+    db->version = 0;
+    db->flags = 0;
+    db->rdb_cached = NULL;
+    db->cursor_key = NULL;
+    db->dirty = 0;
+    db->dirty_before_bgsave = 0;
+    
+    db->aof_filename = sdsempty();
+    db->aof_enabled = 1;
+    db->aof_fd = -1;
+    db->aof_buf = sdsempty();
+    db->aof_current_size = 0;
+    db->aof_flush_postponed_start = 0; 
+    db->aof_delayed_fsync = 0;
+    db->aof_last_fsync = 0;
+    db->aof_last_write_status = VR_OK;
+    db->aof_last_write_errno = 0;
+    db->aof_last_write_error_log = 0;
+
+    db->bkdhelper = bigkeyDumpHelperCreate();
 
     pthread_rwlock_init(&db->rwl, NULL);
 
@@ -134,14 +158,18 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply, int *expired) {
     return o;
 }
 
-/* Add the key to the DB. It's up to the caller to increment the reference
- * counter of the value if needed.
+/* Add the key to the DB.
  *
  * The program is aborted if the key already exists. 
  * Val object must be independent. */
 void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
-    int retval = dictAdd(db->dict, copy, val);
+    int retval;
+
+    ASSERT(val->constant == 0);
+    val->version = db->version;
+    
+    retval = dictAdd(db->dict, copy, val);
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
     if (val->type == OBJ_LIST) signalListAsReady(db, key);
  }
@@ -155,7 +183,13 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 void dbOverwrite(redisDb *db, robj *key, robj *val) {
     dictEntry *de = dictFind(db->dict,key->ptr);
 
+    ASSERT(val->constant == 0);
+    val->version = db->version;
+
     serverAssertWithInfo(NULL,key,de != NULL);
+
+    rdbSaveKeyIfNeeded(db,de,key->ptr,val,0);
+    
     dictReplace(db->dict, key->ptr, val);
 }
 
@@ -286,7 +320,7 @@ void flushdbCommand(client *c) {
     int idx;
 
     for (idx = 0; idx < server.dbinum; idx ++) {
-        fetchInternalDbById(c, idx);
+        fetchInternalDbByIdForClient(c, idx);
         lockDbWrite(c->db);
         c->vel->dirty += dictSize(c->db->dict);
         signalFlushedDb(c->db->id);
@@ -318,7 +352,7 @@ void delCommand(client *c) {
     int expired = 0;
 
     for (j = 1; j < c->argc; j++) {
-        fetchInternalDbByKey(c, c->argv[j]);
+        fetchInternalDbByKeyForClient(c, c->argv[j]);
         lockDbWrite(c->db);
         expired += expireIfNeeded(c->db,c->argv[j]);
         if (dbDelete(c->db,c->argv[j])) {
@@ -344,7 +378,7 @@ void existsCommand(client *c) {
     int j;
 
     for (j = 1; j < c->argc; j++) {
-        fetchInternalDbByKey(c,c->argv[j]);
+        fetchInternalDbByKeyForClient(c,c->argv[j]);
         lockDbRead(c->db);
         if (checkIfExpired(c->db,c->argv[j])) {
             unlockDb(c->db);
@@ -380,7 +414,7 @@ void randomkeyCommand(client *c) {
     idx = random()%server.dbinum;
 
 retry:
-    fetchInternalDbById(c, idx);
+    fetchInternalDbByIdForClient(c, idx);
     if ((key = dbRandomKey(c->db)) == NULL) {
         if (retry_count++ < server.dbinum) {
             if (++idx >= server.dbinum) {
@@ -411,7 +445,7 @@ void keysCommand(client *c) {
 
     /* Check if it is reach the max-time-complexity-limit */
     for (idx = 0; idx < server.dbinum; idx ++) {
-        fetchInternalDbById(c, idx);
+        fetchInternalDbByIdForClient(c, idx);
         lockDbWrite(c->db);
         keys_count += dictSize(c->db->dict);
         unlockDb(c->db);
@@ -426,7 +460,7 @@ void keysCommand(client *c) {
 
     replylen = addDeferredMultiBulkLength(c);
     for (idx = 0; idx < server.dbinum; idx ++) {
-        fetchInternalDbById(c,idx);
+        fetchInternalDbByIdForClient(c,idx);
         lockDbWrite(c->db);
         di = dictGetSafeIterator(c->db->dict);
         allkeys = (pattern[0] == '*' && pattern[1] == '\0');
@@ -561,12 +595,12 @@ void scanGenericCommand(client *c, int scantype) {
     if (scantype == SCAN_TYPE_KEY) {
         o = NULL;
         if (c->scanid == -1 || cursor == 0) c->scanid = 0;
-        fetchInternalDbById(c, c->scanid);
+        fetchInternalDbByIdForClient(c, c->scanid);
         lockDbRead(c->db);
     } else if (scantype == SCAN_TYPE_HASH || 
         scantype == SCAN_TYPE_SET ||
         scantype == SCAN_TYPE_ZSET) {
-        fetchInternalDbByKey(c, c->argv[1]);
+        fetchInternalDbByKeyForClient(c, c->argv[1]);
         lockDbRead(c->db);
         if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL) {
             unlockDb(c->db);
@@ -680,7 +714,7 @@ scan_retry:
         if (cursor == 0) {
             if (c->scanid < (server.dbinum - 1)) {
                 c->scanid ++;
-                fetchInternalDbById(c, c->scanid);
+                fetchInternalDbByIdForClient(c, c->scanid);
                 lockDbRead(c->db);
                 goto scan_retry;
             } else {
@@ -766,7 +800,7 @@ void dbsizeCommand(client *c) {
     unsigned long count = 0;
 
     for (idx = 0; idx < server.dbinum; idx ++) {
-        fetchInternalDbById(c, idx);
+        fetchInternalDbByIdForClient(c, idx);
         lockDbRead(c->db);
         count += dictSize(c->db->dict);
         unlockDb(c->db);
@@ -783,7 +817,7 @@ void typeCommand(client *c) {
     robj *o;
     char *type;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     o = lookupKeyRead(c->db,c->argv[1]);
     if (o == NULL) {
@@ -988,8 +1022,6 @@ void propagateExpire(redisDb *db, robj *key) {
     incrRefCount(argv[0]);
     incrRefCount(argv[1]);
 
-    if (server.aof_state != AOF_OFF)
-        feedAppendOnlyFile(server.delCommand,db->id,argv,2);
     replicationFeedSlaves(repl.slaves,db->id,argv,2);
 
     decrRefCount(argv[0]);
@@ -1065,7 +1097,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
 
-    fetchInternalDbByKey(c, key);
+    fetchInternalDbByKeyForClient(c, key);
     lockDbWrite(c->db);
     /* No key, return zero. */
     if (lookupKeyWrite(c->db,key,&expired) == NULL) {
@@ -1127,7 +1159,7 @@ void pexpireatCommand(client *c) {
 void ttlGenericCommand(client *c, int output_ms) {
     long long expire, ttl = -1;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     /* If the key does not exist at all, return -2 */
     if (lookupKeyRead(c->db,c->argv[1]) == NULL) {
@@ -1164,7 +1196,7 @@ void pttlCommand(client *c) {
 void persistCommand(client *c) {
     dictEntry *de;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     de = dictFind(c->db->dict,c->argv[1]->ptr);
     if (de == NULL) {
@@ -1358,27 +1390,36 @@ int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkey
     return keys;
 }
 
-int fetchInternalDbByKey(client *c, robj *key) {
-    c->db = darray_get(&server.dbs, (hash_crc16(key->ptr,stringObjectLen(key))&0x3FFF)%server.dbinum+c->dictid*server.dbinum);
+redisDb *fetchInternalDbByKey(int logic_dbid, robj *key)
+{
+    return darray_get(&server.dbs, (hash_crc16(key->ptr,stringObjectLen(key))&0x3FFF)%server.dbinum+logic_dbid*server.dbinum);
+}
+
+redisDb *fetchInternalDbById(int logic_dbid, int idx)
+{
+    return darray_get(&server.dbs, idx+logic_dbid*server.dbinum);
+}
+
+int fetchInternalDbByKeyForClient(client *c, robj *key) {
+    c->db = fetchInternalDbByKey(c->dictid, key);
     return VR_OK;
 }
 
-int fetchInternalDbById(client *c, int idx) {
-    c->db = darray_get(&server.dbs, idx+c->dictid*server.dbinum);
+int fetchInternalDbByIdForClient(client *c, int idx) {
+    c->db = fetchInternalDbById(c->dictid, idx);
     return VR_OK;
 }
 
 /* If the percentage of used slots in the HT reaches HASHTABLE_MIN_FILL
  * we resize the hash table to save memory */
-void tryResizeHashTablesForDb(int dbid) {
-    redisDb *db;
-
-    db = darray_get(&server.dbs, dbid);
+void tryResizeHashTablesForDb(redisDb *db) {
     lockDbWrite(db);
     if (htNeedsResize(db->dict))
         dictResize(db->dict);
     if (htNeedsResize(db->expires))
         dictResize(db->expires);
+
+    flushAppendOnlyFile(db, 0);
     unlockDb(db);
 }
 
@@ -1389,11 +1430,16 @@ void tryResizeHashTablesForDb(int dbid) {
  *
  * The function returns 1 if some rehashing was performed, otherwise 0
  * is returned. */
-int incrementallyRehashForDb(int dbid) {
-    redisDb *db;
-
-    db = darray_get(&server.dbs, dbid);
+int incrementallyRehashForDb(redisDb *db) {
     lockDbWrite(db);
+
+    /* Perform hash tables rehashing if needed, but only if this db is not 
+     * generating rdb files. Otherwise rehashing is bad
+     * as will cause confusing the key dump sequence. */
+    if ((db->flags&DB_FLAGS_DUMPING)) {
+        unlockDb(db);
+        return 0;
+    }
     
     /* Keys dictionary */
     if (dictIsRehashing(db->dict)) {
@@ -1582,31 +1628,44 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  * incrementally in Redis databases, such as active key expiring, resizing,
  * rehashing. */
 void databasesCron(vr_backend *backend) {
+    int rdb_is_generating_copy;
+    int j, idx;
+    redisDb **db;
+
     /* Expire keys by random sampling. Not required for slaves
      * as master will synthesize DELs for us. */
     if (repl.masterhost == NULL)
         activeExpireCycle(backend, ACTIVE_EXPIRE_CYCLE_SLOW);
 
-    /* Perform hash tables rehashing if needed, but only if there are no
-     * other processes saving the DB on disk. Otherwise rehashing is bad
-     * as will cause a lot of copy-on-write of memory pages. */
-    if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
+    PERSIS_LOCK();
+    rdb_is_generating_copy = rdb_is_generating;
+    PERSIS_UNLOCK();
+
+    /* Rehash the db if needed. Don't do this when generating rdb files*/
+    if (rdb_is_generating_copy == 0) {
         int dbs_per_call = CRON_DBS_PER_CALL;
-        int j;
+
+        if (backend->vel.hz > 10) {
+            backend->vel.hz = 10;
+        }
 
         /* Don't test more DBs than we have. */
         if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
 
         /* Resize */
         for (j = 0; j < dbs_per_call; j++) {
-            tryResizeHashTablesForDb(backend->resize_db%server.dbnum);
+            idx = backend->resize_db%darray_n(&backend->dbs);
+            db = darray_get(&backend->dbs,idx);
+            tryResizeHashTablesForDb(*db);
             backend->resize_db++;
         }
 
         /* Rehash */
         if (server.activerehashing) {
             for (j = 0; j < dbs_per_call; j++) {
-                int work_done = incrementallyRehashForDb(backend->rehash_db%server.dbnum);
+                idx = backend->rehash_db%darray_n(&backend->dbs);
+                db = darray_get(&backend->dbs,idx);
+                int work_done = incrementallyRehashForDb(*db);
                 backend->rehash_db++;
                 if (work_done) {
                     /* If the function did some work, stop here, we'll do
@@ -1615,6 +1674,27 @@ void databasesCron(vr_backend *backend) {
                 }
             }
         }
+    } else { /* Generate the rdb files */
+        int dbs_per_call = CRON_DBS_PER_CALL;
+        int j;
+        
+        for (j = 0; j < dbs_per_call; j++) {
+            idx = backend->dump_db%darray_n(&backend->dbs);
+            db = darray_get(&backend->dbs,idx);
+            int work_done = incrementallyRdbSave(*db);
+            backend->dump_db++;
+            if (work_done) {
+                /* If the function did some work, stop here, we'll do
+                 * more at the next cron loop. */
+                break;
+            }
+        }
+
+        if (backend->vel.hz < 1000) {
+            backend->vel.hz = 1000;
+        }
     }
+
+    
 }
 

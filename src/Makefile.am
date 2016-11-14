@@ -60,12 +60,15 @@ vire_SOURCES =                          \
     vr_quicklist.c vr_quicklist.h       \
     vr_rbtree.c vr_rbtree.h             \
     vr_rdb.c vr_rdb.h                   \
+    vr_rio.c vr_rio.h                   \
+    vr_persistence.c vr_persistence.h   \
     vr_replication.c vr_replication.h   \
     vr_scripting.c vr_scripting.h       \
     vr_server.c vr_server.h             \
     vr_signal.c vr_signal.h             \
     vr_slowlog.c vr_slowlog.h           \
     vr_specialconfig.h                  \
+    vr_fmacros.h                        \
     vr_stats.c vr_stats.h               \
     vr_thread.c vr_thread.h             \
     vr_t_hash.c vr_t_hash.h             \

@@ -73,6 +73,7 @@ struct vr_worker;
 #include <dmalloc.h>
 #include <darray.h>
 #include <dlist.h>
+#include <dmtqueue.h>
 
 #include <vr_util.h>
 #include <vr_signal.h>
@@ -114,6 +115,7 @@ struct vr_worker;
 
 #include <vr_rdb.h>
 #include <vr_aof.h>
+#include <vr_persistence.h>
 #include <vr_replication.h>
 #include <vr_scripting.h>
 
@@ -128,6 +130,13 @@ struct vr_worker;
 #include <vr_hyperloglog.h>
 
 #include <vr_slowlog.h>
+
+/* Define aof_fsync to fdatasync() in Linux and fsync() for all the rest */
+#ifdef __linux__
+#define aof_fsync fdatasync
+#else
+#define aof_fsync fsync
+#endif
 
 struct instance {
     int             log_level;                   /* log level */

@@ -133,15 +133,15 @@ struct vr_server {
     char *unixsocket;           /* UNIX socket path */
 
     /* RDB / AOF loading information */
-    int loading;                /* We are loading data from disk if true */
+    int loading;                /* We are loading data from disk if true. */
     off_t loading_total_bytes;
     off_t loading_loaded_bytes;
-    time_t loading_start_time;
+    long long loading_start_time;
     off_t loading_process_events_interval_bytes;
 
     /* AOF persistence */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
-    int aof_fsync;                  /* Kind of fsync() policy */
+    int aof_fsync_policy;           /* Kind of fsync() policy */
     char *aof_filename;             /* Name of the AOF file */
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
@@ -171,11 +171,13 @@ struct vr_server {
     int aof_pipe_read_ack_from_child;
     int aof_pipe_write_ack_to_child;
     int aof_pipe_read_ack_from_parent;
-    int aof_stop_sending_diff;     /* If true stop sending accumulated diffs
+    int aof_stop_sending_diff;      /* If true stop sending accumulated diffs
                                       to child process. */
     sds aof_child_diff;             /* AOF diff accumulator child side. */
 
     /* RDB persistence */
+    int rdb_is_generating;          /* If the rdb is generating? */
+    int rdb_generated_count;        /* Count of rdb file have generated */
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
     pid_t rdb_child_pid;            /* PID of RDB saving child */
@@ -187,7 +189,7 @@ struct vr_server {
     time_t lastsave;                /* Unix time of last successful save */
     time_t lastbgsave_try;          /* Unix time of last attempted bgsave */
     time_t rdb_save_time_last;      /* Time used by last RDB save run. */
-    time_t rdb_save_time_start;     /* Current RDB save start time. */
+    long long rdb_save_time_start;  /* Current RDB save start time in microseconds. */
     int rdb_child_type;             /* Type of save by active child. */
     int lastbgsave_status;          /* VR_OK or VR_ERROR */
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
@@ -314,6 +316,7 @@ extern struct sharedObjectsStruct shared;;
 extern dictType hashDictType;
 extern dictType setDictType;
 extern dictType zsetDictType;
+extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 
 #define serverPanic(_e) _log(__FILE__, __LINE__, LOG_EMERG, 1, "assert faild: %s", #_e)
 #define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_log(__FILE__, __LINE__, LOG_EMERG, 1, "assert faild: %s", #_e)))

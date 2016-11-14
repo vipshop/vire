@@ -30,6 +30,17 @@
 
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
+/* Macro used to initialize a Redis object allocated on the stack.
+ * Note that this macro is taken near the structure definition to make sure
+ * we'll update it when the structure is changed, to avoid bugs like
+ * bug #85 introduced exactly in this way. */
+#define initStaticStringObject(_var,_ptr) do { \
+    _var.refcount = 1; \
+    _var.type = OBJ_STRING; \
+    _var.encoding = OBJ_ENCODING_RAW; \
+    _var.ptr = _ptr; \
+} while(0)
+
 /* The actual Redis Object */
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
@@ -40,6 +51,7 @@ typedef struct vr_object {
     unsigned lru:LRU_BITS; /* lru time (relative to server.lruclock) */
     unsigned constant:1;
     int refcount;
+    long long version;
     void *ptr;
 } robj;
 
@@ -65,6 +77,7 @@ robj *tryObjectEncoding(robj *o);
 robj *getDecodedObject(robj *o);
 size_t stringObjectLen(robj *o);
 robj *createStringObjectFromLongLong(long long value);
+robj *createStringObjectFromLongLongNoConstant(long long value);
 robj *createStringObjectFromLongDouble(long double value, int humanfriendly);
 robj *createQuicklistObject(void);
 robj *createZiplistObject(void);

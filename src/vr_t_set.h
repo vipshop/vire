@@ -2,8 +2,8 @@
 #define _VR_T_SET_H_
 
 robj *setTypeCreate(robj *value);
-int setTypeAdd(robj *subject, robj *value);
-int setTypeRemove(robj *setobj, robj *value);
+int setTypeAdd(redisDb *db, robj *subject, robj *value);
+int setTypeRemove(redisDb *db, robj *key, robj *setobj, robj *value);
 int setTypeIsMember(robj *subject, robj *value);
 setTypeIterator *setTypeInitIterator(robj *subject);
 void setTypeReleaseIterator(setTypeIterator *si);

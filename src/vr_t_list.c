@@ -171,7 +171,7 @@ void pushGenericCommand(client *c, int where) {
     robj *lobj;
     int expired = 0;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     lobj = lookupKeyWrite(c->db,c->argv[1],&expired);
     if (lobj && lobj->type != OBJ_LIST) {
@@ -187,6 +187,7 @@ void pushGenericCommand(client *c, int where) {
             lobj = createQuicklistObject();
             quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
                                 server.list_compress_depth);
+            lobj->version = c->db->version;
             dbAdd(c->db,c->argv[1],lobj);
         }
         listTypePush(lobj,c->argv[j],where);
@@ -200,6 +201,7 @@ void pushGenericCommand(client *c, int where) {
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     }
     c->vel->dirty += pushed;
+    c->db->dirty += pushed;
 
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
@@ -280,7 +282,7 @@ void linsertCommand(client *c) {
 void llenCommand(client *c) {
     robj *o;
     
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
     if (o == NULL) {
@@ -306,7 +308,7 @@ void lindexCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != VR_OK))
         return;
 
-    fetchInternalDbByKey(c,c->argv[1]);
+    fetchInternalDbByKeyForClient(c,c->argv[1]);
     lockDbRead(c->db);
     o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL) {
@@ -347,7 +349,7 @@ void lsetCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != VR_OK))
         return;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr,&expired);
     if (o == NULL || checkType(c,o,OBJ_LIST)) {
@@ -379,7 +381,7 @@ void popGenericCommand(client *c, int where) {
     robj *o, *value;
     int expired = 0;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk,&expired);
     if (o == NULL || checkType(c,o,OBJ_LIST)) {
@@ -424,7 +426,7 @@ void lrangeCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != VR_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != VR_OK)) return;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbRead(c->db);
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL) {
         unlockDb(c->db);
@@ -486,7 +488,7 @@ void ltrimCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != VR_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != VR_OK)) return;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.ok,&expired)) == NULL ||
         checkType(c,o,OBJ_LIST)) {
@@ -543,7 +545,7 @@ void lremCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != VR_OK))
         return;
 
-    fetchInternalDbByKey(c, c->argv[1]);
+    fetchInternalDbByKeyForClient(c, c->argv[1]);
     lockDbWrite(c->db);
     subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero,&expired);
     if (subject == NULL || checkType(c,subject,OBJ_LIST)) {
