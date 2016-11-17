@@ -521,7 +521,7 @@ void hsetnxCommand(client *c) {
         addReply(c, shared.cone);
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
-        server.dirty++;
+        propagateIfNeededForClient(c,c->argv,c->argc,1);
     }
 
     unlockDb(c->db);
