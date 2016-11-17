@@ -554,7 +554,7 @@ void hmsetCommand(client *c) {
     addReply(c, shared.ok);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
-    c->vel->dirty++;
+    propagateIfNeededForClient(c,c->argv,c->argc,1);
     
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
