@@ -227,9 +227,10 @@ int hashTypeSet(redisDb *db, robj *key, robj *o, robj *field, robj *value) {
 
 /* Delete an element from a hash.
  * Return 1 on deleted and 0 on not found. */
-int hashTypeDelete(robj *o, robj *field) {
+int hashTypeDelete(redisDb *db, robj *key, robj *o, robj *field) {
     int deleted = 0;
 
+    if (db) rdbSaveKeyIfNeeded(db,NULL,key->ptr,o,0);
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl, *fptr;
         robj *field_new;
@@ -250,6 +251,7 @@ int hashTypeDelete(robj *o, robj *field) {
 
         if (field_new != field) freeObject(field_new);
     } else if (o->encoding == OBJ_ENCODING_HT) {
+        if (db) rdbSaveHashTypeHashValIfNeeded(db, key->ptr, o, field);
         if (dictDelete((dict*)o->ptr, field) == VR_OK) {
             deleted = 1;
 
@@ -752,7 +754,7 @@ void hdelCommand(client *c) {
     }
 
     for (j = 2; j < c->argc; j++) {
-        if (hashTypeDelete(o,c->argv[j])) {
+        if (hashTypeDelete(c->db,c->argv[1],o,c->argv[j])) {
             deleted++;
             if (hashTypeLength(o) == 0) {
                 dbDelete(c->db,c->argv[1]);
@@ -761,7 +763,7 @@ void hdelCommand(client *c) {
             }
         }
     }
-
+    propagateIfNeededForClient(c,c->argv,c->argc,deleted);
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
     
@@ -771,7 +773,6 @@ void hdelCommand(client *c) {
         if (keyremoved)
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
                                 c->db->id);
-        server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
 }
