@@ -85,6 +85,7 @@ long long emptyDb(void(callback)(void*));
 int selectDb(struct client *c, int id);
 void signalModifiedKey(redisDb *db, robj *key);
 void signalFlushedDb(int dbid);
+void flushidbCommand(struct client *c);
 void flushdbCommand(struct client *c);
 void flushallCommand(struct client *c);
 void delCommand(struct client *c);

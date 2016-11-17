@@ -71,6 +71,7 @@ struct redisCommand redisCommandTable[] = {
     {"admin",adminCommand,2,"sltF",0,NULL,0,0,0,0,0},
     /* Server */
     {"info",infoCommand,-1,"lt",0,NULL,0,0,0,0,0},
+    {"flushidb",flushidbCommand,1,"w",0,NULL,0,0,0,0,0},
     {"flushdb",flushdbCommand,1,"w",0,NULL,0,0,0,0,0},
     {"flushall",flushallCommand,1,"w",0,NULL,0,0,0,0,0},
     {"time",timeCommand,1,"RF",0,NULL,0,0,0,0,0},
@@ -388,8 +389,8 @@ void call(client *c, int flags) {
 
         /* Call propagate() only if at least one of AOF / replication
          * propagation is needed. */
-        if (propagate_flags != PROPAGATE_NONE)
-            propagate(c->cmd,c->db->id,c->argv,c->argc,propagate_flags);
+        //if (propagate_flags != PROPAGATE_NONE)
+            //propagate(c->cmd,c->db->id,c->argv,c->argc,propagate_flags);
     }
 
     /* Restore the old replication flags, since call() can be executed
@@ -650,14 +651,16 @@ void redisOpArrayFree(redisOpArray *oa) {
  * This should not be used inside commands implementation. Use instead
  * alsoPropagate(), preventCommandPropagation(), forceCommandPropagation().
  */
-void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
+void propagate(struct redisCommand *cmd, redisDb *db, robj **argv, int argc,
                int flags)
 {
+    if (flags & PROPAGATE_AOF)
+        feedAppendOnlyFileIfNeeded(cmd,db,argv,argc);
     if (flags & PROPAGATE_REPL)
-        replicationFeedSlaves(repl.slaves,dbid,argv,argc);
+        replicationFeedSlaves(repl.slaves,db,argv,argc);
 }
 
-void propagateIfNeededForClient(client *c, robj **argv, int argc, int dirty)
+void propagateIfNeededForClient(client *c, robj **argv, int argc, long long dirty)
 {
     /* Check if this is a Fake client for AOF loading? */
     if (!c->conn || c->conn->sd < -1) {
@@ -666,7 +669,7 @@ void propagateIfNeededForClient(client *c, robj **argv, int argc, int dirty)
 
     c->vel->dirty += dirty;
     c->db->dirty += dirty;
-    feedAppendOnlyFileIfNeeded(c->cmd, c->db, argv, argc);
+    propagate(c->cmd,c->db,argv,argc,PROPAGATE_AOF);
 }
 
 /* Used inside commands to schedule the propagation of additional commands

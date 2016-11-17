@@ -412,7 +412,7 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
     return count;
 }
 
-static int rdbSaveBigkeysGenerate(redisDb *db)
+static int rdbSaveBigkeysGenerate(redisDb *db, int need_complete)
 {
     bigkeyDumpHelper *bkdhelper = db->bkdhelper;
     int count = 0, sample_count;
@@ -438,13 +438,13 @@ generate_one_key:
 
     count += bigkeyRdbGenerate(db, bkdumper_best->key, NULL, bkdumper_best, 0);
 
-    if (count < RDB_SAVE_OPERATION_COUNT_PER_TIME)
+    if (need_complete || count < RDB_SAVE_OPERATION_COUNT_PER_TIME)
         goto generate_one_key;
 
     return count;
 }
 
-static int rdbSaveBigkeyWrite(redisDb *db)
+static int rdbSaveBigkeyWrite(redisDb *db, int need_complete)
 {
     bigkeyDumpHelper *bkdhelper = db->bkdhelper;
     int count = 0;
@@ -476,7 +476,7 @@ static int rdbSaveBigkeyWrite(redisDb *db)
                 dfree(node->zl); node->zl = NULL;
                 
                 qldhelper->count ++;
-                if (++count >= RDB_SAVE_OPERATION_COUNT_PER_TIME) {
+                if (!need_complete && ++count >= RDB_SAVE_OPERATION_COUNT_PER_TIME) {
                     if (qldhelper->count >= qldhelper->len) {
                         dlistDelNode(bkdhelper->bigkeys_to_write, ln);
                         bigkeyDumperDestroy(bkdumper);
@@ -495,7 +495,7 @@ static int rdbSaveBigkeyWrite(redisDb *db)
                     return -1;
                 }
                 bkdumper->written += (size_t)written;
-                if (++count >= RDB_SAVE_OPERATION_COUNT_PER_TIME) {
+                if (!need_complete && ++count >= RDB_SAVE_OPERATION_COUNT_PER_TIME) {
                     if (bkdumper->written >= sdslen(bkdumper->data)) {
                         dlistDelNode(bkdhelper->bigkeys_to_write, ln);
                         bigkeyDumperDestroy(bkdumper);
@@ -581,7 +581,7 @@ int rdbSaveKeyIfNeeded(redisDb *db, dictEntry *de, sds key, robj *val, int dump_
     }
     ASSERT(val != NULL);
     if ((db->flags&DB_FLAGS_DUMP_FIRST_STEP)) {
-        rdbSave(db);
+        rdbSave(db,0);
     }
 
     if (val->version >= db->version)
@@ -682,7 +682,7 @@ complete_dump:
  * integer pointed by 'error' is set to the value of errno just after the I/O
  * error. The integer pointed by 'finished' is set to 1 if this db dumped 
  * finished. */
-static int rdbSaveRio(redisDb *db, int *error, int *finished) {
+static int rdbSaveRio(redisDb *db, int need_complete, int *error, int *finished) {
     int ret;
     rio *rdb = db->rdb_cached;
     dictIterator *di = NULL;
@@ -732,26 +732,26 @@ static int rdbSaveRio(redisDb *db, int *error, int *finished) {
     }
 
     /* 1st. Write the generated rdb string for big keys. */
-    ret = rdbSaveBigkeyWrite(db);
+    ret = rdbSaveBigkeyWrite(db,need_complete);
     if (ret < 0) {
         goto end;
     } else if (ret > 0) {
         count += ret;
         /* If there are big keys in the bigkeyDumpHelper, 
          * we'd better not dump the new keys. */
-        if (bigkeyDumpHelperIsBusy(db->bkdhelper))
+        if (!need_complete && bigkeyDumpHelperIsBusy(db->bkdhelper))
             goto end;
     }
 
     /* 2nd. Generate rdb string for big keys. */
-    ret = rdbSaveBigkeysGenerate(db);
+    ret = rdbSaveBigkeysGenerate(db,need_complete);
     if (ret < 0) {
         goto end;
     } else if (ret > 0) {
         count += ret;
         /* If there are big keys in the bigkeyDumpHelper, 
          * we'd better not dump the new keys. */
-        if (bigkeyDumpHelperIsBusy(db->bkdhelper))
+        if (!need_complete && bigkeyDumpHelperIsBusy(db->bkdhelper))
             goto end;
     }
     
@@ -766,7 +766,7 @@ static int rdbSaveRio(redisDb *db, int *error, int *finished) {
         }
         
         count += ret;
-        if (count >= RDB_SAVE_OPERATION_COUNT_PER_TIME) {
+        if (!need_complete && count >= RDB_SAVE_OPERATION_COUNT_PER_TIME) {
             /* Break and continue for the next time. */
             break;
         }
@@ -780,6 +780,8 @@ static int rdbSaveRio(redisDb *db, int *error, int *finished) {
     
 end:
 
+    if (need_complete) ASSERT(*finished == 1);
+    
     if (*finished == 1) {
         /* EOF opcode */
         if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) goto werr;
@@ -823,7 +825,7 @@ static int rdbSaveFinished(void)
 }
 
 /* Save the DB on disk. Return success dump keys count, and -1 on error.*/
-int rdbSave(redisDb *db) {
+int rdbSave(redisDb *db, int need_complete) {
     FILE *fp;
     dict *d;
     dictIterator *di = NULL;
@@ -854,7 +856,7 @@ int rdbSave(redisDb *db) {
         fp = rdb->io.file.fp;
     }
     
-    count = rdbSaveRio(db,&error,&finished);
+    count = rdbSaveRio(db,need_complete,&error,&finished);
     if (count == -1) {
         errno = error;
         goto werr;
@@ -924,7 +926,7 @@ static int rdbSaveMilliseconds(redisDb *db, int us) {
     int dumps = 0, count;
 
     while (1) {
-        count = rdbSave(db);
+        count = rdbSave(db,0);
         if (count <= 0) break;
         dumps += count;
         if (dusec_now()-start > us) break;
@@ -1076,116 +1078,18 @@ static int loadThreadInit(load_thread *loader)
     loader->thread_id = 0;
     loader->pps = NULL;
 
-    loader->pps = darray_create(10, sizeof(persisPart));
+    loader->pps = darray_create(10, sizeof(persisPart*));
     return VR_OK;
 }
 
 static void loadThreadDeinit(load_thread *loader)
 {
     persisPart **pp;
-    persisFile *pf;
     while ((pp = darray_pop(loader->pps)) != NULL) {
-        pf = (*pp)->rdb_file;
-        if (pf) {
-            persisFileDestroy(pf);
-            (*pp)->rdb_file = NULL;
-        }
-        if ((*pp)->aof_files) {
-            while ((pf = dlistPop((*pp)->aof_files)) != NULL) {
-                persisFileDestroy(pf);
-            }
-            dlistRelease((*pp)->aof_files);
-            (*pp)->aof_files = NULL;
-        }
-
-        dfree(*pp);
+        /* nothing */
     }
     darray_destroy(loader->pps);
     loader->pps = NULL;
-}
-
-static int persistenceFilenameCmp(const void *t1, const void *t2)
-{
-    const sds *fname1 = t1, *fname2 = t2;
-    size_t len1, len2;
-
-    len1 = sdslen(*fname1);
-    len2 = sdslen(*fname2);
-    if (len1 != len2) {
-        return (int)(len1-len2);
-    } else {
-        return memcmp(*fname1,*fname2,len1);
-    }
-    
-    return 0;
-}
-
-static darray *getExistPersistenceFilename(char *filename)
-{
-    int j;
-    DIR *work_dir;
-    struct dirent *ent = NULL;
-    char dir_cur[1024];
-    size_t filename_len = strlen(filename);
-    darray *filenames;
-
-    if (getcwd(dir_cur,sizeof(dir_cur)) == NULL)
-        dir_cur[0] = '\0';
-    
-    work_dir = opendir(dir_cur);
-    if (work_dir == NULL) {
-        log_warn("Open directory %s failed.", dir_cur);
-        return NULL;
-    }
-
-    filenames = darray_create(100,sizeof(sds));
-    
-    while ((ent=readdir(work_dir)) != NULL) {
-        char *fname;
-        size_t fname_len;
-        sds *str;
-        
-        if (ent->d_type == 8) { /* file */
-            fname = ent->d_name;
-            fname_len = strlen(fname);
-            
-            if (filename_len >= fname_len) {
-                continue;
-            }
-
-            if (strncmp(filename,fname,filename_len) != 0) {
-                continue;
-            }
-
-            if (fname[filename_len] != '_') {
-                continue;
-            }
-
-            for (j = 1; j < fname_len-filename_len; j ++) {
-                if (fname[filename_len+j] < '0' || 
-                    fname[filename_len+j] > '9') {
-                    break;
-                }
-            }
-            
-            if (j < fname_len-filename_len) {
-                continue;
-            }
-            
-            str = darray_push(filenames);
-            *str = sdsnew(fname);
-        }
-    }
-
-    darray_sort(filenames, persistenceFilenameCmp);
-
-    for (j = 0; j < darray_n(filenames); j++) {
-        sds *str;
-        str = darray_get(filenames, j);
-        log_debug(LOG_INFO, "filename: %s", *str);
-    }
-
-    return filenames;
 }
 
 /* Filename partition: prefix+dbId+internalDbCount+timestamp+dbVersion */
@@ -1285,6 +1189,7 @@ persisFile *persisFileCreate(char *filename, size_t filename_len)
     pf->dbid = (int)dbid;
     pf->dbinum = (int)dbinum;
     pf->timestamp = timestamp;
+    pf->offset = 0;
     pf->filename = sdsnewlen(filename, filename_len);
 
     return pf;
@@ -1299,6 +1204,88 @@ void persisFileDestroy(persisFile *pf)
         sdsfree(pf->filename);
 
     dfree(pf);
+}
+
+persisPart *persisPartCreate(void)
+{
+    persisPart *pp;
+
+    pp = dalloc(sizeof(persisPart));
+    if (pp == NULL) return NULL;
+
+    pp->dbid = -1;
+    pp->rdb_file = NULL;
+    pp->rdb_files = dlistCreate();
+    pp->aof_files = dlistCreate();
+    pp->aof_start_node = NULL;
+
+    return pp;
+}
+
+void persisPartDestroy(persisPart *pp)
+{
+    persisFile *pf;
+
+    if (pp->rdb_files) {
+        while ((pf = dlistPop(pp->rdb_files)) != NULL) {
+            persisFileDestroy(pf);
+        }
+        dlistRelease(pp->rdb_files);
+        pp->rdb_files = NULL;
+    }
+    
+    if (pp->aof_files) {
+        while ((pf = dlistPop(pp->aof_files)) != NULL) {
+            persisFileDestroy(pf);
+        }
+        dlistRelease(pp->aof_files);
+        pp->aof_files = NULL;
+    }
+
+    dfree(pp);
+}
+
+static void persisPartPrint(persisPart *pp, int loglevel)
+{
+    dlistNode *dn;
+    persisFile *pf;
+
+    if (!log_loggable(loglevel))
+        return;
+
+    log_debug(loglevel, "persistence part dbid: %d", pp->dbid);
+
+    if (pp->rdb_files) {
+        dn = dlistFirst(pp->rdb_files);
+        while (dn != NULL) {
+            pf = dlistNodeValue(dn);
+            log_debug(loglevel, "persistence rdb file: %s", pf->filename);
+            
+            
+            dn = dlistNextNode(dn);
+        }
+    }
+
+    if (pp->aof_files) {
+        dn = dlistFirst(pp->aof_files);
+        while (dn != NULL) {
+            pf = dlistNodeValue(dn);
+            log_debug(loglevel, "persistence aof file: %s", pf->filename);
+            
+            
+            dn = dlistNextNode(dn);
+        }
+    }
+
+    if (pp->rdb_file) {
+        pf = pp->rdb_file;
+        log_debug(loglevel, "persistence rdb latest file: %s", pf->filename);
+    }
+
+    if (pp->aof_start_node) {
+        pf = dlistNodeValue(pp->aof_start_node);
+        log_debug(loglevel, "persistence aof begin file: %s", pf->filename);
+    }
 }
 
 static int persistencePartCmp(const void *t1, const void *t2)
@@ -1327,7 +1314,7 @@ static int persistencePartCmp(const void *t1, const void *t2)
     return (pp1->dbid - pp2->dbid);
 }
 
-static darray *getExistPersistenceParts(void)
+static darray *getExistPersistenceParts_old(void)
 {
     unsigned long long j, k;
     DIR *work_dir;
@@ -1502,7 +1489,180 @@ static darray *getExistPersistenceParts(void)
     return pps;
 }
 
-static int rdbLoadInit(char *filename)
+static int persisFileTimeCompare(const void *ptr1, const void *ptr2)
+{
+    persisFile *pf1 = ptr1, *pf2 = ptr2;
+    return  (int)(pf2->timestamp - pf1->timestamp);
+}
+
+static int persisPartFormat(persisPart *pp)
+{
+    int ret;
+    dlistIter *di;
+    dlistNode *dn;
+    persisFile *rdbf_latest, *aoff;
+
+    dlistSort(pp->rdb_files, persisFileTimeCompare);
+    dlistSort(pp->aof_files, persisFileTimeCompare);
+
+    if (dlistLength(pp->rdb_files) == 0) {
+        pp->rdb_file = NULL;
+        pp->aof_start_node = dlistFirst(pp->aof_files);
+        return VR_OK;
+    }
+
+    dn = dlistLast(pp->rdb_files);
+    rdbf_latest = dlistNodeValue(dn);
+    pp->rdb_file = rdbf_latest;
+    
+    if (dlistLength(pp->aof_files) == 0) {
+        pp->aof_start_node = NULL;
+        return VR_OK;
+    }
+
+    di = dlistGetIterator(pp->aof_files, AL_START_HEAD);
+    while ((dn = dlistNext(di)) != NULL) {
+        aoff = dlistNodeValue(dn);
+        if (aoff->timestamp >= rdbf_latest->timestamp) {
+            pp->aof_start_node = dn;
+            break;
+        }
+    }
+    dlistReleaseIterator(di);
+    
+    return VR_OK;
+}
+
+static darray *persistencePartsCreate(void)
+{
+    int ret;
+    unsigned long long j, k;
+    DIR *work_dir;
+    struct dirent *ent = NULL;
+    char dir_cur[1024];
+    darray *pps;
+    persisPart **pp;
+    persisFile **rdbf, **aoff, *rdbf_p, *aoff_p, *pf_p;
+    darray *rdbs, *aofs;
+
+    if (getcwd(dir_cur,sizeof(dir_cur)) == NULL)
+        dir_cur[0] = '\0';
+    
+    work_dir = opendir(dir_cur);
+    if (work_dir == NULL) {
+        log_warn("Open directory %s failed.", dir_cur);
+        return NULL;
+    }
+
+    pps = darray_create(100,sizeof(persisPart*));
+    rdbs = darray_create(50,sizeof(persisFile*));
+    aofs = darray_create(50,sizeof(persisFile*));
+
+    /* Scan the data dir, get the rdb files and aof files. */
+    while ((ent=readdir(work_dir)) != NULL) {
+        char *fname;
+        size_t fname_len;
+        
+        if (ent->d_type != DT_REG)
+            continue;
+        
+        fname = ent->d_name;
+        fname_len = strlen(fname);
+
+        pf_p = persisFileCreate(fname,fname_len);
+        if (pf_p == NULL)
+            continue;
+
+        log_debug(LOG_INFO, "filename: %s, type: %d, dbid: %d, dbinum: %d, timestamp: %lld", 
+            pf_p->filename, pf_p->type, pf_p->dbid, pf_p->dbinum, pf_p->timestamp);
+        if (pf_p->type == PERSIS_FILE_TYPE_RDB) {
+            rdbf = darray_push(rdbs);
+            *rdbf = pf_p;
+        } else if (pf_p->type == PERSIS_FILE_TYPE_AOF) {
+            aoff = darray_push(aofs);
+            *aoff = pf_p;
+        } else {
+            persisFileDestroy(pf_p);
+        }
+    }
+
+    /* Add the rdb files. */
+    for (j = 0; j < darray_n(rdbs); j ++) {
+        int pushed = 0;
+        rdbf = darray_get(rdbs, j);
+        for (k = 0; k < darray_n(pps); k ++) {
+            pp = darray_get(pps, k);
+            if ((*pp)->dbid == (*rdbf)->dbid) {
+                dlistAddNodeTail((*pp)->rdb_files,*rdbf);
+                *rdbf = NULL;
+                pushed = 1;
+                break;
+            }
+        }
+
+        if (pushed) continue;
+        
+        pp = darray_push(pps);
+        (*pp) = persisPartCreate();
+        (*pp)->dbid = (*rdbf)->dbid;
+        dlistAddNodeTail((*pp)->rdb_files, (*rdbf));
+        *rdbf = NULL;
+    }
+
+    /* Add the aof files. */
+    for (j = 0; j < darray_n(aofs); j ++) {
+        int pushed = 0;
+        aoff = darray_get(aofs, j);
+        for(k = 0; k < darray_n(pps); k ++) {
+            pp = darray_get(pps, k);
+            if ((*aoff)->dbid == (*pp)->dbid) {
+                dlistAddNodeTail((*pp)->aof_files,*aoff);
+                *aoff = NULL;
+                pushed = 1;
+                break;
+            }
+        }
+
+        if (pushed) continue;
+        
+        pp = darray_push(pps);
+        (*pp) = persisPartCreate();
+        (*pp)->dbid = (*aoff)->dbid;
+        dlistAddNodeTail((*pp)->aof_files, (*aoff));
+        *aoff = NULL;
+    }
+
+    /* Format the persistence parts. */
+    for (j = 0; j < darray_n(pps); j ++) {
+        pp = darray_get(pps, j);
+        ret = persisPartFormat(*pp);
+        if (ret != VR_OK) {
+            goto clean;
+        }
+    }
+    
+    darray_sort(pps, persistencePartCmp);
+
+clean:
+    
+    /* Clean the unused files. */
+    while ((rdbf = darray_pop(rdbs)) != NULL) {
+        if ((*rdbf) != NULL) {
+            persisFileDestroy(*rdbf);
+        }
+    }
+    darray_destroy(rdbs);
+    while ((aoff = darray_pop(aofs)) != NULL) {
+        if ((*aoff) != NULL) {
+            persisFileDestroy(*aoff);
+        }
+    }
+    darray_destroy(aofs);
+
+    return pps;
+}
+
+static int dataLoadInit(void)
 {
     load_thread *loader;
     darray *pps;
@@ -1521,7 +1681,7 @@ static int rdbLoadInit(char *filename)
     load_finished_threads_count = 0;
     loading_start_time = dmsec_now();
 
-    pps = getExistPersistenceParts();
+    pps = persistencePartsCreate();
     if (pps == NULL) {
         PERSIS_UNLOCK();
         return VR_ERROR;
@@ -1569,32 +1729,20 @@ static int rdbLoadInit(char *filename)
     for (j = 0; j < num_load_threads; j ++) {
         int k;
         persisPart **pp;
-        persisFile *pf;
         loader = darray_get(&load_threads,j);
         pps = loader->pps;
-        for (k = 0; k < darray_n(pps); k ++) {
-            dlistIter *it;
-            dlistNode *ln;
-            
+        log_debug(LOG_NOTICE, "Load thread[%d] hold the following persistence parts:", j);
+        for (k = 0; k < darray_n(pps); k ++) {            
             pp = darray_get(pps, k);
-            pf = (*pp)->rdb_file;
-            if (pf) 
-                log_debug(LOG_INFO, "load thread[%d] hold rdb file: %s, type: %d, idx: %d, timestamp: %lld", 
-                    j, pf->filename, pf->type, pf->dbid, pf->timestamp);
-            it = dlistGetIterator((*pp)->aof_files,AL_START_HEAD);
-            while ((ln = dlistNext(it)) != NULL) {
-                pf = dlistNodeValue(ln);
-                log_debug(LOG_INFO,"load thread[%d] hold rdb file: %s, type: %d, idx: %d, timestamp: %lld", 
-                    j, pf->filename, pf->type, pf->dbid, pf->timestamp);
-            }
-            dlistReleaseIterator(it);
+            persisPartPrint(*pp, LOG_NOTICE);
         }
+        log_debug(LOG_NOTICE, "");
     }
 
     return VR_OK;
 }
 
-static int rdbLoadFinished(void)
+static int dataLoadFinished(void)
 {
     PERSIS_LOCK();
     load_finished_threads_count ++;
@@ -1839,19 +1987,23 @@ static void freeFakeClient(client *c) {
 /* Replay the append log file. On success VR_OK is returned. On non fatal
  * error (the append only file is zero-length) VR_ERROR is returned. On
  * fatal error an error message is logged and the program exists. */
-static int loadAppendOnlyData(char *filename) {
+static int appendOnlyLoadData(persisFile *pf) {
+    FILE *fp;
     client *fakeClient;
-    FILE *fp = fopen(filename,"r");
     int old_aof_state = server.aof_state;
     off_t valid_up_to = 0; /* Offset of the latest well-formed command loaded. */
 
+    ASSERT(pf->type == PERSIS_FILE_TYPE_AOF);
+
+    fp = fopen(pf->filename,"r");
     if (fp == NULL) {
-        log_warn("Fatal error: can't open the append log file for reading: %s",strerror(errno));
+        log_warn("Fatal error: can't open the append log file %s for reading: %s", 
+            pf->filename, strerror(errno));
         exit(1);
     }
 
     fakeClient = createFakeClient();
-
+    fakeClient->db = darray_get(&server.dbs, (uint32_t)pf->dbid);
     while(1) {
         int argc, j;
         unsigned long len;
@@ -1951,7 +2103,7 @@ uxeof: /* Unexpected AOF end of file. */
         log_warn("!!! Warning: short read while loading the AOF file !!!");
         log_warn("!!! Truncating the AOF at offset %llu !!!",
             (unsigned long long) valid_up_to);
-        if (valid_up_to == -1 || truncate(filename,valid_up_to) == -1) {
+        if (valid_up_to == -1 || truncate(pf->filename,valid_up_to) == -1) {
             if (valid_up_to == -1) {
                 log_warn("Last valid command offset is invalid");
             } else {
@@ -1981,7 +2133,7 @@ fmterr: /* Format error. */
     exit(1);
 }
 
-static void *rdbLoadRun(void *args)
+static void *dataLoadRun(void *args)
 {
     load_thread *loader = args;
     int j;
@@ -1996,7 +2148,6 @@ static void *rdbLoadRun(void *args)
     persisFile *pf;
 
     for (j = 0; j < darray_n(loader->pps); j ++) {
-        dlistIter *it;
         dlistNode *ln;
 
         pp = darray_get(loader->pps, j);
@@ -2005,15 +2156,15 @@ static void *rdbLoadRun(void *args)
             rdbLoadData(pf->filename);
         }
 
-        it = dlistGetIterator((*pp)->aof_files,AL_START_HEAD);
-        while ((ln = dlistNext(it)) != NULL) {
+        ln = (*pp)->aof_start_node;
+        while (ln != NULL) {
             pf = dlistNodeValue(ln);
-            loadAppendOnlyData(pf->filename);
+            appendOnlyLoadData(pf);
+            ln = dlistNextNode(ln);
         }
-        dlistReleaseIterator(it);
     }
 
-    rdbLoadFinished();
+    dataLoadFinished();
 
     return 0;
 
@@ -2023,7 +2174,7 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
     return 0;
 }
 
-static int rdbLoadStart(void)
+static int dataLoadStart(void)
 {
     int j;
 
@@ -2034,27 +2185,27 @@ static int rdbLoadStart(void)
         pthread_attr_init(&attr);
         loader = darray_get(&load_threads, j);
         pthread_create(&loader->thread_id, 
-            &attr, rdbLoadRun, loader);
+            &attr, dataLoadRun, loader);
     }
     
     return VR_OK;
 }
 
-int rdbLoad(char *filename) {
+int dataLoad(void) {
     int ret;
     
-    ret = rdbLoadInit(filename);
+    ret = dataLoadInit();
     if (ret != VR_OK)
         return VR_ERROR;
 
-    rdbLoadStart();
+    dataLoadStart();
     
     return VR_OK;
 }
 
 /* Function called at startup to load RDB or AOF file in memory. */
 void loadDataFromDisk(void) {
-    if (rdbLoad(server.rdb_filename) != VR_OK) {
+    if (dataLoad() != VR_OK) {
         log_warn("Fatal error loading the DB: %s. Exiting.",strerror(errno));
         exit(1);
     }
@@ -2089,7 +2240,7 @@ int rdbSaveHashTypeSetValIfNeeded(redisDb *db, dictEntry *de, sds key, robj *set
     ASSERT(set->encoding == OBJ_ENCODING_HT);
     
     if ((db->flags&DB_FLAGS_DUMP_FIRST_STEP)) {
-        rdbSave(db);
+        rdbSave(db,0);
     }
 
     rdbSaveKeyIfNeeded(db,de,key,set,0);

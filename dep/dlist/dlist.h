@@ -1,6 +1,8 @@
 #ifndef _DLIST_H__
 #define _DLIST_H__
 
+typedef int (*dlist_compare_t)(const void *, const void *);
+
 /* Node, List, and Iterator are the only data structures used currently. */
 
 typedef struct dlistNode {
@@ -39,6 +41,8 @@ typedef struct dlist {
 #define dlistGetFree(l) ((l)->free)
 #define dlistGetMatchMethod(l) ((l)->match)
 
+#define dlistSetNodeValue(n, v) (((n)->value) = (v))
+
 /* Prototypes */
 dlist *dlistCreate(void);
 void dlistRelease(dlist *list);
@@ -57,6 +61,7 @@ void dlistRewindTail(dlist *list, dlistIter *li);
 void dlistRotate(dlist *list);
 dlist *dlistPush(dlist *list, void *value);
 void *dlistPop(dlist *list);
+void dlistSort(dlist *list, dlist_compare_t compare);
 
 /* Directions for iterators */
 #define AL_START_HEAD 0

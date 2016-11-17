@@ -319,33 +319,68 @@ void signalFlushedDb(int dbid) {
  * Type agnostic commands operating on the key space
  *----------------------------------------------------------------------------*/
 
+static int flushInternalDb(redisDb *db) {
+    if (db == NULL) return;
+    if ((db->flags&DB_FLAGS_DUMPING))
+        rdbSave(db,1);
+    ASSERT(!(db->flags&DB_FLAGS_DUMPING));
+    signalFlushedDb(db->id);
+    dictEmpty(db->dict,NULL);
+    dictEmpty(db->expires,NULL);
+}
+
+void flushidbCommand(client *c) {
+    long long dirty;
+
+    if (c->db == NULL) {
+        addReply(c,shared.ok);
+        return;
+    }
+    
+    lockDbWrite(c->db);
+    dirty = dictSize(c->db->dict);
+    flushInternalDb(c->db);
+    propagateIfNeededForClient(c,c->argv,c->argc,dirty);
+    ASSERT(dictSize(c->db->dict) == 0);
+    unlockDb(c->db);
+    
+    addReply(c,shared.ok);
+}
+
 void flushdbCommand(client *c) {
     int idx;
+    long long dirty;
+    robj *argv[1];
 
+    argv[0] = createStringObject("FLUSHIDB",8);
     for (idx = 0; idx < server.dbinum; idx ++) {
         fetchInternalDbByIdForClient(c, idx);
         lockDbWrite(c->db);
-        c->vel->dirty += dictSize(c->db->dict);
-        signalFlushedDb(c->db->id);
-        dictEmpty(c->db->dict,NULL);
-        dictEmpty(c->db->expires,NULL);
+        dirty = dictSize(c->db->dict);
+        flushInternalDb(c->db);
+        propagateIfNeededForClient(c,argv,1,dirty);
         unlockDb(c->db);
     }
-
+    freeObject(argv[0]);
+    
     addReply(c,shared.ok);
 }
 
 void flushallCommand(client *c) {
     int idx;
-    redisDb *db;
+    long long dirty;
+    robj *argv[1];
 
+    argv[0] = createStringObject("FLUSHIDB",8);
     for (idx = 0; idx < server.dbnum; idx ++) {
-        db = darray_get(&server.dbs, (uint32_t)idx);
-        lockDbWrite(db);
-        dictEmpty(db->dict,NULL);
-        dictEmpty(db->expires,NULL);
-        unlockDb(db);
+        c->db = darray_get(&server.dbs, (uint32_t)idx);
+        lockDbWrite(c->db);
+        dirty = dictSize(c->db->dict);
+        flushInternalDb(c->db);
+        propagateIfNeededForClient(c,argv,1,dirty);
+        unlockDb(c->db);
     }
+    freeObject(argv[0]);
 
     addReply(c,shared.ok);
 }

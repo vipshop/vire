@@ -326,3 +326,30 @@ void *dlistPop(dlist *list) {
     
     return value;
 }
+
+void dlistSort(dlist *list, dlist_compare_t compare)
+{
+    dlistIter *di;
+    dlistNode *dn, *dn_cur, *dn_prev;
+    void *value_tmp;
+
+    di = dlistGetIterator(list,AL_START_HEAD);
+    while ((dn = dlistNext(di)) != NULL) {
+        dn_cur = dn;
+        dn_prev = dlistPrevNode(dn_cur);
+        while (dn_prev != NULL) {
+            if (compare(dlistNodeValue(dn_prev), 
+                dlistNodeValue(dn_cur)) < 0) {
+                value_tmp = dlistNodeValue(dn_cur);
+                dlistSetNodeValue(dn_cur, dlistNodeValue(dn_prev));
+                dlistSetNodeValue(dn_prev, value_tmp);
+            } else {
+                break;
+            }
+
+            dn_prev = dlistPrevNode(dn_prev);
+            dn_cur = dn_prev;
+        }
+    }
+    dlistReleaseIterator(di);
+}

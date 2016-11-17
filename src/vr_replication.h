@@ -108,7 +108,7 @@ void replconfCommand(client *c);
 void putSlaveOnline(client *slave);
 void replicationSendAck(void);
 void replicationFeedMonitors(client *c, dlist *monitors, int dictid, robj **argv, int argc);
-void replicationFeedSlaves(dlist *slaves, int dictid, robj **argv, int argc);
+void replicationFeedSlaves(dlist *slaves, redisDb *db, robj **argv, int argc);
 void feedReplicationBacklogWithObject(robj *o);
 void feedReplicationBacklog(void *ptr, size_t len);
 

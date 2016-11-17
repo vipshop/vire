@@ -14,13 +14,16 @@ typedef struct persisFile {
     int dbid;   /* Database id. */
     int dbinum; /* Internal db count. */
     long long timestamp;    /* This file create time. */
+    long long offset;
     sds filename;
 } persisFile;
 
 typedef struct persisPart {
     int dbid;
     persisFile *rdb_file;
-    dlist *aof_files;
+    dlist *rdb_files;   /* Rdb files list. */
+    dlist *aof_files;   /* Aof files list. */
+    dlistNode *aof_start_node;   /* Start node in the aof_files list for valid data. */
 } persisPart;
 
 typedef struct bigkeyDumper {
@@ -71,7 +74,7 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
 
 int rdbSaveKeyIfNeeded(redisDb *db, dictEntry *de, sds key, robj *val, int dump_complete);
 
-int rdbSave(redisDb *db);
+int rdbSave(redisDb *db, int need_complete);
 int incrementallyRdbSave(redisDb *db);
 void bgsaveCommand(client *c);
 
@@ -83,7 +86,10 @@ int generateAofFilename(redisDb *db, long long timestamp);
 persisFile *persisFileCreate(char *filename, size_t filename_len);
 void persisFileDestroy(persisFile *pf);
 
-int rdbLoad(char *filename);
+persisPart *persisPartCreate(void);
+void persisPartDestroy(persisPart *pp);
+
+int dataLoad(void);
 void loadDataFromDisk(void);
 
 int rdbSaveHashTypeSetValIfNeeded(redisDb *db, dictEntry *de, sds key, robj *set, robj *val);
