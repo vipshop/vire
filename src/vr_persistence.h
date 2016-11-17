@@ -92,6 +92,7 @@ void persisPartDestroy(persisPart *pp);
 int dataLoad(void);
 void loadDataFromDisk(void);
 
-int rdbSaveHashTypeSetValIfNeeded(redisDb *db, dictEntry *de, sds key, robj *set, robj *val);
+int rdbSaveHashTypeSetValIfNeeded(redisDb *db, sds key, robj *set, robj *val);
+int rdbSaveHashTypeHashValIfNeeded(redisDb *db, sds key, robj *hash, robj *field);
 
 #endif

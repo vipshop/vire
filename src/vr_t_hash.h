@@ -8,7 +8,7 @@ int hashTypeGetFromHashTable(robj *o, robj *field, robj **value);
 robj *hashTypeGetObject(robj *o, robj *field);
 size_t hashTypeGetValueLength(robj *o, robj *field);
 int hashTypeExists(robj *o, robj *field);
-int hashTypeSet(robj *o, robj *field, robj *value);
+int hashTypeSet(redisDb *db, robj *key, robj *o, robj *field, robj *value);
 int hashTypeDelete(robj *o, robj *field);
 unsigned long hashTypeLength(robj *o);
 hashTypeIterator *hashTypeInitIterator(robj *subject);

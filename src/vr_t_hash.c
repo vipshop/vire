@@ -8,7 +8,8 @@
 
 /* Check the length of a number of objects to see if we need to convert a
  * ziplist to a real hash. Note that we only check string encoded objects
- * as their string length can be queried in constant time. */
+ * as their string length can be queried in constant time. 
+ * Before this function is called, rdbSaveKeyIfNeeded() need be called first. */
 void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     int i;
 
@@ -162,10 +163,12 @@ int hashTypeExists(robj *o, robj *field) {
  * This function will take care of dump the fields and value 
  * objects when insert into the hash table.
  * Filed and value objects just borrow to hashTypeSet(). */
-int hashTypeSet(robj *o, robj *field, robj *value) {
+int hashTypeSet(redisDb *db, robj *key, robj *o, robj *field, robj *value) {
     int update = 0;
     robj *field_new, *value_new;
 
+    if (db) rdbSaveKeyIfNeeded(db, NULL,key->ptr,o,0);
+    
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl, *fptr, *vptr;
 
@@ -203,8 +206,13 @@ int hashTypeSet(robj *o, robj *field, robj *value) {
         if (hashTypeLength(o) > server.hash_max_ziplist_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT);
     } else if (o->encoding == OBJ_ENCODING_HT) {
-        field_new = dupStringObjectIfUnconstant(field);
-        value_new = dupStringObjectIfUnconstant(value);
+        field_new = dupStringObject(field);
+        value_new = dupStringObject(value);
+        if (db) {
+            rdbSaveHashTypeHashValIfNeeded(db, key->ptr, o, field_new);
+            field_new->version = db->version;
+            value_new->version = db->version;
+        }
         if (dictReplace(o->ptr, field_new, value_new)) { /* Insert */
             /* Do nothing */
         } else { /* Update */
@@ -394,6 +402,7 @@ robj *hashTypeLookupWriteOrCreate(client *c, robj *key, int *expired) {
     robj *o = lookupKeyWrite(c->db,key,expired);
     if (o == NULL) {
         o = createHashObject();
+        o->version = c->db->version;
         dbAdd(c->db,key,o);
     } else {
         if (o->type != OBJ_HASH) {
@@ -425,6 +434,8 @@ void hashTypeConvertZiplist(robj *o, int enc) {
             field = tryObjectEncoding(field);
             value = hashTypeCurrentObject(hi, OBJ_HASH_VALUE);
             value = tryObjectEncoding(value);
+            field->version = o->version;
+            value->version = o->version;
             ret = dictAdd(d, field, value);
             if (ret != DICT_OK) {
                 //serverLogHexDump(LL_WARNING,"ziplist with dup elements dump",
@@ -444,6 +455,8 @@ void hashTypeConvertZiplist(robj *o, int enc) {
     }
 }
 
+/* Before calling this function, if the o->encoding is OBJ_ENCODING_ZIPLIST,
+ * you must be sure the o->verion is equal to the db->version. */
 void hashTypeConvert(robj *o, int enc) {
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         hashTypeConvertZiplist(o, enc);
@@ -470,13 +483,15 @@ void hsetCommand(client *c) {
         if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
         return;
     }
+
+    rdbSaveKeyIfNeeded(c->db,NULL,c->argv[1]->ptr,o,0);
     hashTypeTryConversion(o,c->argv,2,3);
     hashTypeTryObjectEncoding(o,&c->argv[2], &c->argv[3]);
-    update = hashTypeSet(o,c->argv[2],c->argv[3]);
+    update = hashTypeSet(c->db,c->argv[1],o,c->argv[2],c->argv[3]);
     addReply(c, update ? shared.czero : shared.cone);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
-    c->vel->dirty++;
+    propagateIfNeededForClient(c,c->argv,c->argc,1);
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
@@ -492,13 +507,15 @@ void hsetnxCommand(client *c) {
         if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
         return;
     }
+
+    rdbSaveKeyIfNeeded(c->db,NULL,c->argv[1]->ptr,o,0);
     hashTypeTryConversion(o,c->argv,2,3);
 
     if (hashTypeExists(o, c->argv[2])) {
         addReply(c, shared.czero);
     } else {
         hashTypeTryObjectEncoding(o,&c->argv[2], &c->argv[3]);
-        hashTypeSet(o,c->argv[2],c->argv[3]);
+        hashTypeSet(c->db,c->argv[1]->ptr,o,c->argv[2],c->argv[3]);
         addReply(c, shared.cone);
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
@@ -526,10 +543,11 @@ void hmsetCommand(client *c) {
         if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
         return;
     }
+    rdbSaveKeyIfNeeded(c->db,NULL,c->argv[1]->ptr,o,0);
     hashTypeTryConversion(o,c->argv,2,c->argc-1);
     for (i = 2; i < c->argc; i += 2) {
         hashTypeTryObjectEncoding(o,&c->argv[i], &c->argv[i+1]);
-        hashTypeSet(o,c->argv[i],c->argv[i+1]);
+        hashTypeSet(c->db,c->argv[1]->ptr,o,c->argv[i],c->argv[i+1]);
     }
     addReply(c, shared.ok);
     signalModifiedKey(c->db,c->argv[1]);
@@ -570,7 +588,7 @@ void hincrbyCommand(client *c) {
     value += incr;
     new = createStringObjectFromLongLong(value);
     hashTypeTryObjectEncoding(o,&c->argv[2],NULL);
-    hashTypeSet(o,c->argv[2],new);
+    hashTypeSet(c->db,c->argv[1]->ptr,o,c->argv[2],new);
     freeObject(new);
     addReplyLongLong(c,value);
     signalModifiedKey(c->db,c->argv[1]);
@@ -612,7 +630,7 @@ void hincrbyfloatCommand(client *c) {
     value += incr;
     new = createStringObjectFromLongDouble(value,1);
     hashTypeTryObjectEncoding(o,&c->argv[2],NULL);
-    hashTypeSet(o,c->argv[2],new);
+    hashTypeSet(c->db,c->argv[1]->ptr,o,c->argv[2],new);
     addReplyBulk(c,new);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);

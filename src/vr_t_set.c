@@ -63,7 +63,7 @@ int setTypeAdd(redisDb *db, robj *subject, robj *value) {
 int setTypeRemove(redisDb *db, robj *key, robj *setobj, robj *value) {
     long long llval;
     if (setobj->encoding == OBJ_ENCODING_HT) {
-        if (db) rdbSaveHashTypeSetValIfNeeded(db,NULL,key->ptr,setobj,value);
+        if (db) rdbSaveHashTypeSetValIfNeeded(db,key->ptr,setobj,value);
         if (dictDelete(setobj->ptr,value) == DICT_OK) {
             if (htNeedsResize(setobj->ptr)) dictResize(setobj->ptr);
             return 1;
@@ -268,7 +268,7 @@ void saddCommand(client *c) {
         }
     }
 
-    rdbSaveKeyIfNeeded(c->db, NULL, c->argv[1]->ptr, set,0);
+    rdbSaveKeyIfNeeded(c->db, NULL,c->argv[1]->ptr,set,0);
     for (j = 2; j < c->argc; j++) {
         c->argv[j] = tryObjectEncoding(c->argv[j]);
         if (setTypeAdd(c->db,set,c->argv[j])) added++;

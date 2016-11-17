@@ -2212,38 +2212,27 @@ void loadDataFromDisk(void) {
 }
 
 /* Return -1: error; 0: this val dumped success. */
-int rdbSaveHashTypeSetValIfNeeded(redisDb *db, dictEntry *de, sds key, robj *set, robj *val)
+int rdbSaveHashTypeSetValIfNeeded(redisDb *db, sds key, robj *set, robj *val)
 {
     int count = 0;
     bigkeyDumper *bkdumper;
+    dictEntry *de;
 
-    ASSERT(!(de == NULL && key == NULL));
+    ASSERT(key != NULL);
+    ASSERT(set != NULL);
+    ASSERT(val != NULL);
     
     if (!(db->flags&DB_FLAGS_DUMPING))
         return 0;
 
-    if (de == NULL && set == NULL) {
-        ASSERT(key != NULL);
-        de = dictFind(db->dict,key);
-    } else if (key == NULL) {
-        ASSERT(de != NULL);
-        key = dictGetKey(de);
-    }
-
-    if (set == NULL) {
-        ASSERT(de != NULL);
-        set = dictGetVal(de);
-    } else {
-        ASSERT(set == dictGetVal(de));
-    }
-    ASSERT(set != NULL);
+    ASSERT(set->type == OBJ_SET);
     ASSERT(set->encoding == OBJ_ENCODING_HT);
     
     if ((db->flags&DB_FLAGS_DUMP_FIRST_STEP)) {
         rdbSave(db,0);
     }
 
-    rdbSaveKeyIfNeeded(db,de,key,set,0);
+    rdbSaveKeyIfNeeded(db,NULL,key,set,0);
     if (set->version >= db->version)
         return 0;
     
@@ -2260,6 +2249,56 @@ int rdbSaveHashTypeSetValIfNeeded(redisDb *db, dictEntry *de, sds key, robj *set
             rdbSaveStringObject(rdb,val);
             /* Update the rdb string in the bigkeyDumper. */
             bkdumper->data = rdb->io.buffer.ptr;
+            val->version = db->version;
+        }
+    }
+
+    return 0;
+}
+
+/* Return -1: error; 0: this val dumped success. */
+int rdbSaveHashTypeHashValIfNeeded(redisDb *db, sds key, robj *hash, robj *field)
+{
+    int count = 0;
+    bigkeyDumper *bkdumper;
+    dictEntry *de;
+    robj *val;
+
+    ASSERT(key != NULL);
+    ASSERT(hash != NULL);
+    ASSERT(field != NULL);
+    
+    if (!(db->flags&DB_FLAGS_DUMPING))
+        return 0;
+
+    ASSERT(hash->type == OBJ_HASH);
+    ASSERT(hash->encoding == OBJ_ENCODING_HT);
+    
+    if ((db->flags&DB_FLAGS_DUMP_FIRST_STEP)) {
+        rdbSave(db,0);
+    }
+
+    rdbSaveKeyIfNeeded(db,NULL,key,hash,0);
+    if (hash->version >= db->version)
+        return 0;
+    
+    de = dictFind(hash->ptr,field);
+    if (de) {
+        field = dictGetKey(de);
+        val = dictGetVal(de);
+        ASSERT(field->version == val->version);
+        if (field->version < db->version) {
+            rio *rdb = db->bkdhelper->dump_to_buffer_helper;
+            bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_dump, key);
+            ASSERT(bkdumper != NULL);
+            ASSERT(bkdumper->type == OBJ_HASH);
+            ASSERT(bkdumper->encoding == OBJ_ENCODING_HT);
+            rioSetBuffer(rdb, bkdumper->data, sdslen(bkdumper->data));
+            rdbSaveStringObject(rdb,field);
+            rdbSaveStringObject(rdb,val);
+            /* Update the rdb string in the bigkeyDumper. */
+            bkdumper->data = rdb->io.buffer.ptr;
+            field->version = db->version;
             val->version = db->version;
         }
     }
