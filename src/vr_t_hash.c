@@ -517,7 +517,7 @@ void hsetnxCommand(client *c) {
         addReply(c, shared.czero);
     } else {
         hashTypeTryObjectEncoding(o,&c->argv[2], &c->argv[3]);
-        hashTypeSet(c->db,c->argv[1]->ptr,o,c->argv[2],c->argv[3]);
+        hashTypeSet(c->db,c->argv[1],o,c->argv[2],c->argv[3]);
         addReply(c, shared.cone);
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
@@ -549,7 +549,7 @@ void hmsetCommand(client *c) {
     hashTypeTryConversion(o,c->argv,2,c->argc-1);
     for (i = 2; i < c->argc; i += 2) {
         hashTypeTryObjectEncoding(o,&c->argv[i], &c->argv[i+1]);
-        hashTypeSet(c->db,c->argv[1]->ptr,o,c->argv[i],c->argv[i+1]);
+        hashTypeSet(c->db,c->argv[1],o,c->argv[i],c->argv[i+1]);
     }
     addReply(c, shared.ok);
     signalModifiedKey(c->db,c->argv[1]);
@@ -590,12 +590,12 @@ void hincrbyCommand(client *c) {
     value += incr;
     new = createStringObjectFromLongLong(value);
     hashTypeTryObjectEncoding(o,&c->argv[2],NULL);
-    hashTypeSet(c->db,c->argv[1]->ptr,o,c->argv[2],new);
+    hashTypeSet(c->db,c->argv[1],o,c->argv[2],new);
     freeObject(new);
     addReplyLongLong(c,value);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
-    c->vel->dirty++;
+    propagateIfNeededForClient(c,c->argv,c->argc,1);
 
 end:
     unlockDb(c->db);
@@ -632,7 +632,7 @@ void hincrbyfloatCommand(client *c) {
     value += incr;
     new = createStringObjectFromLongDouble(value,1);
     hashTypeTryObjectEncoding(o,&c->argv[2],NULL);
-    hashTypeSet(c->db,c->argv[1]->ptr,o,c->argv[2],new);
+    hashTypeSet(c->db,c->argv[1],o,c->argv[2],new);
     addReplyBulk(c,new);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
