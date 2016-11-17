@@ -636,10 +636,6 @@ void hincrbyfloatCommand(client *c) {
     addReplyBulk(c,new);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
-    c->vel->dirty++;
-
-    unlockDb(c->db);
-    if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
 
     /* Always replicate HINCRBYFLOAT as an HSET command with the final value
      * in order to make sure that differences in float pricision or formatting
@@ -647,6 +643,10 @@ void hincrbyfloatCommand(client *c) {
     aux = createStringObject("HSET",4);
     rewriteClientCommandArgument(c,0,aux);
     rewriteClientCommandArgument(c,3,new);
+    propagateIfNeededForClient(c,c->argv,c->argc,1);
+
+    unlockDb(c->db);
+    if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
 }
 
 static void addHashFieldToReply(client *c, robj *o, robj *field) {
