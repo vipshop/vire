@@ -1,7 +1,7 @@
 #ifndef _VR_T_LIST_H_
 #define _VR_T_LIST_H_
 
-void listTypePush(robj *subject, robj *value, int where);
+void listTypePush(redisDb *db, robj *key, robj *subject, robj *value, int where);
 void *listPopSaver(unsigned char *data, unsigned int sz);
 robj *listTypePop(robj *subject, int where);
 unsigned long listTypeLength(robj *subject);

@@ -87,6 +87,9 @@ typedef struct quicklistEntry {
 #define quicklistNodeIsCompressed(node)                                        \
     ((node)->encoding == QUICKLIST_NODE_ENCODING_LZF)
 
+struct redisDb;
+struct vr_object;
+
 /* Prototypes */
 quicklist *quicklistCreate(void);
 quicklist *quicklistNew(int fill, int compress);
@@ -94,9 +97,9 @@ void quicklistSetCompressDepth(quicklist *quicklist, int depth);
 void quicklistSetFill(quicklist *quicklist, int fill);
 void quicklistSetOptions(quicklist *quicklist, int fill, int depth);
 void quicklistRelease(quicklist *quicklist);
-int quicklistPushHead(quicklist *quicklist, void *value, const size_t sz);
-int quicklistPushTail(quicklist *quicklist, void *value, const size_t sz);
-void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
+int quicklistPushHead(struct redisDb *db, struct vr_object *key, quicklist *quicklist, void *value, const size_t sz);
+int quicklistPushTail(struct redisDb *db, struct vr_object *key, quicklist *quicklist, void *value, const size_t sz);
+void quicklistPush(struct redisDb *db, struct vr_object *key, quicklist *quicklist, void *value, const size_t sz,
                    int where);
 void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl);
 quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist,

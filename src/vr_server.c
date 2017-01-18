@@ -935,7 +935,10 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
         off_t loading_loaded_bytes_copy, loading_total_bytes_copy;
         long long loading_start_time_copy, rdb_save_time_last_copy;
         long long last_rdb_saved_time_copy, rdb_save_time_start_copy;
+		unsigned long bigkeys_dumping = 0, bigkeys_writing = 0;
+		unsigned long long bigkeys_finished = 0;
         long long dirty_all = 0;
+		long times_rdbSaveRio = 0, times_rdbSaveMicroseconds = 0;
 
         PERSIS_LOCK();
         loading_copy = loading;
@@ -949,9 +952,20 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
         PERSIS_UNLOCK();
 
         for (j = 0; j < server.dbnum; j++) {
+			bigkeyDumpHelper *bkdhelper;
             redisDb *db = darray_get(&server.dbs, j);
             lockDbRead(db);
             dirty_all += db->dirty;
+			bkdhelper = db->bkdhelper;
+			bigkeys_dumping += dictSize(bkdhelper->bigkeys_to_dump);
+			bigkeys_writing += dlistLength(bkdhelper->bigkeys_to_write);
+			bigkeys_finished += bkdhelper->finished_bigkeys;
+
+#ifdef HAVE_DEBUG_LOG
+			times_rdbSaveRio += db->times_rdbSaveRio;
+			times_rdbSaveMicroseconds += db->times_rdbSaveMicroseconds;
+#endif
+
             unlockDb(db);
         }
         
@@ -963,14 +977,35 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
             "rdb_bgsave_in_progress:%d\r\n"
             "rdb_last_save_time:%jd\r\n"
             "rdb_last_bgsave_time_sec:%jd\r\n"
-            "rdb_current_bgsave_time_sec:%jd\r\n",
+            "rdb_current_bgsave_time_sec:%jd\r\n"
+            "rdb_bgsave_bigkeys_finished:%llu\r\n"
+#ifdef HAVE_DEBUG_LOG
+            "times_rdbSaveRio:%lld\r\n"
+            "times_rdbSaveMicroseconds:%lld\r\n"
+#endif
+            ,
             loading_copy,
             dirty_all,
             rdb_is_generating_copy,
             (intmax_t)last_rdb_saved_time_copy,
             (intmax_t)rdb_save_time_last_copy,
             (intmax_t)((rdb_is_generating_copy == 0) ?
-                -1 : (dmsec_now()-rdb_save_time_start_copy)/1000LL));
+                -1 : (dmsec_now()-rdb_save_time_start_copy)/1000LL),
+	        bigkeys_finished
+#ifdef HAVE_DEBUG_LOG
+            ,
+	        times_rdbSaveRio,
+	        times_rdbSaveMicroseconds
+#endif
+            );
+
+		if (rdb_is_generating_copy) {
+			info = sdscatprintf(info,
+	            "rdb_bgsave_bigkeys_dumping:%u\r\n"
+	            "rdb_bgsave_bigkeys_writing:%u\r\n",
+	            bigkeys_dumping,
+	            bigkeys_writing);
+		}
 
         if (loading_copy) {
             double perc;

@@ -9,13 +9,13 @@
  *
  * There is no need for the caller to increment the refcount of 'value' as
  * the function takes care of it if needed. */
-void listTypePush(robj *subject, robj *value, int where) {
+void listTypePush(redisDb *db, robj *key, robj *subject, robj *value, int where) {
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         robj *value_new;
         int pos = (where == LIST_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL;
         value_new = getDecodedObject(value);
         size_t len = sdslen(value_new->ptr);
-        quicklistPush(subject->ptr, value_new->ptr, len, pos);
+        quicklistPush(db, key, subject->ptr, value_new->ptr, len, pos);
         if (value_new != value) freeObject(value_new);
     } else {
         serverPanic("Unknown list encoding");
@@ -187,10 +187,9 @@ void pushGenericCommand(client *c, int where) {
             lobj = createQuicklistObject();
             quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
                                 server.list_compress_depth);
-            lobj->version = c->db->version;
             dbAdd(c->db,c->argv[1],lobj);
         }
-        listTypePush(lobj,c->argv[j],where);
+        listTypePush(c->db,c->argv[1],lobj,c->argv[j],where);
         pushed++;
     }
     addReplyLongLong(c, waiting + (lobj ? listTypeLength(lobj) : 0));
@@ -200,8 +199,8 @@ void pushGenericCommand(client *c, int where) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     }
-    c->vel->dirty += pushed;
-    c->db->dirty += pushed;
+    
+    propagateIfNeededForClient(c,c->argv,c->argc,pushed);
 
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
@@ -249,7 +248,7 @@ void pushxGenericCommand(client *c, robj *refval, robj *val, int where) {
     } else {
         char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
 
-        listTypePush(subject,val,where);
+        listTypePush(NULL,NULL,subject,val,where);
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
         server.dirty++;
@@ -612,7 +611,7 @@ void rpoplpushHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value) {
         dbAdd(c->db,dstkey,dstobj);
     }
     signalModifiedKey(c->db,dstkey);
-    listTypePush(dstobj,value,LIST_HEAD);
+    listTypePush(NULL,NULL,dstobj,value,LIST_HEAD);
     notifyKeyspaceEvent(NOTIFY_LIST,"lpush",dstkey,c->db->id);
     /* Always send the pushed value to the client. */
     addReplyBulk(c,value);
@@ -907,7 +906,7 @@ void handleClientsBlockedOnLists(void) {
                             {
                                 /* If we failed serving the client we need
                                  * to also undo the POP operation. */
-                                    listTypePush(o,value,where);
+                                    listTypePush(NULL,NULL,o,value,where);
                             }
 
                             if (dstkey) decrRefCount(dstkey);

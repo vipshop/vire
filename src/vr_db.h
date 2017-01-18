@@ -56,7 +56,51 @@ typedef struct redisDb {
     struct bigkeyDumpHelper *bkdhelper; /* Used to dump the big keys to rdb file. */
 
     pthread_rwlock_t rwl;        /* Read Write lock for this db. */
+    
+#ifdef HAVE_DEBUG_LOG
+	long long lock_start_time;
+    long long times_rdbSaveRio;
+	long long times_rdbSaveMicroseconds;
+#endif
 } redisDb;
+
+
+#ifdef HAVE_DEBUG_LOG
+
+#define lockDbRead(db) do {                                         \
+    pthread_rwlock_rdlock(&db->rwl);                                \
+    db->lock_start_time = dusec_now();                              \
+} while (0)
+
+#define lockDbWrite(db) do {                                        \
+    pthread_rwlock_wrlock(&db->rwl);                                \
+    db->lock_start_time = dusec_now();                              \
+} while (0)
+
+#define unlockDb(db) do {                                           \
+    long long lock_used_time = dusec_now() - db->lock_start_time;   \
+    pthread_rwlock_unlock(&db->rwl);                                \
+    if (lock_used_time > 2000) {                                    \
+        log_debug(LOG_NOTICE, "Locked time : %lld", lock_used_time);\
+    }                                                               \
+} while (0)
+
+#else
+
+#define lockDbRead(db) do {                                         \
+    pthread_rwlock_rdlock(&db->rwl);                                \
+} while (0)
+
+#define lockDbWrite(db) do {                                        \
+    pthread_rwlock_wrlock(&db->rwl);                                \
+} while (0)
+
+#define unlockDb(db) do {                                           \
+    pthread_rwlock_unlock(&db->rwl);                                \
+} while (0)
+
+#endif
+
 
 extern dictType dbDictType;
 extern dictType keyptrDictType;
@@ -64,10 +108,6 @@ extern dictType keylistDictType;
 
 int redisDbInit(redisDb *db, int idx);
 int redisDbDeinit(redisDb *db);
-
-int lockDbRead(redisDb *db);
-int lockDbWrite(redisDb *db);
-int unlockDb(redisDb *db);
 
 robj *lookupKey(redisDb *db, robj *key);
 robj *lookupKeyRead(redisDb *db, robj *key);

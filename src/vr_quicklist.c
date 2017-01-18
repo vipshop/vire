@@ -447,16 +447,24 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
  *
  * Returns 0 if used existing head.
  * Returns 1 if new head created. */
-int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
+int quicklistPushHead(redisDb *db, robj *key, quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_head = quicklist->head;
+
+	if (db) rdbSaveKeyIfNeeded(db,NULL,key->ptr,NULL,0);
+	
     if (likely(
             _quicklistNodeAllowInsert(quicklist->head, quicklist->fill, sz))) {
+
+        if (db) rdbSaveQuicklistTypeListNodeIfNeeded(db,key->ptr,quicklist,quicklist->head);
+
         quicklist->head->zl =
             ziplistPush(quicklist->head->zl, value, sz, ZIPLIST_HEAD);
         quicklistNodeUpdateSz(quicklist->head);
     } else {
         quicklistNode *node = quicklistCreateNode();
         node->zl = ziplistPush(ziplistNew(), value, sz, ZIPLIST_HEAD);
+        
+        if (db) node->version = db->version;
 
         quicklistNodeUpdateSz(node);
         _quicklistInsertNodeBefore(quicklist, quicklist->head, node);
@@ -470,16 +478,24 @@ int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
  *
  * Returns 0 if used existing tail.
  * Returns 1 if new tail created. */
-int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
+int quicklistPushTail(redisDb *db, robj *key, quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_tail = quicklist->tail;
+
+	if (db) rdbSaveKeyIfNeeded(db,NULL,key->ptr,NULL,0);
+	
     if (likely(
             _quicklistNodeAllowInsert(quicklist->tail, quicklist->fill, sz))) {
+        
+        if (db) rdbSaveQuicklistTypeListNodeIfNeeded(db,key->ptr,quicklist,quicklist->tail);
+
         quicklist->tail->zl =
             ziplistPush(quicklist->tail->zl, value, sz, ZIPLIST_TAIL);
         quicklistNodeUpdateSz(quicklist->tail);
     } else {
         quicklistNode *node = quicklistCreateNode();
         node->zl = ziplistPush(ziplistNew(), value, sz, ZIPLIST_TAIL);
+
+        if (db) node->version = db->version;
 
         quicklistNodeUpdateSz(node);
         _quicklistInsertNodeAfter(quicklist, quicklist->tail, node);
@@ -523,7 +539,7 @@ quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist,
             sz = ll2string(longstr, sizeof(longstr), longval);
             value = (unsigned char *)longstr;
         }
-        quicklistPushTail(quicklist, value, sz);
+        quicklistPushTail(NULL,NULL,quicklist, value, sz);
         p = ziplistNext(zl, p);
     }
     dfree(zl);
@@ -1269,7 +1285,7 @@ void quicklistRotate(quicklist *quicklist) {
     }
 
     /* Add tail entry to head (must happen before tail is deleted). */
-    quicklistPushHead(quicklist, value, sz);
+    quicklistPushHead(NULL,NULL,quicklist, value, sz);
 
     /* If quicklist has only one node, the head ziplist is also the
      * tail ziplist and PushHead() could have reallocated our single ziplist,
@@ -1371,11 +1387,11 @@ int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
 }
 
 /* Wrapper to allow argument-based switching between HEAD/TAIL pop */
-void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
+void quicklistPush(redisDb *db, robj *key, quicklist *quicklist, void *value, const size_t sz,
                    int where) {
     if (where == QUICKLIST_HEAD) {
-        quicklistPushHead(quicklist, value, sz);
+        quicklistPushHead(db, key, quicklist, value, sz);
     } else if (where == QUICKLIST_TAIL) {
-        quicklistPushTail(quicklist, value, sz);
+        quicklistPushTail(db, key, quicklist, value, sz);
     }
 }

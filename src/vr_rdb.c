@@ -663,7 +663,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
             dec = getDecodedObject(ele);
             size_t len = sdslen(dec->ptr);
-            quicklistPushTail(o->ptr, dec->ptr, len);
+            quicklistPushTail(NULL,NULL,o->ptr, dec->ptr, len);
             if (dec != ele) freeObject(dec);
             freeObject(ele);
         }

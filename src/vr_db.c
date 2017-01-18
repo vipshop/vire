@@ -87,6 +87,12 @@ int redisDbInit(redisDb *db, int idx)
     db->bkdhelper = bigkeyDumpHelperCreate();
 
     pthread_rwlock_init(&db->rwl, NULL);
+    
+#ifdef HAVE_DEBUG_LOG
+	db->lock_start_time = 0;
+    db->times_rdbSaveRio = 0;
+	db->times_rdbSaveMicroseconds = 0;
+#endif
 
     return VR_OK;
 }
@@ -95,27 +101,6 @@ int
 redisDbDeinit(redisDb *db)
 {
     pthread_rwlock_destroy(&db->rwl);
-    return VR_OK;
-}
-
-int
-lockDbRead(redisDb *db)
-{
-    pthread_rwlock_rdlock(&db->rwl);
-    return VR_OK;
-}
-
-int
-lockDbWrite(redisDb *db)
-{
-    pthread_rwlock_wrlock(&db->rwl);
-    return VR_OK;
-}
-
-int
-unlockDb(redisDb *db)
-{
-    pthread_rwlock_unlock(&db->rwl);
     return VR_OK;
 }
 
@@ -1727,7 +1712,5 @@ void databasesCron(vr_backend *backend) {
             backend->vel.hz = 1000;
         }
     }
-
-    
 }
 

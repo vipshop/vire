@@ -14,6 +14,8 @@
 
 #define RDB_SAVE_OPERATION_COUNT_PER_TIME 100
 
+#define DATA_LOAD_THREADS_COUNT_DEFAULT 3
+
 typedef struct quicklistDumpHelper {
     quicklistNode *nodes;
     unsigned int len;   /* Total number of quicklistNodes need to be added. */
@@ -128,6 +130,7 @@ bigkeyDumpHelper *bigkeyDumpHelperCreate(void)
     bkdhelper->bigkeys_to_dump = NULL;
     bkdhelper->dump_to_buffer_helper = NULL;
     bkdhelper->bigkeys_to_write = NULL;
+	bkdhelper->finished_bigkeys = 0;
     
     bkdhelper->bigkeys_to_dump = dictCreate(&keyptrDictType,NULL);
     bkdhelper->dump_to_buffer_helper = dalloc(sizeof(rio));
@@ -220,15 +223,14 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
             quicklistDumpHelper *qldhelper = dalloc(sizeof(quicklistDumpHelper));
             qldhelper->len = ql->len;
             qldhelper->count = 0;
-            qldhelper->nodes = dalloc(qldhelper->len*sizeof(quicklistNode));
+            qldhelper->nodes = dzalloc(qldhelper->len*sizeof(quicklistNode));
             
             bkdumper->data = qldhelper;
             
             do {
-                ASSERT(node->version < db->version);
-                node->index = idx++;
+                if (node->version < db->version)
+                	node->index = idx++;
             } while ((node = node->next));
-            ASSERT(idx == ql->len);
 
             qldhelper->values_count = ql->count;
             qldhelper->expire = expiretime;
@@ -365,11 +367,16 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
 
         node = bkdumper->cursor_field;
         
-        do {
-            ASSERT(node->version < db->version);
+        while (node != NULL) {
+            if (node->version >= db->version) {
+                node = node->next;
+                continue;
+            }
+            
             ASSERT(node->index < qldhelper->len);
+			ASSERT(qldhelper->nodes[node->index].index == 0);
             qldhelper->nodes[node->index] = *node;
-            if (node->encoding == QUICKLIST_NODE_ENCODING_LZF) {
+            if (quicklistNodeIsCompressed(node)) {
                 quicklistLZF *lzf = (quicklistLZF *)node->zl;
                 size_t lzf_sz = sizeof(*lzf) + lzf->sz;
                 qldhelper->nodes[node->index].zl = dalloc(lzf_sz);
@@ -382,19 +389,21 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
             
             node->version = db->version;
             node->index = 0;
-            
-            if (++count > RDB_SAVE_OPERATION_COUNT_PER_TIME && !dump_complete) {
-                bkdumper->cursor_field = node->next;
+
+			node = node->next;
+            if (++count > RDB_SAVE_OPERATION_COUNT_PER_TIME && !dump_complete) {                
                 break;
             } else if (qldhelper->count >= qldhelper->len) {
                 break;
             }
-        } while ((node = node->next));
+        }
 
-        if (node == NULL || qldhelper->count >= qldhelper->len) {
+        if (node == NULL || qldhelper->count >= qldhelper->len) {
             dump_finished = 1;
             qldhelper->count = 0;   /* This count will be used in the bigkeyWrite step. */
-        }
+        } else {
+			bkdumper->cursor_field = node;
+       	}
         break;
     }
     default:
@@ -426,7 +435,29 @@ generate_one_key:
     while (sample_count-- > 0) {
         de = dictGetRandomKey(bkdhelper->bigkeys_to_dump);
         bkdumper = dictGetVal(de);
-        if (bkdumper_best == NULL || 
+		if (bkdumper_best == NULL) {
+			bkdumper_best = bkdumper;
+			continue;
+		}
+
+		if (bkdumper_best->encoding != OBJ_ENCODING_QUICKLIST && 
+			bkdumper->encoding == OBJ_ENCODING_QUICKLIST) {
+			bkdumper_best = bkdumper;
+			continue;
+		}
+
+		if (bkdumper_best->encoding == OBJ_ENCODING_QUICKLIST && 
+			bkdumper->encoding == OBJ_ENCODING_QUICKLIST) {
+			quicklistDumpHelper *qldhelper_best = bkdumper_best->data;
+			quicklistDumpHelper *qldhelper = bkdumper->data;
+			if (qldhelper_best->count < qldhelper->count) {
+				bkdumper_best = bkdumper;
+				continue;
+			}
+		}
+		
+        if (bkdumper_best->encoding != OBJ_ENCODING_QUICKLIST && 
+			bkdumper->encoding != OBJ_ENCODING_QUICKLIST &&
             sdslen(bkdumper_best->data) < 
             sdslen(bkdumper->data)) {
             bkdumper_best = bkdumper;
@@ -461,25 +492,46 @@ static int rdbSaveBigkeyWrite(redisDb *db, int need_complete)
             quicklistDumpHelper *qldhelper = bkdumper->data;
             
             if (qldhelper->count == 0) {
-                rdbSaveLen(db->rdb_cached,qldhelper->values_count);
+                /* Save the expire time */
+                if (qldhelper->expire != -1) {
+                    /* If this key is already expired skip it */
+                    if (qldhelper->expire < dmsec_now()) {
+                        dlistDelNode(bkdhelper->bigkeys_to_write, ln);
+                        bigkeyDumperDestroy(bkdumper);
+						bkdhelper->finished_bigkeys ++;
+                        continue;
+                    }
+                    rdbSaveType(db->rdb_cached,RDB_OPCODE_EXPIRETIME_MS);
+                    rdbSaveMillisecondTime(db->rdb_cached,qldhelper->expire);
+                }
+
+                /* Save type, key, value */
+                rdbSaveType(db->rdb_cached,RDB_TYPE_LIST_QUICKLIST);
+                rdbSaveRawString(db->rdb_cached,bkdumper->key,sdslen(bkdumper->key));
+				rdbSaveLen(db->rdb_cached,qldhelper->len);
             }
             for (idx = qldhelper->count; idx < qldhelper->len; idx ++) {
                 node = &(qldhelper->nodes[idx]);
+				if (node->version >= db->version)
+					continue;
+				
                 if (quicklistNodeIsCompressed(node)) {
                     void *data;
                     size_t compress_len = quicklistGetLzf(node, &data);
-                    rdbSaveLzfBlob(db->rdb_cached,data,compress_len,node->sz);
+                    written += rdbSaveLzfBlob(db->rdb_cached,data,compress_len,node->sz);
                 } else {
-                    rdbSaveRawString(db->rdb_cached,node->zl,node->sz);
+                    written += rdbSaveRawString(db->rdb_cached,node->zl,node->sz);
                 }
                 /* This field will never be used, free it as soon as possible. */
                 dfree(node->zl); node->zl = NULL;
                 
                 qldhelper->count ++;
-                if (!need_complete && ++count >= RDB_SAVE_OPERATION_COUNT_PER_TIME) {
+				count = written/1;
+                if (!need_complete && count >= RDB_SAVE_OPERATION_COUNT_PER_TIME) {
                     if (qldhelper->count >= qldhelper->len) {
                         dlistDelNode(bkdhelper->bigkeys_to_write, ln);
                         bigkeyDumperDestroy(bkdumper);
+						bkdhelper->finished_bigkeys ++;
                     }
                     return count;
                 }
@@ -499,6 +551,7 @@ static int rdbSaveBigkeyWrite(redisDb *db, int need_complete)
                     if (bkdumper->written >= sdslen(bkdumper->data)) {
                         dlistDelNode(bkdhelper->bigkeys_to_write, ln);
                         bigkeyDumperDestroy(bkdumper);
+						bkdhelper->finished_bigkeys ++;
                     }
                     return count;
                 }
@@ -507,6 +560,7 @@ static int rdbSaveBigkeyWrite(redisDb *db, int need_complete)
 
         dlistDelNode(bkdhelper->bigkeys_to_write, ln);
         bigkeyDumperDestroy(bkdumper);
+		bkdhelper->finished_bigkeys ++;
     }
 
     return count;
@@ -639,18 +693,13 @@ int rdbSaveKeyIfNeeded(redisDb *db, dictEntry *de, sds key, robj *val, int dump_
         break;
     }
     case OBJ_ENCODING_QUICKLIST:
-    {
-        quicklist *ql = val->ptr;
-        if (ql->count <= RDB_SAVE_OPERATION_COUNT_PER_TIME) {
-            count = ql->count;
-            goto complete_dump;
-        }
-        
+    {        
         /* If this key is partial dumping. */
         if ((bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_dump, key)) != NULL) {
             return bigkeyRdbGenerate(db, key, val, bkdumper, dump_complete);
         }
-        
+
+        quicklist *ql = val->ptr;
         if (ql->count <= RDB_SAVE_OPERATION_COUNT_PER_TIME || dump_complete) {
             count = ql->count;
             goto complete_dump;
@@ -685,7 +734,7 @@ complete_dump:
 static int rdbSaveRio(redisDb *db, int need_complete, int *error, int *finished) {
     int ret;
     rio *rdb = db->rdb_cached;
-    dictIterator *di = NULL;
+    dictIterator *di;
     dictEntry *de;
     char magic[10];
     int count = 0;
@@ -694,6 +743,10 @@ static int rdbSaveRio(redisDb *db, int need_complete, int *error, int *finished)
 
     *finished = 0;
     
+#ifdef HAVE_DEBUG_LOG
+	db->times_rdbSaveRio ++;
+#endif
+
     if ((db->flags&DB_FLAGS_DUMP_FIRST_STEP)) {
         if (server.rdb_checksum)
             rdb->update_cksum = rioGenericUpdateChecksum;
@@ -704,10 +757,6 @@ static int rdbSaveRio(redisDb *db, int need_complete, int *error, int *finished)
         ASSERT(db->cursor_key == NULL);
         db->cursor_key = dictGetSafeIterator(db->dict);
     }
-
-    di = db->cursor_key;
-    if (di == NULL)
-        return -1;
 
     if ((db->flags&DB_FLAGS_DUMP_FIRST_STEP)) {
         /* Write the SELECT DB opcode */
@@ -731,6 +780,7 @@ static int rdbSaveRio(redisDb *db, int need_complete, int *error, int *finished)
         db->flags &= ~DB_FLAGS_DUMP_FIRST_STEP;
     }
 
+one_more_time:
     /* 1st. Write the generated rdb string for big keys. */
     ret = rdbSaveBigkeyWrite(db,need_complete);
     if (ret < 0) {
@@ -738,9 +788,10 @@ static int rdbSaveRio(redisDb *db, int need_complete, int *error, int *finished)
     } else if (ret > 0) {
         count += ret;
         /* If there are big keys in the bigkeyDumpHelper, 
-         * we'd better not dump the new keys. */
+         * we'd better not dump new keys. */
         if (!need_complete && bigkeyDumpHelperIsBusy(db->bkdhelper))
-            goto end;
+			if (count > RDB_SAVE_OPERATION_COUNT_PER_TIME) goto end;
+			else goto one_more_time;
     }
 
     /* 2nd. Generate rdb string for big keys. */
@@ -750,20 +801,18 @@ static int rdbSaveRio(redisDb *db, int need_complete, int *error, int *finished)
     } else if (ret > 0) {
         count += ret;
         /* If there are big keys in the bigkeyDumpHelper, 
-         * we'd better not dump the new keys. */
+         * we'd better not dump new keys. */
         if (!need_complete && bigkeyDumpHelperIsBusy(db->bkdhelper))
-            goto end;
+            if (count > RDB_SAVE_OPERATION_COUNT_PER_TIME) goto end;
+			else goto one_more_time;
     }
-    
-    /* 3rd. Iterate this DB to dump every entry */
+
+	/* 3rd. Iterate this DB to dump every entry */
+	di = db->cursor_key;
+    if (di == NULL)
+    	return -1;
     while((de = dictNext(di)) != NULL) {
         ret = rdbSaveKeyIfNeeded(db,de,NULL,NULL,0);
-        if (ret > 1) {
-            /* Big key appeared, we break and finish the dump 
-             * the big keys as soon as possible, as we need to 
-             * free the memory that those big key used for dumping. */
-            break;
-        }
         
         count += ret;
         if (!need_complete && count >= RDB_SAVE_OPERATION_COUNT_PER_TIME) {
@@ -921,17 +970,25 @@ werr:
 }
 
 /* Dumping keys for an amount of time between us microseconds and us+1 microseconds */
-static int rdbSaveMilliseconds(redisDb *db, int us) {
-    long long start = dusec_now();
+static int rdbSaveMicroseconds(redisDb *db, int us) {
+    long long start = dusec_now(), used_time;
     int dumps = 0, count;
+
+#ifdef HAVE_DEBUG_LOG
+	db->times_rdbSaveMicroseconds ++;
+#endif
 
     while (1) {
         count = rdbSave(db,0);
         if (count <= 0) break;
         dumps += count;
-        if (dusec_now()-start > us) break;
+		used_time = dusec_now()-start;
+        if (used_time > us) break;
     }
-    
+
+	if (used_time > 2000)
+		log_debug(LOG_NOTICE, "used too long time: %lld, dumps %d", used_time, dumps);
+	
     return dumps;
 }
 
@@ -950,7 +1007,7 @@ int incrementallyRdbSave(redisDb *db) {
         return 0;
     }
 
-    rdbSaveMilliseconds(db, 200);
+    rdbSaveMicroseconds(db, 200);
 
     flushAppendOnlyFile(db, 0);
 
@@ -996,7 +1053,7 @@ static int rdbSaveBackground(char *filename) {
         generateRdbFilename(db,timestamp);
         generateRdbTmpFilename(db,timestamp);
 
-        /* Write the new command to the temp aof file, 
+        /* Write the new command to the temp aof file, 
          * and after the bgsave finished, rename teme aof 
          * file to the aof file. The all data are always 
          * stored with rdb file and aof file. */
@@ -1563,8 +1620,10 @@ static darray *persistencePartsCreate(void)
         char *fname;
         size_t fname_len;
         
+		/*
         if (ent->d_type != DT_REG)
             continue;
+		*/
         
         fname = ent->d_name;
         fname_len = strlen(fname);
@@ -1688,7 +1747,7 @@ static int dataLoadInit(void)
     }
     
     if (num_load_threads == 0) {
-        num_load_threads = 3;
+        num_load_threads = DATA_LOAD_THREADS_COUNT_DEFAULT;
         darray_init(&load_threads,num_load_threads,sizeof(load_thread));
         for (j = 0; j < num_load_threads; j ++) {
             loader = darray_push(&load_threads);
@@ -1749,8 +1808,8 @@ static int dataLoadFinished(void)
     
     /* Check if all data file had load finished. */
     if (load_finished_threads_count >= num_load_threads) {
-        log_notice("DB loaded from disk: %.3f seconds",
-            (float)(dmsec_now()-loading_start_time)/1000);
+        log_notice("DB loaded from disk finished, %d threads used %.3f seconds",
+            num_load_threads, (float)(dmsec_now()-loading_start_time)/1000);
         loading = 0;
     }
     PERSIS_UNLOCK();
@@ -1838,7 +1897,7 @@ static int rdbLoadData(char *filename)
                 /* All the fields with a name staring with '%' are considered
                  * information fields and are logged at startup with a log
                  * level of NOTICE. */
-                log_notice("RDB '%s': %s",
+                log_debug(LOG_NOTICE, "RDB '%s': %s",
                     (char*)auxkey->ptr,
                     (char*)auxval->ptr);
             } else {
@@ -1883,9 +1942,10 @@ static int rdbLoadData(char *filename)
         }
 
         /* Read key */
-        if ((key = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
+        if ((key = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;		
         /* Read value */
         if ((val = rdbLoadObject(type,&rdb)) == NULL) goto eoferr;
+		
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
          * received from the master. In the latter case, the master is
@@ -2214,7 +2274,6 @@ void loadDataFromDisk(void) {
 /* Return -1: error; 0: this val dumped success. */
 int rdbSaveHashTypeSetValIfNeeded(redisDb *db, sds key, robj *set, robj *val)
 {
-    int count = 0;
     bigkeyDumper *bkdumper;
     dictEntry *de;
 
@@ -2259,7 +2318,6 @@ int rdbSaveHashTypeSetValIfNeeded(redisDb *db, sds key, robj *set, robj *val)
 /* Return -1: error; 0: this val dumped success. */
 int rdbSaveHashTypeHashValIfNeeded(redisDb *db, sds key, robj *hash, robj *field)
 {
-    int count = 0;
     bigkeyDumper *bkdumper;
     dictEntry *de;
     robj *val;
@@ -2304,5 +2362,55 @@ int rdbSaveHashTypeHashValIfNeeded(redisDb *db, sds key, robj *hash, robj *field
     }
 
     return 0;
+}
+
+/* Return -1: error; 0: this node no need to dump; 1: this node dumped success. */
+int rdbSaveQuicklistTypeListNodeIfNeeded(redisDb *db, sds key, quicklist *qlist, quicklistNode *qnode)
+{
+    bigkeyDumper *bkdumper;
+    quicklistDumpHelper *qldhelper;
+
+    ASSERT(key != NULL);
+    ASSERT(qlist != NULL);
+    ASSERT(qnode != NULL);
+    
+    if (!(db->flags&DB_FLAGS_DUMPING))
+        return 0;
+    
+    if ((db->flags&DB_FLAGS_DUMP_FIRST_STEP)) {
+        rdbSave(db,0);
+    }
+
+    if (rdbSaveKeyIfNeeded(db,NULL,key,NULL,0) == 0)
+		return 0;
+
+    /* Get the big key dumper. */
+    bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_dump, key);
+	if (bkdumper == NULL)
+		return 0;
+	
+    qldhelper = bkdumper->data;
+    ASSERT(bkdumper->cursor_field != NULL);
+
+    if (qnode->version >= db->version)
+        return 0;
+    
+    ASSERT(qnode->index < qldhelper->len);
+    qldhelper->nodes[qnode->index] = *qnode;
+    if (qnode->encoding == QUICKLIST_NODE_ENCODING_LZF) {
+        quicklistLZF *lzf = (quicklistLZF *)qnode->zl;
+        size_t lzf_sz = sizeof(*lzf) + lzf->sz;
+        qldhelper->nodes[qnode->index].zl = dalloc(lzf_sz);
+        memcpy(qldhelper->nodes[qnode->index].zl, qnode->zl, lzf_sz);
+    } else if (qnode->encoding == QUICKLIST_NODE_ENCODING_RAW) {
+        qldhelper->nodes[qnode->index].zl = dalloc(qnode->sz);
+        memcpy(qldhelper->nodes[qnode->index].zl, qnode->zl, qnode->sz);
+    }
+    qldhelper->count ++;
+    
+    qnode->version = db->version;
+    qnode->index = 0;
+            
+    return 1;
 }
 

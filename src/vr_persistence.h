@@ -30,7 +30,7 @@ typedef struct bigkeyDumper {
     sds key;
     unsigned type:4;
     unsigned encoding:4;
-    void *data;
+    void *data;	/* sds or quicklistDumpHelper */
     void *cursor_field;
     size_t written;
 } bigkeyDumper;
@@ -40,6 +40,8 @@ typedef struct bigkeyDumpHelper {
     rio *dump_to_buffer_helper;
     
     dlist *bigkeys_to_write;
+
+	unsigned long long finished_bigkeys;
 } bigkeyDumpHelper;
 
 extern pthread_mutex_t persistence_lock;
@@ -94,5 +96,6 @@ void loadDataFromDisk(void);
 
 int rdbSaveHashTypeSetValIfNeeded(redisDb *db, sds key, robj *set, robj *val);
 int rdbSaveHashTypeHashValIfNeeded(redisDb *db, sds key, robj *hash, robj *field);
+int rdbSaveQuicklistTypeListNodeIfNeeded(redisDb *db, sds key, quicklist *qlist, quicklistNode *qnode);
 
 #endif

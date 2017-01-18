@@ -153,6 +153,11 @@ vr_print_run(struct instance *nci)
 {
     int status;
     struct utsname name;
+    char *debug_mode = "";
+
+#ifdef HAVE_DEBUG_LOG
+    debug_mode = "-debug";
+#endif
 
     status = uname(&name);
 
@@ -160,7 +165,7 @@ vr_print_run(struct instance *nci)
         char *ascii_logo =
 "                _._                                                  \n"
 "           _.-``__ ''-._                                             \n"
-"      _.-``    `.  *_.  ''-._           Vire %s %s bit\n"
+"      _.-``    `.  *_.  ''-._           Vire %s%s %s bit\n"
 "  .-`` .-```.  ```\-/    _.,_ ''-._                                   \n"
 " (    |      |       .-`    `,    )     Running in %s mode\n"
 " |`-._`-...-` __...-.``-._;'` _.-'|     Port: %d\n"
@@ -177,7 +182,8 @@ vr_print_run(struct instance *nci)
 "              `-.__.-'                                               \n\n";
         char *buf = dalloc(1024*16);
         snprintf(buf,1024*16,ascii_logo,
-            VR_VERSION_STRING,
+            VR_VERSION_STRING, 
+            debug_mode,
             (sizeof(long) == 8) ? "64" : "32",
             "standalone", server.port,
             (long) nci->pid,
@@ -187,9 +193,9 @@ vr_print_run(struct instance *nci)
         log_write_len(buf, strlen(buf));
         dfree(buf);
     }else {
-        char buf[256];
-        snprintf(buf,256,"Vire %s, %s bit, %s mode, port %d, pid %ld, built for %s %s %s ready to run.\n",
-            VR_VERSION_STRING, (sizeof(long) == 8) ? "64" : "32",
+        char buf[512];
+        snprintf(buf,512,"Vire %s%s, %s bit, %s mode, port %d, pid %ld, built for %s %s %s ready to run.\n",
+            VR_VERSION_STRING, debug_mode, (sizeof(long) == 8) ? "64" : "32",
             "standalone", server.port, (long) nci->pid,
             status < 0 ? " ":name.sysname,
             status < 0 ? " ":name.release,
