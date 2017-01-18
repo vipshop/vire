@@ -653,10 +653,12 @@ void quicklistDelEntry(redisDb *db, robj *key, quicklistIter *iter, quicklistEnt
  *
  * Returns 1 if replace happened.
  * Returns 0 if replace failed and no changes happened. */
-int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
+int quicklistReplaceAtIndex(redisDb *db, robj *key, quicklist *quicklist, long index, void *data,
                             int sz) {
     quicklistEntry entry;
     if (likely(quicklistIndex(quicklist, index, &entry))) {
+        if (db) rdbSaveQuicklistTypeListNodeIfNeeded(db, key, quicklist, entry.node);
+        
         /* quicklistIndex provides an uncompressed node */
         entry.node->zl = ziplistDelete(entry.node->zl, &entry.zi);
         entry.node->zl = ziplistInsert(entry.node->zl, entry.zi, data, sz);

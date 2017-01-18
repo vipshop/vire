@@ -358,7 +358,7 @@ void lsetCommand(client *c) {
     }
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklist *ql = o->ptr;
-        int replaced = quicklistReplaceAtIndex(ql, index,
+        int replaced = quicklistReplaceAtIndex(c->db, c->argv[1], ql, index,
                                                value->ptr, sdslen(value->ptr));
         if (!replaced) {
             addReply(c,shared.outofrangeerr);
@@ -366,7 +366,8 @@ void lsetCommand(client *c) {
             addReply(c,shared.ok);
             signalModifiedKey(c->db,c->argv[1]);
             notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
-            c->vel->dirty++;
+            
+            propagateIfNeededForClient(c,c->argv,c->argc,1);
         }
     } else {
         serverPanic("Unknown list encoding");
