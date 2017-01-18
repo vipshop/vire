@@ -518,8 +518,8 @@ void ltrimCommand(client *c) {
 
     /* Remove list elements to perform the trim */
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistDelRange(o->ptr,0,ltrim);
-        quicklistDelRange(o->ptr,-rtrim,rtrim);
+        quicklistDelRange(c->db,c->argv[1],o->ptr,0,ltrim);
+        quicklistDelRange(c->db,c->argv[1],o->ptr,-rtrim,rtrim);
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -530,7 +530,7 @@ void ltrimCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
     signalModifiedKey(c->db,c->argv[1]);
-    c->vel->dirty++;
+    propagateIfNeededForClient(c,c->argv,c->argc,1);
     addReply(c,shared.ok);
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
@@ -566,7 +566,6 @@ void lremCommand(client *c) {
     while (listTypeNext(li,&entry)) {
         if (listTypeEqual(&entry,obj)) {
             listTypeDelete(c->db, c->argv[1], li, &entry);
-            c->vel->dirty++;
             removed++;
             if (toremove && removed == toremove) break;
         }
@@ -576,8 +575,6 @@ void lremCommand(client *c) {
     if (removed) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"lrem",c->argv[1],c->db->id);
-        
-        propagateIfNeededForClient(c,c->argv,c->argc,removed);
     }
 
     if (listTypeLength(subject) == 0) {
@@ -586,6 +583,7 @@ void lremCommand(client *c) {
     }
 
     addReplyLongLong(c,removed);
+    propagateIfNeededForClient(c,c->argv,c->argc,removed);
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats, expiredkeys, 1);
 }

@@ -943,7 +943,7 @@ void quicklistInsertAfter(quicklist *quicklist, quicklistEntry *entry,
  * have to be careful about tracking where we start and end.
  *
  * Returns 1 if entries were deleted, 0 if nothing was deleted. */
-int quicklistDelRange(quicklist *quicklist, const long start,
+int quicklistDelRange(redisDb *db, robj *key, quicklist *quicklist, const long start,
                       const long count) {
     if (count <= 0)
         return 0;
@@ -972,6 +972,9 @@ int quicklistDelRange(quicklist *quicklist, const long start,
 
         unsigned long del;
         int delete_entire_node = 0;
+
+        if (db) rdbSaveQuicklistTypeListNodeIfNeeded(db,key->ptr,quicklist,node);
+        
         if (entry.offset == 0 && extent >= node->count) {
             /* If we are deleting more than the count of this node, we
              * can just delete the entire node without ziplist math. */

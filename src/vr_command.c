@@ -667,6 +667,9 @@ void propagateIfNeededForClient(client *c, robj **argv, int argc, long long dirt
         return;
     }
 
+    if (dirty <= 0)
+        return;
+
     c->vel->dirty += dirty;
     c->db->dirty += dirty;
     propagate(c->cmd,c->db,argv,argc,PROPAGATE_AOF);
