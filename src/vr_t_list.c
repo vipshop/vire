@@ -140,9 +140,9 @@ int listTypeEqual(listTypeEntry *entry, robj *o) {
 }
 
 /* Delete the element pointed to. */
-void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry) {
+void listTypeDelete(redisDb *db, robj *key, listTypeIterator *iter, listTypeEntry *entry) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistDelEntry(iter->iter, &entry->entry);
+        quicklistDelEntry(db, key, iter->iter, &entry->entry);
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -565,7 +565,7 @@ void lremCommand(client *c) {
     listTypeEntry entry;
     while (listTypeNext(li,&entry)) {
         if (listTypeEqual(&entry,obj)) {
-            listTypeDelete(li, &entry);
+            listTypeDelete(c->db, c->argv[1], li, &entry);
             c->vel->dirty++;
             removed++;
             if (toremove && removed == toremove) break;
@@ -576,6 +576,8 @@ void lremCommand(client *c) {
     if (removed) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"lrem",c->argv[1],c->db->id);
+        
+        propagateIfNeededForClient(c,c->argv,c->argc,removed);
     }
 
     if (listTypeLength(subject) == 0) {

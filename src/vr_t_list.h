@@ -11,7 +11,7 @@ int listTypeNext(listTypeIterator *li, listTypeEntry *entry);
 robj *listTypeGet(listTypeEntry *entry);
 void listTypeInsert(listTypeEntry *entry, robj *value, int where);
 int listTypeEqual(listTypeEntry *entry, robj *o);
-void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
+void listTypeDelete(redisDb *db, robj *key, listTypeIterator *iter, listTypeEntry *entry);
 void listTypeConvert(robj *subject, int enc);
 void pushGenericCommand(client *c, int where);
 void lpushCommand(client *c);

@@ -596,9 +596,11 @@ REDIS_STATIC void __quicklistDelNode(quicklist *quicklist,
  *
  * Returns 1 if the entire node was deleted, 0 if node still exists.
  * Also updates in/out param 'p' with the next offset in the ziplist. */
-REDIS_STATIC int quicklistDelIndex(quicklist *quicklist, quicklistNode *node,
+REDIS_STATIC int quicklistDelIndex(redisDb *db, robj *key, quicklist *quicklist, quicklistNode *node,
                                    unsigned char **p) {
     int gone = 0;
+
+    if (db) rdbSaveQuicklistTypeListNodeIfNeeded(db,key->ptr,quicklist,node);
 
     node->zl = ziplistDelete(node->zl, p);
     node->count--;
@@ -617,11 +619,12 @@ REDIS_STATIC int quicklistDelIndex(quicklist *quicklist, quicklistNode *node,
  *
  * 'entry' stores enough metadata to delete the proper position in
  * the correct ziplist in the correct quicklist node. */
-void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry) {
+void quicklistDelEntry(redisDb *db, robj *key, quicklistIter *iter, quicklistEntry *entry) {
     quicklistNode *prev = entry->node->prev;
     quicklistNode *next = entry->node->next;
-    int deleted_node = quicklistDelIndex((quicklist *)entry->quicklist,
-                                         entry->node, &entry->zi);
+    int deleted_node = quicklistDelIndex(db, key, 
+                                        (quicklist *)entry->quicklist,
+                                        entry->node, &entry->zi);
 
     /* after delete, the zi is now invalid for any future usage. */
     iter->zi = NULL;
@@ -1295,7 +1298,7 @@ void quicklistRotate(quicklist *quicklist) {
     }
 
     /* Remove tail entry. */
-    quicklistDelIndex(quicklist, quicklist->tail, &p);
+    quicklistDelIndex(NULL, NULL, quicklist, quicklist->tail, &p);
 }
 
 /* pop from quicklist and return result in 'data' ptr.  Value of 'data'
@@ -1335,8 +1338,6 @@ int quicklistPopCustom(redisDb *db, robj *key, quicklist *quicklist, int where,
         return 0;
     }
 
-    if (db) rdbSaveQuicklistTypeListNodeIfNeeded(db,key->ptr,quicklist,node);
-
     p = ziplistIndex(node->zl, pos);
     if (ziplistGet(p, &vstr, &vlen, &vlong)) {
         if (vstr) {
@@ -1350,7 +1351,7 @@ int quicklistPopCustom(redisDb *db, robj *key, quicklist *quicklist, int where,
             if (sval)
                 *sval = vlong;
         }
-        quicklistDelIndex(quicklist, node, &p);
+        quicklistDelIndex(db,key,quicklist, node, &p);
         return 1;
     }
     return 0;

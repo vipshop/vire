@@ -110,7 +110,7 @@ void quicklistInsertAfter(quicklist *quicklist, quicklistEntry *node,
                           void *value, const size_t sz);
 void quicklistInsertBefore(quicklist *quicklist, quicklistEntry *node,
                            void *value, const size_t sz);
-void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry);
+void quicklistDelEntry(struct redisDb *db, struct vr_object *key, quicklistIter *iter, quicklistEntry *entry);
 int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
                             int sz);
 int quicklistDelRange(quicklist *quicklist, const long start, const long stop);
