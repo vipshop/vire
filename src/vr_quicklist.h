@@ -125,11 +125,13 @@ int quicklistIndex(const quicklist *quicklist, const long long index,
 void quicklistRewind(quicklist *quicklist, quicklistIter *li);
 void quicklistRewindTail(quicklist *quicklist, quicklistIter *li);
 void quicklistRotate(quicklist *quicklist);
-int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
-                       unsigned int *sz, long long *sval,
-                       void *(*saver)(unsigned char *data, unsigned int sz));
-int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
-                 unsigned int *sz, long long *slong);
+int quicklistPopCustom(struct redisDb *db, struct vr_object *key, 
+                        quicklist *quicklist, int where, 
+                        unsigned char **data, unsigned int *sz, long long *sval,
+                        void *(*saver)(unsigned char *data, unsigned int sz));
+int quicklistPop(struct redisDb *db, struct vr_object *key,
+                quicklist *quicklist, int where, unsigned char **data,
+                unsigned int *sz, long long *slong);
 unsigned int quicklistCount(quicklist *ql);
 int quicklistCompare(unsigned char *p1, unsigned char *p2, int p2_len);
 size_t quicklistGetLzf(const quicklistNode *node, void **data);

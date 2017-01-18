@@ -1307,9 +1307,9 @@ void quicklistRotate(quicklist *quicklist) {
  * Return value of 0 means no elements available.
  * Return value of 1 means check 'data' and 'sval' for values.
  * If 'data' is set, use 'data' and 'sz'.  Otherwise, use 'sval'. */
-int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
-                       unsigned int *sz, long long *sval,
-                       void *(*saver)(unsigned char *data, unsigned int sz)) {
+int quicklistPopCustom(redisDb *db, robj *key, quicklist *quicklist, int where, 
+                        unsigned char **data, unsigned int *sz, long long *sval,
+                        void *(*saver)(unsigned char *data, unsigned int sz)) {
     unsigned char *p;
     unsigned char *vstr;
     unsigned int vlen;
@@ -1334,6 +1334,8 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
     } else {
         return 0;
     }
+
+    if (db) rdbSaveQuicklistTypeListNodeIfNeeded(db,key->ptr,quicklist,node);
 
     p = ziplistIndex(node->zl, pos);
     if (ziplistGet(p, &vstr, &vlen, &vlong)) {
@@ -1368,15 +1370,17 @@ REDIS_STATIC void *_quicklistSaver(unsigned char *data, unsigned int sz) {
 /* Default pop function
  *
  * Returns malloc'd value from quicklist */
-int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
-                 unsigned int *sz, long long *slong) {
+int quicklistPop(redisDb *db, robj *key, 
+                quicklist *quicklist, int where, unsigned char **data,
+                unsigned int *sz, long long *slong) {
     unsigned char *vstr;
     unsigned int vlen;
     long long vlong;
     if (quicklist->count == 0)
         return 0;
-    int ret = quicklistPopCustom(quicklist, where, &vstr, &vlen, &vlong,
-                                 _quicklistSaver);
+    int ret = quicklistPopCustom(db, key, quicklist, where, 
+                                &vstr, &vlen, &vlong,
+                                _quicklistSaver);
     if (data)
         *data = vstr;
     if (slong)

@@ -26,13 +26,14 @@ void *listPopSaver(unsigned char *data, unsigned int sz) {
     return createStringObject((char*)data,sz);
 }
 
-robj *listTypePop(robj *subject, int where) {
+robj *listTypePop(redisDb *db, robj *key, robj *subject, int where) {
     long long vlong;
     robj *value = NULL;
 
     int ql_where = where == LIST_HEAD ? QUICKLIST_HEAD : QUICKLIST_TAIL;
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
-        if (quicklistPopCustom(subject->ptr, ql_where, (unsigned char **)&value,
+        if (quicklistPopCustom(db, key, subject->ptr, ql_where, 
+                               (unsigned char **)&value,
                                NULL, &vlong, listPopSaver)) {
             if (!value)
                 value = createStringObjectFromLongLong(vlong);
@@ -201,7 +202,6 @@ void pushGenericCommand(client *c, int where) {
     }
     
     propagateIfNeededForClient(c,c->argv,c->argc,pushed);
-
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
@@ -389,7 +389,7 @@ void popGenericCommand(client *c, int where) {
         return;
     }
 
-    value = listTypePop(o,where);
+    value = listTypePop(c->db,c->argv[1],o,where);
     if (value == NULL) {
         addReply(c,shared.nullbulk);
     } else {
@@ -404,8 +404,10 @@ void popGenericCommand(client *c, int where) {
             dbDelete(c->db,c->argv[1]);
         }
         signalModifiedKey(c->db,c->argv[1]);
-        c->vel->dirty++;
+        
+        propagateIfNeededForClient(c,c->argv,c->argc,1);
     }
+    
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 }
@@ -631,7 +633,7 @@ void rpoplpushCommand(client *c) {
         robj *touchedkey = c->argv[1];
 
         if (dobj && checkType(c,dobj,OBJ_LIST)) return;
-        value = listTypePop(sobj,LIST_TAIL);
+        value = listTypePop(NULL,NULL,sobj,LIST_TAIL);
         /* We saved touched key, and protect it, since rpoplpushHandlePush
          * may change the client command argument vector (it does not
          * currently). */
@@ -891,7 +893,7 @@ void handleClientsBlockedOnLists(void) {
                         int where = (receiver->lastcmd &&
                                      receiver->lastcmd->proc == blpopCommand) ?
                                     LIST_HEAD : LIST_TAIL;
-                        robj *value = listTypePop(o,where);
+                        robj *value = listTypePop(NULL,NULL,o,where);
 
                         if (value) {
                             /* Protect receiver->bpop.target, that will be
@@ -952,7 +954,7 @@ void blockingPopGenericCommand(client *c, int where) {
                 if (listTypeLength(o) != 0) {
                     /* Non empty list, this is like a non normal [LR]POP. */
                     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
-                    robj *value = listTypePop(o,where);
+                    robj *value = listTypePop(NULL,NULL,o,where);
                     ASSERT(value != NULL);
 
                     addReplyMultiBulkLen(c,2);

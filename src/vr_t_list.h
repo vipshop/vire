@@ -3,7 +3,7 @@
 
 void listTypePush(redisDb *db, robj *key, robj *subject, robj *value, int where);
 void *listPopSaver(unsigned char *data, unsigned int sz);
-robj *listTypePop(robj *subject, int where);
+robj *listTypePop(redisDb *db, robj *key, robj *subject, int where);
 unsigned long listTypeLength(robj *subject);
 listTypeIterator *listTypeInitIterator(robj *subject, long index, unsigned char direction);
 void listTypeReleaseIterator(listTypeIterator *li);
