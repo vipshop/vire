@@ -64,9 +64,9 @@ typedef struct quicklistEntry {
     const quicklist *quicklist;
     quicklistNode *node;
     unsigned char *zi;
-    unsigned char *value;
-    unsigned int sz;
+    unsigned char *value;    
     long long longval;
+    unsigned int sz;
     int offset;
 } quicklistEntry;
 
@@ -132,7 +132,7 @@ int quicklistPopCustom(struct redisDb *db, struct vr_object *key,
 int quicklistPop(struct redisDb *db, struct vr_object *key,
                 quicklist *quicklist, int where, unsigned char **data,
                 unsigned int *sz, long long *slong);
-unsigned int quicklistCount(quicklist *ql);
+unsigned int quicklistCount(const quicklist *ql);
 int quicklistCompare(unsigned char *p1, unsigned char *p2, int p2_len);
 size_t quicklistGetLzf(const quicklistNode *node, void **data);
 
