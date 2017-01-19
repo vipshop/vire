@@ -627,6 +627,10 @@ int rdbSaveKeyIfNeeded(redisDb *db, dictEntry *de, sds key, robj *val, int dump_
         key = dictGetKey(de);
     }
 
+    /* This key does not exist. */
+    if (de == NULL && val == NULL)
+        return 0;
+
     if (val == NULL) {
         ASSERT(de != NULL);
         val = dictGetVal(de);
