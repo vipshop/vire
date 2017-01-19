@@ -31,7 +31,7 @@
 
 /* List defaults */
 #define OBJ_LIST_MAX_ZIPLIST_SIZE -2
-#define OBJ_LIST_COMPRESS_DEPTH 1
+#define OBJ_LIST_COMPRESS_DEPTH 0
 
 /* HyperLogLog defines */
 #define CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES 3000

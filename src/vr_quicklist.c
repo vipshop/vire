@@ -657,7 +657,7 @@ int quicklistReplaceAtIndex(redisDb *db, robj *key, quicklist *quicklist, long i
                             int sz) {
     quicklistEntry entry;
     if (likely(quicklistIndex(quicklist, index, &entry))) {
-        if (db) rdbSaveQuicklistTypeListNodeIfNeeded(db, key, quicklist, entry.node);
+        if (db) rdbSaveQuicklistTypeListNodeIfNeeded(db, key->ptr, quicklist, entry.node);
         
         /* quicklistIndex provides an uncompressed node */
         entry.node->zl = ziplistDelete(entry.node->zl, &entry.zi);

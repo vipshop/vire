@@ -1838,7 +1838,7 @@ static int rdbLoadData(char *filename)
     FILE *fp;
     redisDb *db;
     rio rdb;
-    
+
     if ((fp = fopen(filename,"r")) == NULL) return VR_ERROR;
     rioInitWithFile(&rdb,fp);
 
