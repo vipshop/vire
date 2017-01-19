@@ -9,6 +9,13 @@
 #define PERSIS_FILE_TYPE_AOF    1
 #define PERSIS_FILE_TYPE_RDBTMP 2
 
+#define BIGKEY_DUMP_WRITE_TYPE_NONE         0
+#define BIGKEY_DUMP_WRITE_TYPE_SDS          1
+#define BIGKEY_DUMP_WRITE_TYPE_QUICKLIST    2
+
+#define BIGKEY_DUMP_STATE_GENERATING        0
+#define BIGKEY_DUMP_STATE_WRITING           1
+
 typedef struct persisFile {
     int type;   /* PERSIS_FILE_TYPE_* */
     int dbid;   /* Database id. */
@@ -28,8 +35,10 @@ typedef struct persisPart {
 
 typedef struct bigkeyDumper {
     sds key;
-    unsigned type:4;
-    unsigned encoding:4;
+    unsigned type:4;    /* As the key type. */
+    unsigned encoding:4;    /* As the value encoding. */
+    unsigned state:4;   /* This key is in generating or writing. */
+    unsigned write_type:4;  /* The bigkeyDumper->data field is sds or quicklistDumpHelper. */
     void *data;	/* sds or quicklistDumpHelper */
     void *cursor_field;
     size_t written;
@@ -97,5 +106,6 @@ void loadDataFromDisk(void);
 int rdbSaveHashTypeSetValIfNeeded(redisDb *db, sds key, robj *set, robj *val);
 int rdbSaveHashTypeHashValIfNeeded(redisDb *db, sds key, robj *hash, robj *field);
 int rdbSaveQuicklistTypeListNodeIfNeeded(redisDb *db, sds key, quicklist *qlist, quicklistNode *qnode);
+int rdbSaveSkiplistTypeZsetElementIfNeeded(redisDb *db, sds key, robj *val, robj *ele);
 
 #endif

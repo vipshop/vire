@@ -1268,6 +1268,8 @@ void zaddGenericCommand(client *c, int flags) {
         if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
             unsigned char *eptr;
 
+            rdbSaveKeyIfNeeded(c->db,NULL,key->ptr,zobj,0);
+
             /* Prefer non-encoded element when dealing with ziplists. */
             ele = c->argv[scoreidx+1+j*2];
             if ((eptr = zzlFind(zobj->ptr,ele,&curscore)) != NULL) {
@@ -1286,7 +1288,7 @@ void zaddGenericCommand(client *c, int flags) {
                 if (score != curscore) {
                     zobj->ptr = zzlDelete(zobj->ptr,eptr);
                     zobj->ptr = zzlInsert(zobj->ptr,ele,score);
-                    c->vel->dirty++;
+                    
                     updated++;
                 }
                 processed++;
@@ -1298,7 +1300,7 @@ void zaddGenericCommand(client *c, int flags) {
                     zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
                 if (sdslen(ele->ptr) > server.zset_max_ziplist_value)
                     zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
-                c->vel->dirty++;
+                
                 added++;
                 processed++;
             }
@@ -1309,6 +1311,9 @@ void zaddGenericCommand(client *c, int flags) {
 
             ele = c->argv[scoreidx+1+j*2] =
                 tryObjectEncoding(c->argv[scoreidx+1+j*2]);
+
+            rdbSaveSkiplistTypeZsetElementIfNeeded(c->db,key->ptr,zobj,ele);
+            
             de = dictFind(zs->dict,ele);
             if (de != NULL) {
                 if (nx) continue;
@@ -1334,7 +1339,7 @@ void zaddGenericCommand(client *c, int flags) {
                     serverAssertWithInfo(c,curobj,zslDelete(zs->zsl,curscore,curobj));
                     znode = zslInsert(zs->zsl,score,curobj);
                     dictGetVal(de) = &znode->score; /* Update score ptr. */
-                    c->vel->dirty++;
+
                     updated++;
                 }
                 processed++;
@@ -1342,7 +1347,8 @@ void zaddGenericCommand(client *c, int flags) {
                 ele = dupStringObject(ele);
                 znode = zslInsert(zs->zsl,score,ele);
                 serverAssertWithInfo(c,NULL,dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
-                c->vel->dirty++;
+                ele->version = c->db->version;
+                
                 added++;
                 processed++;
             }
@@ -1351,6 +1357,7 @@ void zaddGenericCommand(client *c, int flags) {
         }
     }
 
+    propagateIfNeededForClient(c,c->argv,c->argc,added+updated);
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
 

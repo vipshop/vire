@@ -82,6 +82,8 @@ bigkeyDumper *bigkeyDumperCreate(void)
     bkdumper->key = NULL;
     bkdumper->type = 0;
     bkdumper->encoding = 0;
+    bkdumper->write_type = BIGKEY_DUMP_WRITE_TYPE_NONE;
+    bkdumper->state = BIGKEY_DUMP_STATE_GENERATING;
     bkdumper->data = NULL;
     bkdumper->cursor_field = NULL;
     bkdumper->written = 0;
@@ -94,8 +96,12 @@ void bigkeyDumperDestroy(bigkeyDumper *bkdumper)
     if (bkdumper->key)
         sdsfree(bkdumper->key);
     if (bkdumper->data) {
-        if (bkdumper->encoding == OBJ_ENCODING_QUICKLIST) {
+        if (bkdumper->write_type == BIGKEY_DUMP_WRITE_TYPE_QUICKLIST) {
             quicklistDumpHelper *qldhelper = bkdumper->data;
+
+            ASSERT(bkdumper->type == OBJ_LIST);
+            ASSERT(bkdumper->encoding == OBJ_ENCODING_QUICKLIST);
+            
             if (qldhelper) {
                 if (qldhelper->nodes) {
                     int idx;
@@ -108,8 +114,10 @@ void bigkeyDumperDestroy(bigkeyDumper *bkdumper)
 
                 dfree(qldhelper);
             }
-        } else {
+        } else if (bkdumper->write_type == BIGKEY_DUMP_WRITE_TYPE_SDS) {
             sdsfree(bkdumper->data);
+        } else {
+            NOT_REACHED();
         }
     }
 
@@ -211,7 +219,8 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
         bkdumper->key = sdsdup(key);
         bkdumper->type = val->type;
         bkdumper->encoding = val->encoding;
-        dictAdd(bkdhelper->bigkeys_to_dump, bkdumper->key , bkdumper);
+        bkdumper->state = BIGKEY_DUMP_STATE_GENERATING;
+        dictAdd(bkdhelper->bigkeys_to_dump, bkdumper->key, bkdumper);
 
         /* If big key encoding is quicklist, just save the quicklist 
          * node in bigkeyDumper, and generate the rdb string in the
@@ -226,6 +235,7 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
             qldhelper->nodes = dzalloc(qldhelper->len*sizeof(quicklistNode));
             
             bkdumper->data = qldhelper;
+            bkdumper->write_type = BIGKEY_DUMP_WRITE_TYPE_QUICKLIST;
             
             do {
                 if (node->version < db->version)
@@ -241,6 +251,7 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
             bkdumper->data = sdsempty();
             rioSetBuffer(rdb,
                 bkdumper->data,sdslen(bkdumper->data));
+            bkdumper->write_type = BIGKEY_DUMP_WRITE_TYPE_SDS;
             
             /* Save the expire time */
             if (expiretime != -1) {
@@ -292,6 +303,7 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
             bkdumper->cursor_field = dictGetSafeIterator(ht);
         }
 
+        ASSERT(bkdumper->write_type == BIGKEY_DUMP_WRITE_TYPE_SDS);
         rioSetBuffer(rdb,bkdumper->data,sdslen(bkdumper->data));
         di = bkdumper->cursor_field;
         while((de = dictNext(di)) != NULL) {
@@ -332,14 +344,15 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
             bkdumper->cursor_field = dictGetSafeIterator(zs->dict);
         }
 
-        rioSetBuffer(rdb, bkdumper->data,sdslen(bkdumper->data));
+        ASSERT(bkdumper->write_type == BIGKEY_DUMP_WRITE_TYPE_SDS);
+        rioSetBuffer(rdb,bkdumper->data,sdslen(bkdumper->data));
         di = bkdumper->cursor_field;
         while ((de = dictNext(di)) != NULL) {
             robj *eleobj = dictGetKey(de);
-            double *score = dictGetVal(de);
+            double score = *(double*)dictGetVal(de);
 
             rdbSaveStringObject(rdb,eleobj);
-            rdbSaveDoubleValue(rdb,*score);
+            rdbSaveDoubleValue(rdb,score);
             
             if (++count > RDB_SAVE_OPERATION_COUNT_PER_TIME && !dump_complete) {
                 break;
@@ -359,8 +372,11 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
     {
         quicklist *ql = val->ptr;
         quicklistNode *node;
-        quicklistDumpHelper *qldhelper = bkdumper->data;
+        quicklistDumpHelper *qldhelper;
 
+        ASSERT(bkdumper->write_type == BIGKEY_DUMP_WRITE_TYPE_QUICKLIST);
+        qldhelper = bkdumper->data;
+        
         if (bkdumper->cursor_field == NULL) {
             bkdumper->cursor_field = ql->head;
         }
@@ -416,6 +432,7 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
         dictDelete(bkdhelper->bigkeys_to_dump,key);
         val->version = db->version;
         dlistPush(bkdhelper->bigkeys_to_write,bkdumper);
+        bkdumper->state = BIGKEY_DUMP_STATE_WRITING;
     }
     
     return count;
@@ -486,10 +503,13 @@ static int rdbSaveBigkeyWrite(redisDb *db, int need_complete)
         size_t len, remain_len;
         int written;
 
-        if (bkdumper->encoding == OBJ_ENCODING_QUICKLIST) {
+        if (bkdumper->write_type == BIGKEY_DUMP_WRITE_TYPE_QUICKLIST) {
             int idx;
             quicklistNode *node;
             quicklistDumpHelper *qldhelper = bkdumper->data;
+
+            ASSERT(bkdumper->type == OBJ_LIST);
+            ASSERT(bkdumper->encoding == OBJ_ENCODING_QUICKLIST);
             
             if (qldhelper->count == 0) {
                 /* Save the expire time */
@@ -536,7 +556,7 @@ static int rdbSaveBigkeyWrite(redisDb *db, int need_complete)
                     return count;
                 }
             }
-        } else {
+        } else if (bkdumper->write_type == BIGKEY_DUMP_WRITE_TYPE_SDS) {
             while ((remain_len = sdslen(bkdumper->data)-bkdumper->written) > 0) {
                 len = MIN(remain_len, 2048);
                 written = rdbWriteRaw(db->rdb_cached, 
@@ -556,6 +576,8 @@ static int rdbSaveBigkeyWrite(redisDb *db, int need_complete)
                     return count;
                 }
             }
+        }else {
+            NOT_REACHED();
         }
 
         dlistDelNode(bkdhelper->bigkeys_to_write, ln);
@@ -594,6 +616,10 @@ static int rdbSaveKeyComplete(redisDb *db, sds key, robj *val)
     if (dlistLength(bkdhelper->bigkeys_to_write) > 0) {
         int ret;
         bigkeyDumper *bkdumper = bigkeyDumperCreate();
+        bkdumper->type = val->type;
+        bkdumper->encoding = val->encoding;
+        bkdumper->write_type = BIGKEY_DUMP_WRITE_TYPE_SDS;
+        bkdumper->state = BIGKEY_DUMP_STATE_WRITING;
         if (!bkdumper->data) bkdumper->data = sdsempty();
         rioSetBuffer(bkdhelper->dump_to_buffer_helper, 
             bkdumper->data, sdslen(bkdumper->data));
@@ -2302,12 +2328,15 @@ int rdbSaveHashTypeSetValIfNeeded(redisDb *db, sds key, robj *set, robj *val)
     de = dictFind(set->ptr,val);
     if (de) {
         val = dictGetKey(de);
+        ASSERT(val->version >= set->version);
         if (val->version < db->version) {
             rio *rdb = db->bkdhelper->dump_to_buffer_helper;
             bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_dump, key);
             ASSERT(bkdumper != NULL);
             ASSERT(bkdumper->type == OBJ_SET);
             ASSERT(bkdumper->encoding == OBJ_ENCODING_HT);
+            ASSERT(bkdumper->state == BIGKEY_DUMP_STATE_GENERATING);
+            ASSERT(bkdumper->write_type == BIGKEY_DUMP_WRITE_TYPE_SDS);
             rioSetBuffer(rdb, bkdumper->data, sdslen(bkdumper->data));
             rdbSaveStringObject(rdb,val);
             /* Update the rdb string in the bigkeyDumper. */
@@ -2348,13 +2377,15 @@ int rdbSaveHashTypeHashValIfNeeded(redisDb *db, sds key, robj *hash, robj *field
     if (de) {
         field = dictGetKey(de);
         val = dictGetVal(de);
-        ASSERT(field->version == val->version);
+        ASSERT(field->version >= hash->version);
         if (field->version < db->version) {
             rio *rdb = db->bkdhelper->dump_to_buffer_helper;
             bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_dump, key);
             ASSERT(bkdumper != NULL);
             ASSERT(bkdumper->type == OBJ_HASH);
             ASSERT(bkdumper->encoding == OBJ_ENCODING_HT);
+            ASSERT(bkdumper->state == BIGKEY_DUMP_STATE_GENERATING);
+            ASSERT(bkdumper->write_type == BIGKEY_DUMP_WRITE_TYPE_SDS);
             rioSetBuffer(rdb, bkdumper->data, sdslen(bkdumper->data));
             rdbSaveStringObject(rdb,field);
             rdbSaveStringObject(rdb,val);
@@ -2392,7 +2423,11 @@ int rdbSaveQuicklistTypeListNodeIfNeeded(redisDb *db, sds key, quicklist *qlist,
     bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_dump, key);
 	if (bkdumper == NULL)
 		return 0;
-	
+
+    ASSERT(bkdumper->type == OBJ_LIST);
+    ASSERT(bkdumper->encoding == OBJ_ENCODING_QUICKLIST);
+    ASSERT(bkdumper->state == BIGKEY_DUMP_STATE_GENERATING);
+    ASSERT(bkdumper->write_type == BIGKEY_DUMP_WRITE_TYPE_QUICKLIST);
     qldhelper = bkdumper->data;
     ASSERT(bkdumper->cursor_field != NULL);
 
@@ -2416,5 +2451,62 @@ int rdbSaveQuicklistTypeListNodeIfNeeded(redisDb *db, sds key, quicklist *qlist,
     qnode->index = 0;
             
     return 1;
+}
+
+/* Return -1: error; 0: this element no need to dump; 1: this element dumped success. */
+int rdbSaveSkiplistTypeZsetElementIfNeeded(redisDb *db, sds key, robj *val, robj *ele)
+{
+    bigkeyDumper *bkdumper;
+    dictEntry *de;
+    zset *zs;
+    
+    ASSERT(key != NULL);
+    ASSERT(val != NULL);
+    ASSERT(ele != NULL);
+    
+    if (!(db->flags&DB_FLAGS_DUMPING))
+        return 0;
+
+    ASSERT(val->type == OBJ_ZSET);
+    ASSERT(val->encoding == OBJ_ENCODING_SKIPLIST);
+    
+    if ((db->flags&DB_FLAGS_DUMP_FIRST_STEP)) {
+        rdbSave(db,0);
+    }
+
+    rdbSaveKeyIfNeeded(db,NULL,key,val,0);
+    if (val->version >= db->version)
+        return 0;
+
+    zs = val->ptr;
+    de = dictFind(zs->dict,ele);
+    if (de) {
+        robj *eleobj = dictGetKey(de);
+        double score = *(double*)dictGetVal(de);
+
+        ASSERT(eleobj->version >= val->version);
+        if (eleobj->version < db->version) {
+            rio *rdb = db->bkdhelper->dump_to_buffer_helper;
+            
+            bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_dump, key);
+            ASSERT(bkdumper != NULL);
+            ASSERT(bkdumper->type == OBJ_ZSET);
+            ASSERT(bkdumper->encoding == OBJ_ENCODING_SKIPLIST);
+            ASSERT(bkdumper->state == BIGKEY_DUMP_STATE_GENERATING);
+            ASSERT(bkdumper->write_type == BIGKEY_DUMP_WRITE_TYPE_SDS);
+            rioSetBuffer(rdb, bkdumper->data, sdslen(bkdumper->data));
+
+            rdbSaveStringObject(rdb,eleobj);
+            rdbSaveDoubleValue(rdb,score);
+
+            /* Update the rdb string in the bigkeyDumper. */
+            bkdumper->data = rdb->io.buffer.ptr;
+            eleobj->version < db->version;
+            
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
