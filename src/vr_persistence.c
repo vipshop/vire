@@ -462,6 +462,8 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
         break;
     }
 
+    if (dump_complete) ASSERT(dump_finished == 1);
+
     if (dump_finished) {
         bkdumper->cursor_field = NULL;
         dictDelete(bkdhelper->bigkeys_to_generate,key);
@@ -886,8 +888,7 @@ one_more_time:
 
 	/* 3rd. Iterate this DB to dump every entry */
 	di = db->cursor_key;
-    if (di == NULL)
-    	return -1;
+    ASSERT(di != NULL);
     while((de = dictNext(di)) != NULL) {
         ret = rdbSaveKeyIfNeeded(db,de,NULL,NULL,0);
         
