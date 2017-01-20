@@ -63,14 +63,17 @@
 #define RDB_OPCODE_SELECTDB   254
 #define RDB_OPCODE_EOF        255
 
-#define rdbExitReportCorruptRDB(reason) rdbCheckThenExit(reason, __LINE__);
+#define rdbExitReportCorruptRDB(reason) do {        \
+    ASSERT(0);                                      \
+    rdbCheckThenExit(reason, __FILE__, __LINE__);   \
+}while(0)
 
 struct saveparam {
     time_t seconds;
     int changes;
 };
 
-void rdbCheckThenExit(char *reason, int where);
+void rdbCheckThenExit(char *reason, char *file, int where);
 int rdbWriteRaw(rio *rdb, void *p, size_t len);
 int rdbSaveType(rio *rdb, unsigned char type);
 int rdbLoadType(rio *rdb);
@@ -81,10 +84,10 @@ uint32_t rdbLoadLen(rio *rdb, int *isencoded);
 int rdbSaveObjectType(rio *rdb, robj *o);
 int rdbLoadObjectType(rio *rdb);
 
-ssize_t rdbSaveObject(rio *rdb, robj *o);
+ssize_t rdbSaveObject(redisDb *db, rio *rdb, robj *o);
 size_t rdbSavedObjectLen(robj *o);
 robj *rdbLoadObject(int type, rio *rdb);
-int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, long long now);
+int rdbSaveKeyValuePair(redisDb *db, rio *rdb, robj *key, robj *val, long long expiretime, long long now);
 robj *rdbLoadStringObject(rio *rdb);
 
 #endif

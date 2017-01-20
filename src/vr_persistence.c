@@ -14,7 +14,7 @@
 
 #define RDB_SAVE_OPERATION_COUNT_PER_TIME 100
 
-#define DATA_LOAD_THREADS_COUNT_DEFAULT 3
+#define DATA_LOAD_THREADS_COUNT_DEFAULT 1
 
 typedef struct quicklistDumpHelper {
     quicklistNode *nodes;
@@ -87,6 +87,11 @@ bigkeyDumper *bigkeyDumperCreate(void)
     bkdumper->data = NULL;
     bkdumper->cursor_field = NULL;
     bkdumper->written = 0;
+
+#ifdef HAVE_DEBUG_LOG
+    bkdumper->elements_count = 0;
+    bkdumper->elements_dumped_count = 0;
+#endif
     
     return bkdumper;
 }
@@ -135,12 +140,12 @@ bigkeyDumpHelper *bigkeyDumpHelperCreate(void)
     bigkeyDumpHelper *bkdhelper;
     
     bkdhelper = dalloc(sizeof(bigkeyDumpHelper));
-    bkdhelper->bigkeys_to_dump = NULL;
+    bkdhelper->bigkeys_to_generate = NULL;
     bkdhelper->dump_to_buffer_helper = NULL;
     bkdhelper->bigkeys_to_write = NULL;
 	bkdhelper->finished_bigkeys = 0;
     
-    bkdhelper->bigkeys_to_dump = dictCreate(&keyptrDictType,NULL);
+    bkdhelper->bigkeys_to_generate = dictCreate(&keyptrDictType,NULL);
     bkdhelper->dump_to_buffer_helper = dalloc(sizeof(rio));
     rioInitWithBuffer(bkdhelper->dump_to_buffer_helper,NULL);
     
@@ -154,15 +159,15 @@ void bigkeyDumpHelperDestroy(bigkeyDumpHelper *bkdhelper)
     if (bkdhelper == NULL)
         return;
 
-    if (bkdhelper->bigkeys_to_dump) {
-        dictIterator *it = dictGetIterator(bkdhelper->bigkeys_to_dump);
+    if (bkdhelper->bigkeys_to_generate) {
+        dictIterator *it = dictGetIterator(bkdhelper->bigkeys_to_generate);
         dictEntry *de;
         while ((de=dictNext(it)) != NULL) {
             bigkeyDumper *bkdumper = dictGetVal(de);
             bigkeyDumperDestroy(bkdumper);
         }
         dictReleaseIterator(it);
-        dictRelease(bkdhelper->bigkeys_to_dump);
+        dictRelease(bkdhelper->bigkeys_to_generate);
     }
 
     if (bkdhelper->bigkeys_to_write) {
@@ -178,7 +183,7 @@ void bigkeyDumpHelperDestroy(bigkeyDumpHelper *bkdhelper)
 
 int bigkeyDumpHelperIsBusy(bigkeyDumpHelper *bkdhelper)
 {
-    if (dictSize(bkdhelper->bigkeys_to_dump) > 0)
+    if (dictSize(bkdhelper->bigkeys_to_generate) > 0)
         return 1;
 
     if (dlistLength(bkdhelper->bigkeys_to_write) > 0)
@@ -197,11 +202,11 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
         val = dictFetchValue(db->dict, key);
 
     if (!bkdumper)
-        bkdumper = dictFetchValue(bkdhelper->bigkeys_to_dump, key);
+        bkdumper = dictFetchValue(bkdhelper->bigkeys_to_generate, key);
 
     if (!val) {
         if (bkdumper) {
-            dictDelete(bkdhelper->bigkeys_to_dump, key);
+            dictDelete(bkdhelper->bigkeys_to_generate, key);
             bigkeyDumperDestroy(bkdumper);
         }
         return 0;
@@ -220,7 +225,7 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
         bkdumper->type = val->type;
         bkdumper->encoding = val->encoding;
         bkdumper->state = BIGKEY_DUMP_STATE_GENERATING;
-        dictAdd(bkdhelper->bigkeys_to_dump, bkdumper->key, bkdumper);
+        dictAdd(bkdhelper->bigkeys_to_generate, bkdumper->key, bkdumper);
 
         /* If big key encoding is quicklist, just save the quicklist 
          * node in bigkeyDumper, and generate the rdb string in the
@@ -236,6 +241,9 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
             
             bkdumper->data = qldhelper;
             bkdumper->write_type = BIGKEY_DUMP_WRITE_TYPE_QUICKLIST;
+#ifdef HAVE_DEBUG_LOG
+            bkdumper->elements_count = ql->len;
+#endif
             
             do {
                 if (node->version < db->version)
@@ -261,25 +269,35 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
                 if (rdbSaveMillisecondTime(rdb,expiretime) == -1) return -1;
             }
 
-            /* Save type, key, value */
+            /* Save type, key */
             if (rdbSaveObjectType(rdb,val) == -1) return -1;
             if (rdbSaveStringObject(rdb,&keyobj) == -1) return -1;
 
             switch (bkdumper->encoding) {
             case OBJ_ENCODING_HT:
             {
+                ASSERT(bkdumper->type == OBJ_SET || bkdumper->type == OBJ_HASH);
                 dict *ht = val->ptr;
                 rdbSaveLen(rdb,dictSize(ht));
+
+#ifdef HAVE_DEBUG_LOG
+                bkdumper->elements_count = dictSize(ht);
+#endif
                 break;
             }
             case OBJ_ENCODING_SKIPLIST:
             {
+                ASSERT(bkdumper->type == OBJ_ZSET);
                 zset *zs = val->ptr;
                 rdbSaveLen(rdb,dictSize(zs->dict));
+
+#ifdef HAVE_DEBUG_LOG
+                bkdumper->elements_count = dictSize(zs->dict);
+#endif
                 break;
             }
             default:
-
+                NOT_REACHED();
                 break;
             }
 
@@ -318,6 +336,11 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
                 rdbSaveStringObject(rdb,valueobj);
                 valueobj->version = db->version;
             }
+
+#ifdef HAVE_DEBUG_LOG
+            bkdumper->elements_dumped_count ++;
+#endif
+
             if (++count > RDB_SAVE_OPERATION_COUNT_PER_TIME && !dump_complete) {
                 break;
             }
@@ -349,10 +372,18 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
         di = bkdumper->cursor_field;
         while ((de = dictNext(di)) != NULL) {
             robj *eleobj = dictGetKey(de);
-            double score = *(double*)dictGetVal(de);
+            double *score = dictGetVal(de);
+            
+            if (eleobj->version >= db->version)
+                continue;
 
             rdbSaveStringObject(rdb,eleobj);
-            rdbSaveDoubleValue(rdb,score);
+            rdbSaveDoubleValue(rdb,*score);
+            eleobj->version = db->version;
+
+#ifdef HAVE_DEBUG_LOG
+            bkdumper->elements_dumped_count ++;
+#endif
             
             if (++count > RDB_SAVE_OPERATION_COUNT_PER_TIME && !dump_complete) {
                 break;
@@ -406,6 +437,10 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
             node->version = db->version;
             node->index = 0;
 
+#ifdef HAVE_DEBUG_LOG
+            bkdumper->elements_dumped_count ++;
+#endif
+
 			node = node->next;
             if (++count > RDB_SAVE_OPERATION_COUNT_PER_TIME && !dump_complete) {                
                 break;
@@ -423,14 +458,20 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
         break;
     }
     default:
-
+        NOT_REACHED();
         break;
     }
 
     if (dump_finished) {
         bkdumper->cursor_field = NULL;
-        dictDelete(bkdhelper->bigkeys_to_dump,key);
+        dictDelete(bkdhelper->bigkeys_to_generate,key);
         val->version = db->version;
+
+#ifdef HAVE_DEBUG_LOG
+        ASSERT(bkdumper->elements_dumped_count == 
+            bkdumper->elements_count);
+#endif
+
         dlistPush(bkdhelper->bigkeys_to_write,bkdumper);
         bkdumper->state = BIGKEY_DUMP_STATE_WRITING;
     }
@@ -446,11 +487,11 @@ static int rdbSaveBigkeysGenerate(redisDb *db, int need_complete)
     dictEntry *de;
 
 generate_one_key:
-    sample_count = MIN(dictSize(bkdhelper->bigkeys_to_dump), 5);
+    sample_count = MIN(dictSize(bkdhelper->bigkeys_to_generate), 5);
 
     bkdumper_best = NULL;
     while (sample_count-- > 0) {
-        de = dictGetRandomKey(bkdhelper->bigkeys_to_dump);
+        de = dictGetRandomKey(bkdhelper->bigkeys_to_generate);
         bkdumper = dictGetVal(de);
 		if (bkdumper_best == NULL) {
 			bkdumper_best = bkdumper;
@@ -623,15 +664,16 @@ static int rdbSaveKeyComplete(redisDb *db, sds key, robj *val)
         if (!bkdumper->data) bkdumper->data = sdsempty();
         rioSetBuffer(bkdhelper->dump_to_buffer_helper, 
             bkdumper->data, sdslen(bkdumper->data));
-        ret = rdbSaveKeyValuePair(bkdhelper->dump_to_buffer_helper,
+        ret = rdbSaveKeyValuePair(db,bkdhelper->dump_to_buffer_helper,
             &keyobj,val,expire,now);
+        
         /* Update the rdb string in the bigkeyDumper. */
         bkdumper->data = bkdhelper->dump_to_buffer_helper->io.buffer.ptr;
         dlistPush(bkdhelper->bigkeys_to_write, bkdumper);
         return ret;
     }
 
-    return rdbSaveKeyValuePair(db->rdb_cached,&keyobj,val,expire,now);
+    return rdbSaveKeyValuePair(db,db->rdb_cached,&keyobj,val,expire,now);
 }
 
 /* Return -1: error; >=0: this key dumped fields count. */
@@ -656,6 +698,11 @@ int rdbSaveKeyIfNeeded(redisDb *db, dictEntry *de, sds key, robj *val, int dump_
     /* This key does not exist. */
     if (de == NULL && val == NULL)
         return 0;
+
+#ifdef HAVE_DEBUG_LOG
+    if (de == NULL)
+        de = dictFind(db->dict,key);
+#endif
 
     if (val == NULL) {
         ASSERT(de != NULL);
@@ -685,7 +732,7 @@ int rdbSaveKeyIfNeeded(redisDb *db, dictEntry *de, sds key, robj *val, int dump_
         dict *ht;
         
         /* If this key is partial dumping. */
-        if ((bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_dump, key)) != NULL) {
+        if ((bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_generate, key)) != NULL) {
             return bigkeyRdbGenerate(db, key, val, bkdumper, dump_complete);
         }
 
@@ -709,7 +756,7 @@ int rdbSaveKeyIfNeeded(redisDb *db, dictEntry *de, sds key, robj *val, int dump_
         zset *zs;
         
         /* If this key is partial dumping. */
-        if ((bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_dump, key)) != NULL) {
+        if ((bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_generate, key)) != NULL) {
             return bigkeyRdbGenerate(db, key, val, bkdumper, dump_complete);
         }
 
@@ -725,7 +772,7 @@ int rdbSaveKeyIfNeeded(redisDb *db, dictEntry *de, sds key, robj *val, int dump_
     case OBJ_ENCODING_QUICKLIST:
     {        
         /* If this key is partial dumping. */
-        if ((bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_dump, key)) != NULL) {
+        if ((bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_generate, key)) != NULL) {
             return bigkeyRdbGenerate(db, key, val, bkdumper, dump_complete);
         }
 
@@ -748,7 +795,7 @@ int rdbSaveKeyIfNeeded(redisDb *db, dictEntry *de, sds key, robj *val, int dump_
 complete_dump:
     
     rdbSaveKeyComplete(db, key, val);
-    val->version = db->version;
+    
     return count;
 }
 
@@ -1869,6 +1916,8 @@ static int rdbLoadData(char *filename)
     redisDb *db;
     rio rdb;
 
+    log_debug(LOG_NOTICE, "start loading rdb file: %s", filename);
+    
     if ((fp = fopen(filename,"r")) == NULL) return VR_ERROR;
     rioInitWithFile(&rdb,fp);
 
@@ -1972,10 +2021,10 @@ static int rdbLoadData(char *filename)
         }
 
         /* Read key */
-        if ((key = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;		
+        if ((key = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;        
         /* Read value */
         if ((val = rdbLoadObject(type,&rdb)) == NULL) goto eoferr;
-		
+
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
          * received from the master. In the latter case, the master is
@@ -2085,6 +2134,8 @@ static int appendOnlyLoadData(persisFile *pf) {
 
     ASSERT(pf->type == PERSIS_FILE_TYPE_AOF);
 
+    log_debug(LOG_NOTICE, "start loading aof file: %s", pf->filename);
+    
     fp = fopen(pf->filename,"r");
     if (fp == NULL) {
         log_warn("Fatal error: can't open the append log file %s for reading: %s", 
@@ -2331,7 +2382,7 @@ int rdbSaveHashTypeSetValIfNeeded(redisDb *db, sds key, robj *set, robj *val)
         ASSERT(val->version >= set->version);
         if (val->version < db->version) {
             rio *rdb = db->bkdhelper->dump_to_buffer_helper;
-            bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_dump, key);
+            bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_generate, key);
             ASSERT(bkdumper != NULL);
             ASSERT(bkdumper->type == OBJ_SET);
             ASSERT(bkdumper->encoding == OBJ_ENCODING_HT);
@@ -2342,6 +2393,10 @@ int rdbSaveHashTypeSetValIfNeeded(redisDb *db, sds key, robj *set, robj *val)
             /* Update the rdb string in the bigkeyDumper. */
             bkdumper->data = rdb->io.buffer.ptr;
             val->version = db->version;
+
+#ifdef HAVE_DEBUG_LOG
+            bkdumper->elements_dumped_count ++;
+#endif
         }
     }
 
@@ -2380,7 +2435,7 @@ int rdbSaveHashTypeHashValIfNeeded(redisDb *db, sds key, robj *hash, robj *field
         ASSERT(field->version >= hash->version);
         if (field->version < db->version) {
             rio *rdb = db->bkdhelper->dump_to_buffer_helper;
-            bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_dump, key);
+            bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_generate, key);
             ASSERT(bkdumper != NULL);
             ASSERT(bkdumper->type == OBJ_HASH);
             ASSERT(bkdumper->encoding == OBJ_ENCODING_HT);
@@ -2393,6 +2448,11 @@ int rdbSaveHashTypeHashValIfNeeded(redisDb *db, sds key, robj *hash, robj *field
             bkdumper->data = rdb->io.buffer.ptr;
             field->version = db->version;
             val->version = db->version;
+
+#ifdef HAVE_DEBUG_LOG
+            bkdumper->elements_dumped_count ++;
+#endif
+
         }
     }
 
@@ -2420,7 +2480,7 @@ int rdbSaveQuicklistTypeListNodeIfNeeded(redisDb *db, sds key, quicklist *qlist,
 		return 0;
 
     /* Get the big key dumper. */
-    bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_dump, key);
+    bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_generate, key);
 	if (bkdumper == NULL)
 		return 0;
 
@@ -2449,6 +2509,10 @@ int rdbSaveQuicklistTypeListNodeIfNeeded(redisDb *db, sds key, quicklist *qlist,
     
     qnode->version = db->version;
     qnode->index = 0;
+
+#ifdef HAVE_DEBUG_LOG
+    bkdumper->elements_dumped_count ++;
+#endif
             
     return 1;
 }
@@ -2482,13 +2546,13 @@ int rdbSaveSkiplistTypeZsetElementIfNeeded(redisDb *db, sds key, robj *val, robj
     de = dictFind(zs->dict,ele);
     if (de) {
         robj *eleobj = dictGetKey(de);
-        double score = *(double*)dictGetVal(de);
+        double *score = dictGetVal(de);
 
         ASSERT(eleobj->version >= val->version);
         if (eleobj->version < db->version) {
             rio *rdb = db->bkdhelper->dump_to_buffer_helper;
             
-            bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_dump, key);
+            bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_generate, key);
             ASSERT(bkdumper != NULL);
             ASSERT(bkdumper->type == OBJ_ZSET);
             ASSERT(bkdumper->encoding == OBJ_ENCODING_SKIPLIST);
@@ -2497,11 +2561,15 @@ int rdbSaveSkiplistTypeZsetElementIfNeeded(redisDb *db, sds key, robj *val, robj
             rioSetBuffer(rdb, bkdumper->data, sdslen(bkdumper->data));
 
             rdbSaveStringObject(rdb,eleobj);
-            rdbSaveDoubleValue(rdb,score);
+            rdbSaveDoubleValue(rdb,*score);
 
             /* Update the rdb string in the bigkeyDumper. */
             bkdumper->data = rdb->io.buffer.ptr;
-            eleobj->version < db->version;
+            eleobj->version = db->version;
+
+#ifdef HAVE_DEBUG_LOG
+            bkdumper->elements_dumped_count ++;
+#endif
             
             return 1;
         }

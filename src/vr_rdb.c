@@ -14,10 +14,10 @@
 #define RDB_LOAD_ENC    (1<<0)
 #define RDB_LOAD_PLAIN  (1<<1)
 
-void rdbCheckThenExit(char *reason, int where) {
-    log_warn("Corrupt RDB detected at rdb.c:%d (%s). "
-        "Running 'redis-check-rdb %s'",
-        where, reason, server.rdb_filename);
+void rdbCheckThenExit(char *reason, char *file, int where) {
+    log_warn("Corrupt RDB detected at %s:%d (%s). "
+        "Running 'redis-check-rdb'",
+        file, where, reason);
     //redis_check_rdb(server.rdb_filename);
     exit(1);
 }
@@ -511,7 +511,7 @@ int rdbLoadObjectType(rio *rdb) {
 }
 
 /* Save a Redis object. Returns -1 on error, number of bytes written on success. */
-ssize_t rdbSaveObject(rio *rdb, robj *o) {
+ssize_t rdbSaveObject(redisDb *db, rio *rdb, robj *o) {
     ssize_t n = 0, nwritten = 0;
 
     if (o->type == OBJ_STRING) {
@@ -537,6 +537,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
                     if ((n = rdbSaveRawString(rdb,node->zl,node->sz)) == -1) return -1;
                     nwritten += n;
                 }
+
+                if (db) node->version = db->version;
             } while ((node = node->next));
         } else {
             serverPanic("Unknown list encoding");
@@ -555,6 +557,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
                 robj *eleobj = dictGetKey(de);
                 if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
                 nwritten += n;
+
+                if (db) eleobj->version = db->version;
             }
             dictReleaseIterator(di);
         } else if (o->encoding == OBJ_ENCODING_INTSET) {
@@ -588,6 +592,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
                 nwritten += n;
                 if ((n = rdbSaveDoubleValue(rdb,*score)) == -1) return -1;
                 nwritten += n;
+
+                if (db) eleobj->version = db->version;
             }
             dictReleaseIterator(di);
         } else {
@@ -616,6 +622,11 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
                 nwritten += n;
                 if ((n = rdbSaveStringObject(rdb,val)) == -1) return -1;
                 nwritten += n;
+
+                if (db) {
+                    key->version = db->version;
+                    val->version = db->version;
+                }
             }
             dictReleaseIterator(di);
 
@@ -634,7 +645,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
  * this length with very little changes to the code. In the future
  * we could switch to a faster solution. */
 size_t rdbSavedObjectLen(robj *o) {
-    ssize_t len = rdbSaveObject(NULL,o);
+    ssize_t len = rdbSaveObject(NULL,NULL,o);
     serverAssertWithInfo(NULL,o,len != -1);
     return len;
 }
@@ -897,7 +908,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
  * On error -1 is returned.
  * On success if the key was actually saved 1 is returned, otherwise 0
  * is returned (the key was already expired). */
-int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
+int rdbSaveKeyValuePair(redisDb *db, rio *rdb, robj *key, robj *val,
                         long long expiretime, long long now)
 {
     /* Save the expire time */
@@ -911,7 +922,8 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
     /* Save type, key, value */
     if (rdbSaveObjectType(rdb,val) == -1) return -1;
     if (rdbSaveStringObject(rdb,key) == -1) return -1;
-    if (rdbSaveObject(rdb,val) == -1) return -1;
+    if (rdbSaveObject(db,rdb,val) == -1) return -1;
+    if (db) val->version = db->version;
     return 1;
 }
 

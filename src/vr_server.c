@@ -935,7 +935,7 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
         off_t loading_loaded_bytes_copy, loading_total_bytes_copy;
         long long loading_start_time_copy, rdb_save_time_last_copy;
         long long last_rdb_saved_time_copy, rdb_save_time_start_copy;
-		unsigned long bigkeys_dumping = 0, bigkeys_writing = 0;
+		unsigned long bigkeys_generating = 0, bigkeys_writing = 0;
 		unsigned long long bigkeys_finished = 0;
         long long dirty_all = 0;
 		long times_rdbSaveRio = 0, times_rdbSaveMicroseconds = 0;
@@ -957,7 +957,7 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
             lockDbRead(db);
             dirty_all += db->dirty;
 			bkdhelper = db->bkdhelper;
-			bigkeys_dumping += dictSize(bkdhelper->bigkeys_to_dump);
+			bigkeys_generating += dictSize(bkdhelper->bigkeys_to_generate);
 			bigkeys_writing += dlistLength(bkdhelper->bigkeys_to_write);
 			bigkeys_finished += bkdhelper->finished_bigkeys;
 
@@ -1001,9 +1001,9 @@ sds genVireInfoString(vr_eventloop *vel, char *section) {
 
 		if (rdb_is_generating_copy) {
 			info = sdscatprintf(info,
-	            "rdb_bgsave_bigkeys_dumping:%u\r\n"
+	            "rdb_bgsave_bigkeys_generating:%u\r\n"
 	            "rdb_bgsave_bigkeys_writing:%u\r\n",
-	            bigkeys_dumping,
+	            bigkeys_generating,
 	            bigkeys_writing);
 		}
 

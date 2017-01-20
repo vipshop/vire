@@ -42,10 +42,18 @@ typedef struct bigkeyDumper {
     void *data;	/* sds or quicklistDumpHelper */
     void *cursor_field;
     size_t written;
+
+ #ifdef HAVE_DEBUG_LOG
+    /* The following two fields are used to check if 
+     * dumped correct elements count in the bigkey, 
+     * and they are only used in debug mode. */
+    unsigned long elements_count;
+    unsigned long elements_dumped_count;
+ #endif
 } bigkeyDumper;
 
 typedef struct bigkeyDumpHelper {
-    dict *bigkeys_to_dump;
+    dict *bigkeys_to_generate;
     rio *dump_to_buffer_helper;
     
     dlist *bigkeys_to_write;

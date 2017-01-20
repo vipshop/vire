@@ -81,7 +81,8 @@ typedef struct redisDb {
     long long lock_used_time = dusec_now() - db->lock_start_time;   \
     pthread_rwlock_unlock(&db->rwl);                                \
     if (lock_used_time > 2000) {                                    \
-        log_debug(LOG_NOTICE, "Locked time : %lld", lock_used_time);\
+        log_debug(LOG_NOTICE,                                       \
+        "Locked time : %lld at %s", lock_used_time, __FUNCTION__);  \
     }                                                               \
 } while (0)
 

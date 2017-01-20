@@ -1084,6 +1084,8 @@ void zsetConvert(robj *zobj, int encoding) {
             else
                 ele = createStringObject((char*)vstr,vlen);
 
+            ele->version = zobj->version;
+
             /* Has incremented refcount since it was just created. */
             node = zslInsert(zs->zsl,score,ele);
             serverAssertWithInfo(NULL,zobj,dictAdd(zs->dict,ele,&node->score) == DICT_OK);
@@ -1168,6 +1170,7 @@ int zsetScore(robj *zobj, robj *member, double *score) {
 #define ZADD_CH (1<<3)      /* Return num of elements added or updated. */
 
 void zaddGenericCommand(client *c, int flags) {
+    int ret;
     static char *nanerr = "resulting score is not a number (NaN)";
     robj *key = c->argv[1];
     robj *ele;
@@ -1312,13 +1315,15 @@ void zaddGenericCommand(client *c, int flags) {
             ele = c->argv[scoreidx+1+j*2] =
                 tryObjectEncoding(c->argv[scoreidx+1+j*2]);
 
-            rdbSaveSkiplistTypeZsetElementIfNeeded(c->db,key->ptr,zobj,ele);
+            ret = rdbSaveSkiplistTypeZsetElementIfNeeded(c->db,key->ptr,zobj,ele);
             
             de = dictFind(zs->dict,ele);
             if (de != NULL) {
                 if (nx) continue;
                 curobj = dictGetKey(de);
                 curscore = *(double*)dictGetVal(de);
+
+                ASSERT(curobj->version == c->db->version);
 
                 if (incr) {
                     score += curscore;
