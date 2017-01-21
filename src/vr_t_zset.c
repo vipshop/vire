@@ -1272,6 +1272,7 @@ void zaddGenericCommand(client *c, int flags) {
             unsigned char *eptr;
 
             rdbSaveKeyIfNeeded(c->db,NULL,key->ptr,zobj,0);
+            ASSERT(zobj->version == c->db->version);
 
             /* Prefer non-encoded element when dealing with ziplists. */
             ele = c->argv[scoreidx+1+j*2];
@@ -1411,6 +1412,9 @@ void zremCommand(client *c) {
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *eptr;
 
+        rdbSaveKeyIfNeeded(c->db,NULL,key->ptr,zobj,0);
+        ASSERT(zobj->version == c->db->version);
+
         for (j = 2; j < c->argc; j++) {
             if ((eptr = zzlFind(zobj->ptr,c->argv[j],NULL)) != NULL) {
                 deleted++;
@@ -1428,6 +1432,8 @@ void zremCommand(client *c) {
         double score;
 
         for (j = 2; j < c->argc; j++) {
+            rdbSaveSkiplistTypeZsetElementIfNeeded(c->db,key->ptr,zobj,c->argv[j]);
+            
             de = dictFind(zs->dict,c->argv[j]);
             if (de != NULL) {
                 deleted++;
@@ -1455,8 +1461,9 @@ void zremCommand(client *c) {
         if (keyremoved)
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
         signalModifiedKey(c->db,key);
-        c->vel->dirty += deleted;
     }
+
+    propagateIfNeededForClient(c,c->argv,c->argc,deleted);
     addReplyLongLong(c,deleted);
     unlockDb(c->db);
     if (expired) update_stats_add(c->vel->stats,expiredkeys,1);

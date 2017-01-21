@@ -14,7 +14,7 @@
 
 #define RDB_SAVE_OPERATION_COUNT_PER_TIME 100
 
-#define DATA_LOAD_THREADS_COUNT_DEFAULT 1
+#define DATA_LOAD_THREADS_COUNT_DEFAULT 3
 
 typedef struct quicklistDumpHelper {
     quicklistNode *nodes;
