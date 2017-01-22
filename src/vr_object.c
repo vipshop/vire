@@ -152,18 +152,25 @@ robj *dupStringObject(robj *o) {
 
     switch(o->encoding) {
     case OBJ_ENCODING_RAW:
-        return createRawStringObject(o->ptr,sdslen(o->ptr));
+        d = createRawStringObject(o->ptr,sdslen(o->ptr));
+        d->version = o->version;
+        break;
     case OBJ_ENCODING_EMBSTR:
-        return createEmbeddedStringObject(o->ptr,sdslen(o->ptr));
+        d = createEmbeddedStringObject(o->ptr,sdslen(o->ptr));
+        d->version = o->version;
+        break;
     case OBJ_ENCODING_INT:
         d = createObject(OBJ_STRING, NULL);
         d->encoding = OBJ_ENCODING_INT;
         d->ptr = o->ptr;
-        return d;
+        d->version = o->version;
+        break;
     default:
         serverPanic("Wrong encoding.");
         break;
     }
+
+    return d;
 }
 
 robj *dupStringObjectIfUnconstant(robj *o) {
@@ -461,6 +468,7 @@ robj *getDecodedObject(robj *o) {
 
         ll2string(buf,32,(long)o->ptr);
         dec = createStringObject(buf,strlen(buf));
+        dec->version = o->version;
         return dec;
     } else {
         serverPanic("Unknown encoding type");

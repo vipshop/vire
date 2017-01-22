@@ -1143,8 +1143,12 @@ void pfaddCommand(client *c) {
             if (expired) update_stats_add(c->vel->stats,expiredkeys,1);
             return;
         }
+
+        rdbSaveKeyIfNeeded(c->db,NULL,c->argv[1]->ptr,o,0);
+        
         o = dbUnshareStringValue(c->db,c->argv[1],o);
     }
+
     /* Perform the low level ADD operation for every element. */
     for (j = 2; j < c->argc; j++) {
         int retval = hllAdd(o, (unsigned char*)c->argv[j]->ptr,
@@ -1164,8 +1168,9 @@ void pfaddCommand(client *c) {
     if (updated) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
-        c->vel->dirty++;
         HLL_INVALIDATE_CACHE(hdr);
+
+        propagateIfNeededForClient(c,c->argv,c->argc,1);
     }
     addReply(c, updated ? shared.cone : shared.czero);
     unlockDb(c->db);
