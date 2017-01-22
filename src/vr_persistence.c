@@ -470,6 +470,14 @@ int bigkeyRdbGenerate(redisDb *db, sds key, robj *val, bigkeyDumper *bkdumper, i
         val->version = db->version;
 
 #ifdef HAVE_DEBUG_LOG
+        if (bkdumper->elements_dumped_count != 
+            bkdumper->elements_count){
+            log_debug(LOG_ERR, "ERROR condition "
+                "elements_dumped_count: %lu, elements_count: %lu, "
+                "key type: %u, key encoding: %u, bigkey write type: %u",
+                bkdumper->elements_dumped_count, bkdumper->elements_count,
+                bkdumper->type, bkdumper->encoding, bkdumper->write_type);
+        }
         ASSERT(bkdumper->elements_dumped_count == 
             bkdumper->elements_count);
 #endif
@@ -2519,15 +2527,18 @@ int rdbSaveQuicklistTypeListNodeIfNeeded(redisDb *db, sds key, quicklist *qlist,
 }
 
 /* Return -1: error; 0: this element no need to dump; 1: this element dumped success. */
-int rdbSaveSkiplistTypeZsetElementIfNeeded(redisDb *db, sds key, robj *val, robj *ele)
+int rdbSaveSkiplistTypeZsetElementIfNeeded(redisDb *db, sds key, robj *val, 
+            robj *ele, dictEntry *dentry, zskiplistNode *zslnode)
 {
-    bigkeyDumper *bkdumper;
-    dictEntry *de;
     zset *zs;
-    
+    robj *eleobj;
+    double *score;
+    bigkeyDumper *bkdumper;
+ 
     ASSERT(key != NULL);
     ASSERT(val != NULL);
-    ASSERT(ele != NULL);
+
+    ASSERT(!(ele == NULL && dentry == NULL && zslnode == NULL));
     
     if (!(db->flags&DB_FLAGS_DUMPING))
         return 0;
@@ -2543,37 +2554,58 @@ int rdbSaveSkiplistTypeZsetElementIfNeeded(redisDb *db, sds key, robj *val, robj
     if (val->version >= db->version)
         return 0;
 
+    if (dentry) {
+        eleobj = dictGetKey(dentry);
+        score = dictGetVal(dentry);
+
+        goto generate_element;
+    }
+
+    if (zslnode) {
+        eleobj = zslnode->obj;
+        score = &(zslnode->score);
+
+        goto generate_element;
+    }
+
+    ASSERT(ele != NULL);
     zs = val->ptr;
-    de = dictFind(zs->dict,ele);
-    if (de) {
-        robj *eleobj = dictGetKey(de);
-        double *score = dictGetVal(de);
+    dentry = dictFind(zs->dict,ele);
+    if (dentry) {
+        eleobj = dictGetKey(dentry);
+        score = dictGetVal(dentry);
 
-        ASSERT(eleobj->version >= val->version);
-        if (eleobj->version < db->version) {
-            rio *rdb = db->bkdhelper->dump_to_buffer_helper;
-            
-            bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_generate, key);
-            ASSERT(bkdumper != NULL);
-            ASSERT(bkdumper->type == OBJ_ZSET);
-            ASSERT(bkdumper->encoding == OBJ_ENCODING_SKIPLIST);
-            ASSERT(bkdumper->state == BIGKEY_DUMP_STATE_GENERATING);
-            ASSERT(bkdumper->write_type == BIGKEY_DUMP_WRITE_TYPE_SDS);
-            rioSetBuffer(rdb, bkdumper->data, sdslen(bkdumper->data));
+        goto generate_element;
+    }
 
-            rdbSaveStringObject(rdb,eleobj);
-            rdbSaveDoubleValue(rdb,*score);
+    return 0;
 
-            /* Update the rdb string in the bigkeyDumper. */
-            bkdumper->data = rdb->io.buffer.ptr;
-            eleobj->version = db->version;
+generate_element:
+
+    ASSERT(eleobj->version >= val->version);
+    if (eleobj->version < db->version) {
+        rio *rdb = db->bkdhelper->dump_to_buffer_helper;
+        
+        bkdumper = dictFetchValue(db->bkdhelper->bigkeys_to_generate, key);
+        ASSERT(bkdumper != NULL);
+        ASSERT(bkdumper->type == OBJ_ZSET);
+        ASSERT(bkdumper->encoding == OBJ_ENCODING_SKIPLIST);
+        ASSERT(bkdumper->state == BIGKEY_DUMP_STATE_GENERATING);
+        ASSERT(bkdumper->write_type == BIGKEY_DUMP_WRITE_TYPE_SDS);
+        rioSetBuffer(rdb, bkdumper->data, sdslen(bkdumper->data));
+
+        rdbSaveStringObject(rdb,eleobj);
+        rdbSaveDoubleValue(rdb,*score);
+
+        /* Update the rdb string in the bigkeyDumper. */
+        bkdumper->data = rdb->io.buffer.ptr;
+        eleobj->version = db->version;
 
 #ifdef HAVE_DEBUG_LOG
-            bkdumper->elements_dumped_count ++;
+        bkdumper->elements_dumped_count ++;
 #endif
-            
-            return 1;
-        }
+        
+        return 1;
     }
 
     return 0;

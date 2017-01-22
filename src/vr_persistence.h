@@ -114,6 +114,6 @@ void loadDataFromDisk(void);
 int rdbSaveHashTypeSetValIfNeeded(redisDb *db, sds key, robj *set, robj *val);
 int rdbSaveHashTypeHashValIfNeeded(redisDb *db, sds key, robj *hash, robj *field);
 int rdbSaveQuicklistTypeListNodeIfNeeded(redisDb *db, sds key, quicklist *qlist, quicklistNode *qnode);
-int rdbSaveSkiplistTypeZsetElementIfNeeded(redisDb *db, sds key, robj *val, robj *ele);
+int rdbSaveSkiplistTypeZsetElementIfNeeded(redisDb *db, sds key, robj *val, robj *ele, dictEntry *dentry, zskiplistNode *zslnode);
 
 #endif
