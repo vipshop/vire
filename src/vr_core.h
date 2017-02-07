@@ -134,8 +134,10 @@ struct vr_worker;
 /* Define aof_fsync to fdatasync() in Linux and fsync() for all the rest */
 #ifdef __linux__
 #define aof_fsync fdatasync
+#define file_fsync fdatasync
 #else
 #define aof_fsync fsync
+#define file_fsync fsync
 #endif
 
 struct instance {

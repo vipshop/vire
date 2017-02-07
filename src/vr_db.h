@@ -68,7 +68,7 @@ typedef struct redisDb {
 #ifdef HAVE_DEBUG_LOG
 
 #define lockDbRead(db) do {                                         \
-    pthread_rwlock_rdlock(&db->rwl);                                \
+    pthread_rwlock_wrlock(&db->rwl);                                \
     db->lock_start_time = dusec_now();                              \
 } while (0)
 

@@ -51,7 +51,7 @@ vr_backend_deinit(vr_backend *backend)
 
 static int
 backend_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
-    vr_worker *backend = clientData;
+    vr_backend *backend = clientData;
     vr_eventloop *vel = &backend->vel;
     size_t stat_used_memory, stats_peak_memory;
 
@@ -74,7 +74,7 @@ backend_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     databasesCron(backend);
 
     /* Update the cache fields */
-    run_with_period(1000, vel->cronloops) {
+    run_with_period(1000, vel->cronloops, vel->hz) {
         conf_cache_update(&vel->cc);
 
         if (vel->loading_cache == 1) {
@@ -84,11 +84,36 @@ backend_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         }
     }
 
-    run_with_period(100, vel->cronloops) {
+    run_with_period(100, vel->cronloops, vel->hz) {
         void *job;
         while ((job = dmtqueue_pop(fsync_jobs)) != NULL) {
             int fd = (int)job;
             aof_fsync(fd);
+        }
+    }
+
+    /* fsync the rdb files disk write buffer every second. */
+    run_with_period(1000, vel->cronloops, vel->hz) {
+        unsigned long long idx;
+
+        for (idx = 0; idx < darray_n(&backend->dbs); idx++) {
+            redisDb *db = *((redisDb **)darray_get(&backend->dbs, idx));
+            int fd = -1;
+            
+            lockDbWrite(db);
+            if (db->rdb_cached) {
+                rio *rdb = db->rdb_cached;
+                if (rdb->io.file.buffered > 0) {
+                    FILE *fp = rdb->io.file.fp;
+                    
+                    fflush(fp);
+                    fd = fileno(fp);
+                    rdb->io.file.buffered = 0;
+                }
+            }
+            unlockDb(db);
+
+            if (fd) file_fsync(fd);
         }
     }
     

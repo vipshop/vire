@@ -53,7 +53,7 @@
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
  * The actual resolution depends on server.hz. */
-#define run_with_period(_ms_, cronloops) if ((_ms_ <= 1000/server.hz) || !(cronloops%((_ms_)/(1000/server.hz))))
+#define run_with_period(_ms_, _cronloops_, _hz_) if ((_ms_ <= 1000/_hz_) || !(_cronloops_%((_ms_)/(1000/_hz_))))
 
 /* Macro used to obtain the current LRU clock.
  * If the current resolution is lower than the frequency we refresh the

@@ -454,7 +454,7 @@ worker_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     vel->unixtime = time(NULL);
     vel->mstime = vr_msec_now();
 
-    run_with_period(100, vel->cronloops) {
+    run_with_period(100, vel->cronloops, vel->hz) {
         long long stats_value;
         update_stats_get(vel->stats,numcommands,&stats_value);
         trackInstantaneousMetric(vel->stats,STATS_METRIC_COMMAND,stats_value);
@@ -465,7 +465,7 @@ worker_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Sample the RSS here since this is a relatively slow call. */
-    run_with_period(1000, vel->cronloops) {
+    run_with_period(1000, vel->cronloops, vel->hz) {
         vel->resident_set_size = dalloc_get_rss();
     }
 
@@ -473,7 +473,7 @@ worker_cron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     freeClientsInAsyncFreeQueue(vel);
 
     /* Update the cached fields */
-    run_with_period(1000, vel->cronloops) {
+    run_with_period(1000, vel->cronloops, vel->hz) {
         conf_cache_update(&vel->cc);
 
         if (vel->loading_cache == 1) {
