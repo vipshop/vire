@@ -1048,7 +1048,7 @@ static data_unit *rpush_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 2+field_length;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key();
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     for (j = 0; j < field_length; j ++) {
         du->argv[2+j] = get_random_string();
     }
@@ -1080,7 +1080,7 @@ static data_unit *lpush_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 2+field_length;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key();
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
 
     for (j = 0; j < field_length; j ++) {
         du->argv[2+j] = get_random_string();
@@ -1222,7 +1222,7 @@ static data_unit *sadd_cmd_producer(data_producer *dp, produce_scheme *ps)
     du->argc = 2 + field_length;
     du->argv = malloc(du->argc*sizeof(sds));
     du->argv[0] = sdsnew(dp->name);
-    du->argv[1] = get_random_key();
+    du->argv[1] = get_random_key_with_hit_ratio(ps,dp);
     for (j = 0; j < field_length; j ++) {
         du->argv[2+j] = get_random_string();
     }

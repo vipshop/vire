@@ -712,16 +712,13 @@ static void benchmark(char *title, char *cmd, int len) {
     config.title = title;
     config.requests_issued = 0;
     config.requests_finished = 0;
-
-    /* Init the benchmark threads */
-    if (config.threads_count <= 0) {
-        printf("ERROR: threads count need bigger than zero\n");
-    }
-    bts = darray_create(config.threads_count, sizeof(benchmark_thread));
+    
     requests_per_thread = config.requests/config.threads_count;
     requests_remainder = config.requests%config.threads_count;
     clients_per_thread = config.numclients/config.threads_count;
     clients_remainder = config.numclients%config.threads_count;
+
+    bts = darray_create(config.threads_count, sizeof(benchmark_thread));
     for (i = 0; i < config.threads_count; i ++) {
         benchmark_thread *bt = darray_push(bts);
         bt->id = i;
@@ -1160,6 +1157,23 @@ int main(int argc, const char **argv) {
     i = parseOptions(argc,argv);
     argc -= i;
     argv += i;
+
+    /* Init the benchmark threads */
+    if (config.threads_count <= 0) {
+        printf("ERROR: threads count need bigger than zero\n");
+        return -1;
+    }
+    if (config.requests <= 0) {
+        printf("ERROR: requests count need bigger than zero\n");
+        return -1;
+    }
+    if (config.numclients <= 0) {
+        printf("ERROR: clients count need bigger than zero\n");
+        return -1;
+    }
+    if (config.requests < config.numclients) config.numclients = config.requests;
+    if (config.requests < config.threads_count) config.threads_count = config.requests;
+    if (config.numclients < config.threads_count) config.threads_count = config.numclients;
 
     config.latency = malloc(sizeof(long long)*config.requests);
 
