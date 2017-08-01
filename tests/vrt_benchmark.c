@@ -1142,6 +1142,18 @@ static int test_redis(int argc, const char **argv)
             free(cmd);
         }
 
+        if (test_is_selected("hincrby")) {
+            len = redisFormatCommand(&cmd,"HINCRBY myhashcounter:__rand_key__ field:__rand_field__ 19");
+            benchmark("HINCRBY",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("hincrbyfloat")) {
+            len = redisFormatCommand(&cmd,"HINCRBYFLOAT myhashcounterf:__rand_key__ field:__rand_field__ 19.963");
+            benchmark("HINCRBYFLOAT",cmd,len);
+            free(cmd);
+        }
+
         if (test_is_selected("hget")) {
             len = redisFormatCommand(&cmd,"HGET myhash:__rand_key__ field:__rand_field__");
             benchmark("HGET",cmd,len);
