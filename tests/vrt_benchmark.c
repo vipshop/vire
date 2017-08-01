@@ -1142,6 +1142,12 @@ static int test_redis(int argc, const char **argv)
             free(cmd);
         }
 
+        if (test_is_selected("hget")) {
+            len = redisFormatCommand(&cmd,"HGET myhash:__rand_key__ field:__rand_field__");
+            benchmark("HGET",cmd,len);
+            free(cmd);
+        }
+
         if (!config.csv) printf("\n");
     } while(config.loop);
 
