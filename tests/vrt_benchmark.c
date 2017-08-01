@@ -1148,6 +1148,19 @@ static int test_redis(int argc, const char **argv)
             free(cmd);
         }
 
+        if (test_is_selected("hmset")) {
+            const char *argv[21];
+            argv[0] = "HMSET";
+            argv[1] = "key:__rand_key__";
+            for (i = 2; i < 22; i += 2) {
+                argv[i] = "field:__rand_field__";
+                argv[i+1] = data;
+            }
+            len = redisFormatCommandArgv(&cmd,22,argv,NULL);
+            benchmark("HMSET (10 fields)",cmd,len);
+            free(cmd);
+        }
+
         if (!config.csv) printf("\n");
     } while(config.loop);
 
