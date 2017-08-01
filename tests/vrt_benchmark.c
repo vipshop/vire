@@ -41,6 +41,8 @@ static struct config {
     int datasize;
     int randomkeys;
     int randomkeys_keyspacelen;
+    int randomfields;
+    int randomfields_fieldspacelen;
     int keepalive;
     int pipeline;
     int showerrors;
@@ -88,9 +90,12 @@ typedef struct _benchmark_client {
     redisContext *rc;
     mcContext *mc;
     sds obuf;
-    char **randptr;         /* Pointers to :rand: strings inside the command buf */
-    size_t randlen;         /* Number of pointers in client->randptr */
-    size_t randfree;        /* Number of unused pointers in client->randptr */
+    char **randkeyptr;      /* Pointers to :randkey: strings inside the command buf */
+    size_t randkeylen;      /* Number of pointers in client->randkeyptr */
+    size_t randkeyfree;     /* Number of unused pointers in client->randkeyptr */
+    char **randfieldptr;    /* Pointers to :randfield: strings inside the command buf */
+    size_t randfieldlen;    /* Number of pointers in client->randfieldptr */
+    size_t randfieldfree;   /* Number of unused pointers in client->randfieldptr */
     size_t written;         /* Bytes of 'obuf' already written */
     long long start;        /* Start time of a request */
     long long latency;      /* Request latency */
@@ -123,7 +128,8 @@ static void freeClient(benchmark_client c) {
         memcachedFree(c->mc);
     }
     sdsfree(c->obuf);
-    free(c->randptr);
+    free(c->randkeyptr);
+    free(c->randfieldptr);
     free(c);
     update_state_sub(bt->liveclients,1);
     ln = dlistSearchKey(bt->clients,c);
@@ -154,8 +160,8 @@ static void resetClient(benchmark_client c) {
 static void randomizeClientKey(benchmark_client c) {
     size_t i;
 
-    for (i = 0; i < c->randlen; i++) {
-        char *p = c->randptr[i]+11;
+    for (i = 0; i < c->randkeylen; i++) {
+        char *p = c->randkeyptr[i]+11;
         size_t r = random() % config.randomkeys_keyspacelen;
         size_t j;
 
@@ -166,6 +172,23 @@ static void randomizeClientKey(benchmark_client c) {
         }
     }
 }
+
+static void randomizeClientField(benchmark_client c) {
+    size_t i;
+
+    for (i = 0; i < c->randfieldlen; i++) {
+        char *p = c->randfieldptr[i]+13;
+        size_t r = random() % config.randomfields_fieldspacelen;
+        size_t j;
+
+        for (j = 0; j < 14; j++) {
+            *p = '0'+r%10;
+            r/=10;
+            p--;
+        }
+    }
+}
+
 
 static void clientDone(benchmark_client c) {
     benchmark_thread *bt = c->bt;
@@ -329,8 +352,10 @@ static void readHandlerMC(aeEventLoop *el, int fd, void *privdata, int mask) {
                         sdsrange(c->obuf, c->prefixlen, -1);
                         /* We also need to fix the pointers to the strings
                         * we need to randomize. */
-                        for (j = 0; j < c->randlen; j++)
-                            c->randptr[j] -= c->prefixlen;
+                        for (j = 0; j < c->randkeylen; j++)
+                            c->randkeyptr[j] -= c->prefixlen;
+                        for (j = 0; j < c->randfieldlen; j++)
+                            c->randfieldptr[j] -= c->prefixlen;
                         c->prefixlen = 0;
                     }
                     continue;
@@ -403,8 +428,10 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                         sdsrange(c->obuf, c->prefixlen, -1);
                         /* We also need to fix the pointers to the strings
                         * we need to randomize. */
-                        for (j = 0; j < c->randlen; j++)
-                            c->randptr[j] -= c->prefixlen;
+                        for (j = 0; j < c->randkeylen; j++)
+                            c->randkeyptr[j] -= c->prefixlen;
+                        for (j = 0; j < c->randfieldlen; j++)
+                            c->randfieldptr[j] -= c->prefixlen;
                         c->prefixlen = 0;
                     }
                     continue;
@@ -444,6 +471,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
         /* Really initialize: randomize keys and set start time. */
         if (config.randomkeys) randomizeClientKey(c);
+        if (config.randomfields) randomizeClientField(c);
         c->start = dusec_now();
         c->latency = -1;
     }
@@ -489,7 +517,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  * information is take from the 'from' client:
  *
  * 1) The command line to use.
- * 2) The offsets of the __rand_int__ elements inside the command line, used
+ * 2) The offsets of the __rand_key__ elements inside the command line, used
  *    for arguments randomization.
  *
  * Even when cloning another client, prefix commands are applied if needed.*/
@@ -502,9 +530,12 @@ static benchmark_client createClient(char *cmd, size_t len, benchmark_client fro
     c->rc = NULL;
     c->mc = NULL;
     c->obuf = NULL;
-    c->randptr = NULL;
-    c->randlen = 0;
-    c->randfree = 0;
+    c->randkeyptr = NULL;
+    c->randkeylen = 0;
+    c->randkeyfree = 0;
+    c->randfieldptr = NULL;
+    c->randfieldlen = 0;
+    c->randfieldfree = 0;
     c->written = 0;
     c->start = 0;
     c->latency = 0;
@@ -575,35 +606,65 @@ static benchmark_client createClient(char *cmd, size_t len, benchmark_client fro
 
     c->written = 0;
     c->pending = config.pipeline+c->prefix_pending;
-    c->randptr = NULL;
-    c->randlen = 0;
+    c->randkeyptr = NULL;
+    c->randkeylen = 0;
+    c->randfieldptr = NULL;
+    c->randfieldlen = 0;
 
     /* Find substrings in the output buffer that need to be randomized. */
     if (config.randomkeys) {
         if (from) {
-            c->randlen = from->randlen;
-            c->randfree = 0;
-            c->randptr = malloc(sizeof(char*)*c->randlen);
+            c->randkeylen = from->randkeylen;
+            c->randkeyfree = 0;
+            c->randkeyptr = malloc(sizeof(char*)*c->randkeylen);
             /* copy the offsets. */
-            for (j = 0; j < (int)c->randlen; j++) {
-                c->randptr[j] = c->obuf + (from->randptr[j]-from->obuf);
+            for (j = 0; j < (int)c->randkeylen; j++) {
+                c->randkeyptr[j] = c->obuf + (from->randkeyptr[j]-from->obuf);
                 /* Adjust for the different select prefix length. */
-                c->randptr[j] += c->prefixlen - from->prefixlen;
+                c->randkeyptr[j] += c->prefixlen - from->prefixlen;
             }
         } else {
             char *p = c->obuf;
 
-            c->randlen = 0;
-            c->randfree = RANDPTR_INITIAL_SIZE;
-            c->randptr = malloc(sizeof(char*)*c->randfree);
-            while ((p = strstr(p,"__rand_int__")) != NULL) {
-                if (c->randfree == 0) {
-                    c->randptr = realloc(c->randptr,sizeof(char*)*c->randlen*2);
-                    c->randfree += c->randlen;
+            c->randkeylen = 0;
+            c->randkeyfree = RANDPTR_INITIAL_SIZE;
+            c->randkeyptr = malloc(sizeof(char*)*c->randkeyfree);
+            while ((p = strstr(p,"__rand_key__")) != NULL) {
+                if (c->randkeyfree == 0) {
+                    c->randkeyptr = realloc(c->randkeyptr,sizeof(char*)*c->randkeylen*2);
+                    c->randkeyfree += c->randkeylen;
                 }
-                c->randptr[c->randlen++] = p;
-                c->randfree--;
-                p += 12; /* 12 is strlen("__rand_int__). */
+                c->randkeyptr[c->randkeylen++] = p;
+                c->randkeyfree--;
+                p += 12; /* 12 is strlen("__rand_key__"). */
+            }
+        }
+    }
+    if (config.randomfields) {
+        if (from) {
+            c->randfieldlen = from->randfieldlen;
+            c->randfieldfree = 0;
+            c->randfieldptr = malloc(sizeof(char*)*c->randfieldlen);
+            /* copy the offsets. */
+            for (j = 0; j < (int)c->randfieldlen; j++) {
+                c->randfieldptr[j] = c->obuf + (from->randfieldptr[j]-from->obuf);
+                /* Adjust for the different select prefix length. */
+                c->randfieldptr[j] += c->prefixlen - from->prefixlen;
+            }
+        } else {
+            char *p = c->obuf;
+
+            c->randfieldlen = 0;
+            c->randfieldfree = RANDPTR_INITIAL_SIZE;
+            c->randfieldptr = malloc(sizeof(char*)*c->randfieldfree);
+            while ((p = strstr(p,"__rand_field__")) != NULL) {
+                if (c->randfieldfree == 0) {
+                    c->randfieldptr = realloc(c->randfieldptr,sizeof(char*)*c->randfieldlen*2);
+                    c->randfieldfree += c->randfieldlen;
+                }
+                c->randfieldptr[c->randfieldlen++] = p;
+                c->randfieldfree--;
+                p += 14; /* 14 is strlen("__rand_field__"). */
             }
         }
     }
@@ -787,6 +848,12 @@ int parseOptions(int argc, const char **argv) {
             config.randomkeys_keyspacelen = atoi(argv[++i]);
             if (config.randomkeys_keyspacelen < 0)
                 config.randomkeys_keyspacelen = 0;
+        } else if (!strcmp(argv[i],"-f")) {
+            if (lastarg) goto invalid;
+            config.randomfields = 1;
+            config.randomfields_fieldspacelen = atoi(argv[++i]);
+            if (config.randomfields_fieldspacelen < 0)
+                config.randomfields_fieldspacelen = 0;
         } else if (!strcmp(argv[i],"-q")) {
             config.quiet = 1;
         } else if (!strcmp(argv[i],"--csv")) {
@@ -850,10 +917,16 @@ usage:
 " -dbnum <db>        SELECT the specified db number (default 0)\n"
 " -k <boolean>       1=keep alive 0=reconnect (default 1)\n"
 " -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD\n"
-"  Using this option the benchmark will expand the string __rand_int__\n"
+"  Using this option the benchmark will expand the string __rand_key__\n"
 "  inside an argument with a 12 digits number in the specified range\n"
 "  from 0 to keyspacelen-1. The substitution changes every time a command\n"
 "  is executed. Default tests use this to hit random keys in the\n"
+"  specified range.\n"
+" -f <fieldspacelen>   Use random fields for SADD\n"
+"  Using this option the benchmark will expand the string __rand_field__\n"
+"  inside an argument with a 14 digits number in the specified range\n"
+"  from 0 to fieldspacelen-1. The substitution changes every time a command\n"
+"  is executed. Default tests use this to hit random fields in the\n"
 "  specified range.\n"
 " -P <numreq>        Pipeline <numreq> requests. Default 1 (no pipeline).\n"
 " -e                 If server replies with errors, show them on stdout.\n"
@@ -878,9 +951,9 @@ usage:
 " Benchmark a specific command line:\n"
 "   $ vire-benchmark -r 10000 -n 10000 eval 'return redis.call(\"ping\")' 0\n\n"
 " Fill a list with 10000 random elements:\n"
-"   $ vire-benchmark -r 10000 -n 10000 lpush mylist __rand_int__\n\n"
-" On user specified command lines __rand_int__ is replaced with a random integer\n"
-" with a range of values selected by the -r option.\n"
+"   $ vire-benchmark -r 10000 -n 10000 lpush mylist __rand_field__\n\n"
+" On user specified command lines __rand_field__ is replaced with a random integer\n"
+" with a range of values selected by the -f option.\n"
     );
     exit(exit_status);
 }
@@ -962,19 +1035,19 @@ static int test_redis(int argc, const char **argv)
         }
 
         if (test_is_selected("set")) {
-            len = redisFormatCommand(&cmd,"SET key:__rand_int__ %s",data);
+            len = redisFormatCommand(&cmd,"SET key:__rand_key__ %s",data);
             benchmark("SET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("get")) {
-            len = redisFormatCommand(&cmd,"GET key:__rand_int__");
+            len = redisFormatCommand(&cmd,"GET key:__rand_key__");
             benchmark("GET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("incr")) {
-            len = redisFormatCommand(&cmd,"INCR counter:__rand_int__");
+            len = redisFormatCommand(&cmd,"INCR counter:__rand_key__");
             benchmark("INCR",cmd,len);
             free(cmd);
         }
@@ -1005,7 +1078,7 @@ static int test_redis(int argc, const char **argv)
 
         if (test_is_selected("sadd")) {
             len = redisFormatCommand(&cmd,
-                "SADD myset element:__rand_int__");
+                "SADD myset element:__rand_field__");
             benchmark("SADD",cmd,len);
             free(cmd);
         }
@@ -1055,7 +1128,7 @@ static int test_redis(int argc, const char **argv)
             const char *argv[21];
             argv[0] = "MSET";
             for (i = 1; i < 21; i += 2) {
-                argv[i] = "key:__rand_int__";
+                argv[i] = "key:__rand_key__";
                 argv[i+1] = data;
             }
             len = redisFormatCommandArgv(&cmd,21,argv,NULL);
@@ -1103,14 +1176,14 @@ static int test_memcached(int argc, const char **argv)
         data[config.datasize] = '\0';
 
         if (test_is_selected("set")) {
-            len = memcachedFormatCommand(&cmd,"set key:__rand_int__ 0 0 %d %s", config.datasize, data);
+            len = memcachedFormatCommand(&cmd,"set key:__rand_key__ 0 0 %d %s", config.datasize, data);
             
             benchmark("SET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("get")) {
-            len = memcachedFormatCommand(&cmd,"get key:__rand_int__");
+            len = memcachedFormatCommand(&cmd,"get key:__rand_key__");
             benchmark("GET",cmd,len);
             free(cmd);
         }
@@ -1139,6 +1212,8 @@ int main(int argc, const char **argv) {
     config.showerrors = 0;
     config.randomkeys = 0;
     config.randomkeys_keyspacelen = 0;
+    config.randomfields = 0;
+    config.randomfields_fieldspacelen = 0;
     config.quiet = 0;
     config.csv = 0;
     config.loop = 0;
