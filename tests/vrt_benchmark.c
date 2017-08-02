@@ -1265,6 +1265,10 @@ static int test_redis(int argc, const char **argv)
             retrieval_random_fields_if_needed();
         }
 
+        if (test_is_selected("zrem") && types_is_selected("sortedset")) {
+            set_random_fields_if_needed(100000);
+            len = redisFormatCommand(&cmd,"ZREM mysortedset:__rand_key__ %s:__rand_field__", data);
+            benchmark("ZREM",cmd,len);
             free(cmd);
             retrieval_random_fields_if_needed();
         }
@@ -1356,6 +1360,7 @@ int main(int argc, const char **argv) {
     config.hostport = 6379;
     config.hostsocket = NULL;
     config.tests = NULL;
+    config.types = NULL;
     config.dbnum = 0;
     config.auth = NULL;
     config.threads_count = 1;
