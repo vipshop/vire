@@ -996,6 +996,36 @@ int test_is_selected(char *name) {
     return strstr(config.tests,buf) != NULL;
 }
 
+static int randomkeys_original;
+void set_random_keys_if_needed(int num) {
+    randomkeys_original = config.randomkeys;
+    if (config.randomkeys == 0) {
+        config.randomkeys = 1;
+        config.randomkeys_keyspacelen = num;
+    }    
+}
+void retrieval_random_keys_if_needed() {
+    if (randomkeys_original == 0) {
+        config.randomkeys = 0;
+        config.randomkeys_keyspacelen = 0;
+    }
+}
+
+static int randomfields_original;
+void set_random_fields_if_needed(int num) {
+    randomfields_original = config.randomfields;
+    if (config.randomfields == 0) {
+        config.randomfields = 1;
+        config.randomfields_fieldspacelen = num;
+    }    
+}
+void retrieval_random_fields_if_needed() {
+    if (randomfields_original == 0) {
+        config.randomfields = 0;
+        config.randomfields_fieldspacelen = 0;
+    }
+}
+
 static int test_redis(int argc, const char **argv)
 {
     int i;
@@ -1052,6 +1082,20 @@ static int test_redis(int argc, const char **argv)
             free(cmd);
         }
 
+        if (test_is_selected("mset")) {
+            const char *argv[21];
+            set_random_keys_if_needed(100000);
+            argv[0] = "MSET";
+            for (i = 1; i < 21; i += 2) {
+                argv[i] = "key:__rand_key__";
+                argv[i+1] = data;
+            }
+            len = redisFormatCommandArgv(&cmd,21,argv,NULL);
+            benchmark("MSET (10 keys)",cmd,len);
+            free(cmd);
+            retrieval_random_keys_if_needed();
+        }
+
         if (test_is_selected("lpush")) {
             len = redisFormatCommand(&cmd,"LPUSH mylist %s",data);
             benchmark("LPUSH",cmd,len);
@@ -1073,19 +1117,6 @@ static int test_redis(int argc, const char **argv)
         if (test_is_selected("rpop")) {
             len = redisFormatCommand(&cmd,"RPOP mylist");
             benchmark("RPOP",cmd,len);
-            free(cmd);
-        }
-
-        if (test_is_selected("sadd")) {
-            len = redisFormatCommand(&cmd,
-                "SADD myset element:__rand_field__");
-            benchmark("SADD",cmd,len);
-            free(cmd);
-        }
-
-        if (test_is_selected("spop")) {
-            len = redisFormatCommand(&cmd,"SPOP myset");
-            benchmark("SPOP",cmd,len);
             free(cmd);
         }
 
@@ -1124,44 +1155,56 @@ static int test_redis(int argc, const char **argv)
             free(cmd);
         }
 
-        if (test_is_selected("mset")) {
-            const char *argv[21];
-            argv[0] = "MSET";
-            for (i = 1; i < 21; i += 2) {
-                argv[i] = "key:__rand_key__";
-                argv[i+1] = data;
-            }
-            len = redisFormatCommandArgv(&cmd,21,argv,NULL);
-            benchmark("MSET (10 keys)",cmd,len);
+        if (test_is_selected("sadd")) {
+            set_random_fields_if_needed(100000);
+            len = redisFormatCommand(&cmd,
+                "SADD myset %s:__rand_field__", data);
+            benchmark("SADD",cmd,len);
+            free(cmd);
+            retrieval_random_fields_if_needed();
+        }
+
+        if (test_is_selected("spop")) {
+            len = redisFormatCommand(&cmd,"SPOP myset");
+            benchmark("SPOP",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("hset")) {
+            set_random_fields_if_needed(100000);
             len = redisFormatCommand(&cmd,"HSET myhash:__rand_key__ field:__rand_field__ %s", data);
             benchmark("HSET",cmd,len);
             free(cmd);
+            retrieval_random_fields_if_needed();
         }
 
         if (test_is_selected("hincrby")) {
+            set_random_fields_if_needed(1000);
             len = redisFormatCommand(&cmd,"HINCRBY myhashcounter:__rand_key__ field:__rand_field__ 19");
             benchmark("HINCRBY",cmd,len);
             free(cmd);
+            retrieval_random_fields_if_needed();
         }
 
         if (test_is_selected("hincrbyfloat")) {
+            set_random_fields_if_needed(1000);
             len = redisFormatCommand(&cmd,"HINCRBYFLOAT myhashcounterf:__rand_key__ field:__rand_field__ 19.963");
             benchmark("HINCRBYFLOAT",cmd,len);
             free(cmd);
+            retrieval_random_fields_if_needed();
         }
 
         if (test_is_selected("hget")) {
+            set_random_fields_if_needed(100000);
             len = redisFormatCommand(&cmd,"HGET myhash:__rand_key__ field:__rand_field__");
             benchmark("HGET",cmd,len);
             free(cmd);
+            retrieval_random_fields_if_needed();
         }
 
         if (test_is_selected("hmset")) {
             const char *argv[21];
+            set_random_fields_if_needed(100000);
             argv[0] = "HMSET";
             argv[1] = "key:__rand_key__";
             for (i = 2; i < 22; i += 2) {
@@ -1171,12 +1214,15 @@ static int test_redis(int argc, const char **argv)
             len = redisFormatCommandArgv(&cmd,22,argv,NULL);
             benchmark("HMSET (10 fields)",cmd,len);
             free(cmd);
+            retrieval_random_fields_if_needed();
         }
 
         if (test_is_selected("zadd")) {
-            len = redisFormatCommand(&cmd,"ZADD mysortedset:__rand_key__ __rand_field__ member:__rand_field__");
+            set_random_fields_if_needed(100000);
+            len = redisFormatCommand(&cmd,"ZADD mysortedset:__rand_key__ __rand_field__ %s:__rand_field__", data);
             benchmark("ZADD",cmd,len);
             free(cmd);
+            retrieval_random_fields_if_needed();
         }
 
         if (!config.csv) printf("\n");
