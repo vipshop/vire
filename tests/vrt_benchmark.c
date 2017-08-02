@@ -1173,6 +1173,12 @@ static int test_redis(int argc, const char **argv)
             free(cmd);
         }
 
+        if (test_is_selected("zadd")) {
+            len = redisFormatCommand(&cmd,"ZADD mysortedset:__rand_key__ __rand_field__ member:__rand_field__");
+            benchmark("ZADD",cmd,len);
+            free(cmd);
+        }
+
         if (!config.csv) printf("\n");
     } while(config.loop);
 
