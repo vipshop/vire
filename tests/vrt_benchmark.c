@@ -57,6 +57,7 @@ static struct config {
     int dbnum;
     sds dbnumstr;
     char *tests;
+    char *types;
     char *auth;
     int threads_count;
     int protocol;
@@ -875,6 +876,17 @@ int parseOptions(int argc, const char **argv) {
             config.tests = sdscat(config.tests,(char*)argv[++i]);
             config.tests = sdscat(config.tests,",");
             sdstolower(config.tests);
+        } else if (!strcmp(argv[i],"-S")) {
+            if (lastarg) goto invalid;
+            /* We get the list of redis special type commands to run as a string in the form
+             * server,list,string,hash,set,...,sortedset. Then we add a comma before and
+             * after the string in order to make sure that searching
+             * for ",typename," will always get a match if the type is
+             * enabled. */
+            config.types = sdsnew(",");
+            config.types = sdscat(config.types,(char*)argv[++i]);
+            config.types = sdscat(config.types,",");
+            sdstolower(config.types);
         } else if (!strcmp(argv[i],"--dbnum")) {
             if (lastarg) goto invalid;
             config.dbnum = atoi(argv[++i]);
@@ -936,6 +948,8 @@ usage:
 " -l                 Loop. Run the tests forever\n"
 " -t <tests>         Only run the comma separated list of tests. The test\n"
 "                    names are the same as the ones produced as output.\n"
+" -S <types>         Only run the comma separated list of the redis special types commands.\n"
+"                    The type names are like 'server,string,hash,list,set,sortedset'.\n"
 " -I                 Idle mode. Just open N idle connections and wait.\n"
 " -m                 Use memcached protocol. This option is used for testing memcached.\n"
 " --noinline         Not test redis inline commands.\n\n"
@@ -952,8 +966,8 @@ usage:
 "   $ vire-benchmark -r 10000 -n 10000 eval 'return redis.call(\"ping\")' 0\n\n"
 " Fill a list with 10000 random elements:\n"
 "   $ vire-benchmark -r 10000 -n 10000 lpush mylist __rand_field__\n\n"
-" On user specified command lines __rand_field__ is replaced with a random integer\n"
-" with a range of values selected by the -f option.\n"
+" On user specified command lines __rand_key__ and __rand_field__ are replaced\n"
+" with a random integer with a range of values selected by the -r and -f option.\n"
     );
     exit(exit_status);
 }
@@ -994,6 +1008,18 @@ int test_is_selected(char *name) {
     buf[l+1] = ',';
     buf[l+2] = '\0';
     return strstr(config.tests,buf) != NULL;
+}
+
+int types_is_selected(char *name) {
+    char buf[256];
+    int l = strlen(name);
+
+    if (config.types == NULL) return 1;
+    buf[0] = ',';
+    memcpy(buf+1,name,l);
+    buf[l+1] = ',';
+    buf[l+2] = '\0';
+    return strstr(config.types,buf) != NULL;
 }
 
 static int randomkeys_original;
@@ -1055,39 +1081,44 @@ static int test_redis(int argc, const char **argv)
         memset(data,'x',config.datasize);
         data[config.datasize] = '\0';
 
-        if (!config.noinline && (test_is_selected("ping_inline") || test_is_selected("ping")))
+        if (!config.noinline && 
+            (test_is_selected("ping_inline") ||
+            test_is_selected("ping")) &&
+            types_is_selected("server"))
             benchmark("PING_INLINE","PING\r\n",6);
 
-        if (test_is_selected("ping_mbulk") || test_is_selected("ping")) {
+        if ((test_is_selected("ping_mbulk") ||
+            test_is_selected("ping")) &&
+            types_is_selected("server")) {
             len = redisFormatCommand(&cmd,"PING");
             benchmark("PING_BULK",cmd,len);
             free(cmd);
         }
 
-        if (test_is_selected("set")) {
-            len = redisFormatCommand(&cmd,"SET key:__rand_key__ %s",data);
+        if (test_is_selected("set") && types_is_selected("string")) {
+            len = redisFormatCommand(&cmd,"SET mystring:__rand_key__ %s",data);
             benchmark("SET",cmd,len);
             free(cmd);
         }
 
-        if (test_is_selected("get")) {
-            len = redisFormatCommand(&cmd,"GET key:__rand_key__");
+        if (test_is_selected("get") && types_is_selected("string")) {
+            len = redisFormatCommand(&cmd,"GET mystring:__rand_key__");
             benchmark("GET",cmd,len);
             free(cmd);
         }
 
-        if (test_is_selected("incr")) {
-            len = redisFormatCommand(&cmd,"INCR counter:__rand_key__");
+        if (test_is_selected("incr") && types_is_selected("string")) {
+            len = redisFormatCommand(&cmd,"INCR mycounter:__rand_key__");
             benchmark("INCR",cmd,len);
             free(cmd);
         }
 
-        if (test_is_selected("mset")) {
+        if (test_is_selected("mset") && types_is_selected("string")) {
             const char *argv[21];
             set_random_keys_if_needed(100000);
             argv[0] = "MSET";
             for (i = 1; i < 21; i += 2) {
-                argv[i] = "key:__rand_key__";
+                argv[i] = "mystring:__rand_key__";
                 argv[i+1] = data;
             }
             len = redisFormatCommandArgv(&cmd,21,argv,NULL);
@@ -1096,66 +1127,75 @@ static int test_redis(int argc, const char **argv)
             retrieval_random_keys_if_needed();
         }
 
-        if (test_is_selected("lpush")) {
+        if (test_is_selected("lpush") && types_is_selected("list")) {
             len = redisFormatCommand(&cmd,"LPUSH mylist %s",data);
             benchmark("LPUSH",cmd,len);
             free(cmd);
         }
 
-        if (test_is_selected("rpush")) {
+        if (test_is_selected("rpush") && types_is_selected("list")) {
             len = redisFormatCommand(&cmd,"RPUSH mylist %s",data);
             benchmark("RPUSH",cmd,len);
             free(cmd);
         }
 
-        if (test_is_selected("lpop")) {
+        if (test_is_selected("lpop") && types_is_selected("list")) {
             len = redisFormatCommand(&cmd,"LPOP mylist");
             benchmark("LPOP",cmd,len);
             free(cmd);
         }
 
-        if (test_is_selected("rpop")) {
+        if (test_is_selected("rpop") && types_is_selected("list")) {
             len = redisFormatCommand(&cmd,"RPOP mylist");
             benchmark("RPOP",cmd,len);
             free(cmd);
         }
 
-        if (test_is_selected("lrange") ||
+        if ((test_is_selected("lrange") ||
             test_is_selected("lrange_100") ||
             test_is_selected("lrange_300") ||
             test_is_selected("lrange_500") ||
-            test_is_selected("lrange_600"))
+            test_is_selected("lrange_600")) &&
+            types_is_selected("list"))
         {
             len = redisFormatCommand(&cmd,"LPUSH mylist %s",data);
             benchmark("LPUSH (needed to benchmark LRANGE)",cmd,len);
             free(cmd);
         }
 
-        if (test_is_selected("lrange") || test_is_selected("lrange_100")) {
+        if ((test_is_selected("lrange") || 
+            test_is_selected("lrange_100")) &&
+            types_is_selected("list")) {
             len = redisFormatCommand(&cmd,"LRANGE mylist 0 99");
             benchmark("LRANGE_100 (first 100 elements)",cmd,len);
             free(cmd);
         }
 
-        if (test_is_selected("lrange") || test_is_selected("lrange_300")) {
+        if ((test_is_selected("lrange") ||
+            test_is_selected("lrange_300")) &&
+            types_is_selected("list")) {
             len = redisFormatCommand(&cmd,"LRANGE mylist 0 299");
             benchmark("LRANGE_300 (first 300 elements)",cmd,len);
             free(cmd);
         }
 
-        if (test_is_selected("lrange") || test_is_selected("lrange_500")) {
+        if ((test_is_selected("lrange") ||
+            test_is_selected("lrange_500")) &&
+            types_is_selected("list")) {
             len = redisFormatCommand(&cmd,"LRANGE mylist 0 449");
             benchmark("LRANGE_500 (first 450 elements)",cmd,len);
             free(cmd);
         }
 
-        if (test_is_selected("lrange") || test_is_selected("lrange_600")) {
+        if ((test_is_selected("lrange") ||
+            test_is_selected("lrange_600")) &&
+            types_is_selected("list")) {
             len = redisFormatCommand(&cmd,"LRANGE mylist 0 599");
             benchmark("LRANGE_600 (first 600 elements)",cmd,len);
             free(cmd);
         }
 
-        if (test_is_selected("sadd")) {
+        if (test_is_selected("sadd") && types_is_selected("set")) {
             set_random_fields_if_needed(100000);
             len = redisFormatCommand(&cmd,
                 "SADD myset %s:__rand_field__", data);
@@ -1164,13 +1204,13 @@ static int test_redis(int argc, const char **argv)
             retrieval_random_fields_if_needed();
         }
 
-        if (test_is_selected("spop")) {
+        if (test_is_selected("spop") && types_is_selected("set")) {
             len = redisFormatCommand(&cmd,"SPOP myset");
             benchmark("SPOP",cmd,len);
             free(cmd);
         }
 
-        if (test_is_selected("hset")) {
+        if (test_is_selected("hset") && types_is_selected("hash")) {
             set_random_fields_if_needed(100000);
             len = redisFormatCommand(&cmd,"HSET myhash:__rand_key__ field:__rand_field__ %s", data);
             benchmark("HSET",cmd,len);
@@ -1178,7 +1218,7 @@ static int test_redis(int argc, const char **argv)
             retrieval_random_fields_if_needed();
         }
 
-        if (test_is_selected("hincrby")) {
+        if (test_is_selected("hincrby") && types_is_selected("hash")) {
             set_random_fields_if_needed(1000);
             len = redisFormatCommand(&cmd,"HINCRBY myhashcounter:__rand_key__ field:__rand_field__ 19");
             benchmark("HINCRBY",cmd,len);
@@ -1186,7 +1226,7 @@ static int test_redis(int argc, const char **argv)
             retrieval_random_fields_if_needed();
         }
 
-        if (test_is_selected("hincrbyfloat")) {
+        if (test_is_selected("hincrbyfloat") && types_is_selected("hash")) {
             set_random_fields_if_needed(1000);
             len = redisFormatCommand(&cmd,"HINCRBYFLOAT myhashcounterf:__rand_key__ field:__rand_field__ 19.963");
             benchmark("HINCRBYFLOAT",cmd,len);
@@ -1194,7 +1234,7 @@ static int test_redis(int argc, const char **argv)
             retrieval_random_fields_if_needed();
         }
 
-        if (test_is_selected("hget")) {
+        if (test_is_selected("hget") && types_is_selected("hash")) {
             set_random_fields_if_needed(100000);
             len = redisFormatCommand(&cmd,"HGET myhash:__rand_key__ field:__rand_field__");
             benchmark("HGET",cmd,len);
@@ -1202,11 +1242,11 @@ static int test_redis(int argc, const char **argv)
             retrieval_random_fields_if_needed();
         }
 
-        if (test_is_selected("hmset")) {
+        if (test_is_selected("hmset") && types_is_selected("hash")) {
             const char *argv[21];
             set_random_fields_if_needed(100000);
             argv[0] = "HMSET";
-            argv[1] = "key:__rand_key__";
+            argv[1] = "myhash:__rand_key__";
             for (i = 2; i < 22; i += 2) {
                 argv[i] = "field:__rand_field__";
                 argv[i+1] = data;
@@ -1217,10 +1257,14 @@ static int test_redis(int argc, const char **argv)
             retrieval_random_fields_if_needed();
         }
 
-        if (test_is_selected("zadd")) {
+        if (test_is_selected("zadd") && types_is_selected("sortedset")) {
             set_random_fields_if_needed(100000);
             len = redisFormatCommand(&cmd,"ZADD mysortedset:__rand_key__ __rand_field__ %s:__rand_field__", data);
             benchmark("ZADD",cmd,len);
+            free(cmd);
+            retrieval_random_fields_if_needed();
+        }
+
             free(cmd);
             retrieval_random_fields_if_needed();
         }
