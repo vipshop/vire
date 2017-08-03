@@ -1246,13 +1246,21 @@ static int test_redis(int argc, const char **argv)
             const char *argv[21];
             set_random_fields_if_needed(100000);
             argv[0] = "HMSET";
-            argv[1] = "myhash:__rand_key__";
+            argv[1] = "myhashm:__rand_key__";
             for (i = 2; i < 22; i += 2) {
                 argv[i] = "field:__rand_field__";
                 argv[i+1] = data;
             }
             len = redisFormatCommandArgv(&cmd,22,argv,NULL);
             benchmark("HMSET (10 fields)",cmd,len);
+            free(cmd);
+            retrieval_random_fields_if_needed();
+        }
+
+        if (test_is_selected("hgetall") && types_is_selected("hash")) {
+            set_random_fields_if_needed(100000);
+            len = redisFormatCommand(&cmd,"HGETALL myhash:__rand_key__");
+            benchmark("HGETALL",cmd,len);
             free(cmd);
             retrieval_random_fields_if_needed();
         }
