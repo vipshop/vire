@@ -1157,7 +1157,7 @@ static int test_redis(int argc, const char **argv)
         if ((test_is_selected("lrange") ||
             test_is_selected("lrange_100") ||
             test_is_selected("lrange_300") ||
-            test_is_selected("lrange_500") ||
+            test_is_selected("lrange_450") ||
             test_is_selected("lrange_600")) &&
             types_is_selected("list"))
         {
@@ -1198,13 +1198,13 @@ static int test_redis(int argc, const char **argv)
         }
 
         if ((test_is_selected("lrange") ||
-            test_is_selected("lrange_500")) &&
+            test_is_selected("lrange_450")) &&
             types_is_selected("list")) {
             set_random_keys_temporarily(1000);
             if (config.requests > 100000)
                 set_requests_temporarily(100000);
             len = redisFormatCommand(&cmd,"LRANGE mylist:__rand_key__ 0 449");
-            benchmark("LRANGE_500 (first 450 elements)",cmd,len);
+            benchmark("LRANGE_450 (first 450 elements)",cmd,len);
             free(cmd);
             retrieval_requests_to_original();
             retrieval_random_keys_to_original();
