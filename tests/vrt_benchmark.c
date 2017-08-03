@@ -1022,6 +1022,41 @@ int types_is_selected(char *name) {
     return strstr(config.types,buf) != NULL;
 }
 
+static int requests_temporarily_stats = 0;
+static int requests_original = 0;
+void set_requests_temporarily(int num) {
+    if (requests_temporarily_stats != 0) return;
+    requests_original = config.requests;
+    config.requests = num;
+    requests_temporarily_stats = 1;
+}
+void retrieval_requests_to_original() {
+    if (requests_temporarily_stats != 1) return;
+    config.requests = requests_original;
+    requests_original = 0;
+    requests_temporarily_stats = 0;
+}
+
+static int random_keys_temporarily_stats = 0;
+static int randomkeys_original = 0;
+static int randomkeys_keyspacelen_original = 0;
+void set_random_keys_temporarily(int num) {
+    if (random_keys_temporarily_stats != 0) return;
+    randomkeys_original = config.randomkeys;
+    randomkeys_keyspacelen_original = config.randomkeys_keyspacelen;
+    config.randomkeys = 1;
+    config.randomkeys_keyspacelen = num;
+    random_keys_temporarily_stats = 1;
+}
+void retrieval_random_keys_to_original() {
+    if (random_keys_temporarily_stats != 1) return;
+    config.randomkeys = randomkeys_original;
+    config.randomkeys_keyspacelen = randomkeys_keyspacelen_original;
+    randomkeys_original = 0;
+    randomkeys_keyspacelen_original = 0;
+    random_keys_temporarily_stats = 0;
+}
+
 static int test_redis(int argc, const char **argv)
 {
     int i;
@@ -1096,25 +1131,25 @@ static int test_redis(int argc, const char **argv)
         }
 
         if (test_is_selected("lpush") && types_is_selected("list")) {
-            len = redisFormatCommand(&cmd,"LPUSH mylist %s",data);
+            len = redisFormatCommand(&cmd,"LPUSH mylist:__rand_key__ %s",data);
             benchmark("LPUSH",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("rpush") && types_is_selected("list")) {
-            len = redisFormatCommand(&cmd,"RPUSH mylist %s",data);
+            len = redisFormatCommand(&cmd,"RPUSH mylist:__rand_key__ %s",data);
             benchmark("RPUSH",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lpop") && types_is_selected("list")) {
-            len = redisFormatCommand(&cmd,"LPOP mylist");
+            len = redisFormatCommand(&cmd,"LPOP mylist:__rand_key__");
             benchmark("LPOP",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("rpop") && types_is_selected("list")) {
-            len = redisFormatCommand(&cmd,"RPOP mylist");
+            len = redisFormatCommand(&cmd,"RPOP mylist:__rand_key__");
             benchmark("RPOP",cmd,len);
             free(cmd);
         }
@@ -1126,41 +1161,66 @@ static int test_redis(int argc, const char **argv)
             test_is_selected("lrange_600")) &&
             types_is_selected("list"))
         {
-            len = redisFormatCommand(&cmd,"LPUSH mylist %s",data);
+            set_random_keys_temporarily(1000);
+            if (config.requests < 1000*1000)
+                set_requests_temporarily(1000*1000);
+            len = redisFormatCommand(&cmd,"LPUSH mylist:__rand_key__ %s",data);
             benchmark("LPUSH (needed to benchmark LRANGE)",cmd,len);
             free(cmd);
+            retrieval_requests_to_original();
+            retrieval_random_keys_to_original();
         }
 
         if ((test_is_selected("lrange") || 
             test_is_selected("lrange_100")) &&
             types_is_selected("list")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist 0 99");
+            set_random_keys_temporarily(1000);
+            if (config.requests > 320000)
+                set_requests_temporarily(320000);
+            len = redisFormatCommand(&cmd,"LRANGE mylist:__rand_key__ 0 99");
             benchmark("LRANGE_100 (first 100 elements)",cmd,len);
             free(cmd);
+            retrieval_requests_to_original();
+            retrieval_random_keys_to_original();
         }
 
         if ((test_is_selected("lrange") ||
             test_is_selected("lrange_300")) &&
             types_is_selected("list")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist 0 299");
+            set_random_keys_temporarily(1000);
+            if (config.requests > 160000)
+                set_requests_temporarily(160000);
+            len = redisFormatCommand(&cmd,"LRANGE mylist:__rand_key__ 0 299");
             benchmark("LRANGE_300 (first 300 elements)",cmd,len);
             free(cmd);
+            retrieval_requests_to_original();
+            retrieval_random_keys_to_original();
         }
 
         if ((test_is_selected("lrange") ||
             test_is_selected("lrange_500")) &&
             types_is_selected("list")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist 0 449");
+            set_random_keys_temporarily(1000);
+            if (config.requests > 100000)
+                set_requests_temporarily(100000);
+            len = redisFormatCommand(&cmd,"LRANGE mylist:__rand_key__ 0 449");
             benchmark("LRANGE_500 (first 450 elements)",cmd,len);
             free(cmd);
+            retrieval_requests_to_original();
+            retrieval_random_keys_to_original();
         }
 
         if ((test_is_selected("lrange") ||
             test_is_selected("lrange_600")) &&
             types_is_selected("list")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist 0 599");
+            set_random_keys_temporarily(1000);
+            if (config.requests > 100000)
+                set_requests_temporarily(100000);
+            len = redisFormatCommand(&cmd,"LRANGE mylist:__rand_key__ 0 599");
             benchmark("LRANGE_600 (first 600 elements)",cmd,len);
             free(cmd);
+            retrieval_requests_to_original();
+            retrieval_random_keys_to_original();
         }
 
         if (test_is_selected("sadd") && types_is_selected("set")) {
