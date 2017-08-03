@@ -922,19 +922,19 @@ usage:
 " -p <port>          Server port (default 6379)\n"
 " -s <socket>        Server socket (overrides host and port)\n"
 " -a <password>      Password for Redis Auth\n"
-" -c <clients>       Number of parallel connections (default 50)\n"
-" -n <requests>      Total number of requests (default 100000)\n"
-" -T <threads>       Threads count to run (default 1)\n"
-" -d <size>          Data size of SET/GET value in bytes (default 2)\n"
+" -c <clients>       Number of parallel connections (default 100)\n"
+" -n <requests>      Total number of requests (default 1000000)\n"
+" -T <threads>       Threads count to run (default 2)\n"
+" -d <size>          Data size of SET/GET/... value in bytes (default 16)\n"
 " -dbnum <db>        SELECT the specified db number (default 0)\n"
 " -k <boolean>       1=keep alive 0=reconnect (default 1)\n"
-" -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD\n"
+" -r <keyspacelen>   Use random keys for SET/GET/INCR/... (default 10000)\n"
 "  Using this option the benchmark will expand the string __rand_key__\n"
 "  inside an argument with a 12 digits number in the specified range\n"
 "  from 0 to keyspacelen-1. The substitution changes every time a command\n"
 "  is executed. Default tests use this to hit random keys in the\n"
 "  specified range.\n"
-" -f <fieldspacelen>   Use random fields for SADD\n"
+" -f <fieldspacelen>   Use random fields for SADD/HSET/... (default 100)\n"
 "  Using this option the benchmark will expand the string __rand_field__\n"
 "  inside an argument with a 14 digits number in the specified range\n"
 "  from 0 to fieldspacelen-1. The substitution changes every time a command\n"
@@ -1340,17 +1340,17 @@ int main(int argc, const char **argv) {
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
 
-    config.numclients = 50;
-    config.requests = 100000;
+    config.numclients = 100;
+    config.requests = 1000000;
     config.liveclients = 0;
     config.keepalive = 1;
-    config.datasize = 3;
+    config.datasize = 16;
     config.pipeline = 1;
     config.showerrors = 0;
-    config.randomkeys = 0;
-    config.randomkeys_keyspacelen = 0;
-    config.randomfields = 0;
-    config.randomfields_fieldspacelen = 0;
+    config.randomkeys = 1;
+    config.randomkeys_keyspacelen = 10000;
+    config.randomfields = 1;
+    config.randomfields_fieldspacelen = 100;
     config.quiet = 0;
     config.csv = 0;
     config.loop = 0;
@@ -1363,7 +1363,7 @@ int main(int argc, const char **argv) {
     config.types = NULL;
     config.dbnum = 0;
     config.auth = NULL;
-    config.threads_count = 1;
+    config.threads_count = 2;
     config.protocol = TEST_CMD_PROTOCOL_REDIS;
     config.noinline = 0;
 
