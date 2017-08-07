@@ -1291,6 +1291,12 @@ static int test_redis(int argc, const char **argv)
             free(cmd);
         }
 
+        if (test_is_selected("pfadd") && types_is_selected("hyperloglog")) {
+            len = redisFormatCommand(&cmd,"PFADD myhll:__rand_key__ %s:__rand_field__", data);
+            benchmark("PFADD",cmd,len);
+            free(cmd);
+        }
+
         if (!config.csv) printf("\n");
     } while(config.loop);
 
