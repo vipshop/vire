@@ -1303,6 +1303,16 @@ static int test_redis(int argc, const char **argv)
             free(cmd);
         }
 
+        if (test_is_selected("pfmerge") && types_is_selected("hyperloglog")) {
+            len = redisFormatCommand(&cmd,"PFADD myhll:__rand_key__ %s:__rand_field__", data);
+            benchmark("PFADD (needed to benchmark PFMERGE)",cmd,len);
+            free(cmd);
+            
+            len = redisFormatCommand(&cmd,"PFMERGE myhllm:__rand_key__ myhll:__rand_key__ myhll:__rand_key__");
+            benchmark("PFMERGE",cmd,len);
+            free(cmd);
+        }
+
         if (!config.csv) printf("\n");
     } while(config.loop);
 
