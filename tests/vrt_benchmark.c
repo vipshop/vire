@@ -1297,6 +1297,12 @@ static int test_redis(int argc, const char **argv)
             free(cmd);
         }
 
+        if (test_is_selected("pfcount") && types_is_selected("hyperloglog")) {
+            len = redisFormatCommand(&cmd,"PFCOUNT myhll:__rand_key__");
+            benchmark("PFCOUNT",cmd,len);
+            free(cmd);
+        }
+
         if (!config.csv) printf("\n");
     } while(config.loop);
 
