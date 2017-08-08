@@ -1155,6 +1155,7 @@ static int test_redis(int argc, const char **argv)
         }
 
         if ((test_is_selected("lrange") ||
+            test_is_selected("lrange_10") ||
             test_is_selected("lrange_100") ||
             test_is_selected("lrange_300") ||
             test_is_selected("lrange_450") ||
@@ -1166,6 +1167,19 @@ static int test_redis(int argc, const char **argv)
                 set_requests_temporarily(1000*1000);
             len = redisFormatCommand(&cmd,"LPUSH mylist:__rand_key__ %s",data);
             benchmark("LPUSH (needed to benchmark LRANGE)",cmd,len);
+            free(cmd);
+            retrieval_requests_to_original();
+            retrieval_random_keys_to_original();
+        }
+
+        if ((test_is_selected("lrange") || 
+            test_is_selected("lrange_10")) &&
+            types_is_selected("list")) {
+            set_random_keys_temporarily(1000);
+            if (config.requests > 500*1000)
+                set_requests_temporarily(500*1000);
+            len = redisFormatCommand(&cmd,"LRANGE mylist:__rand_key__ 0 9");
+            benchmark("LRANGE_10 (first 10 elements)",cmd,len);
             free(cmd);
             retrieval_requests_to_original();
             retrieval_random_keys_to_original();
