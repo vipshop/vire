@@ -1273,6 +1273,18 @@ static int test_redis(int argc, const char **argv)
             free(cmd);
         }
 
+        if (test_is_selected("hmget") && types_is_selected("hash")) {
+            const char *argv[21];
+            argv[0] = "HMGET";
+            argv[1] = "myhashm:__rand_key__";
+            for (i = 2; i < 12; i ++) {
+                argv[i] = "field:__rand_field__";
+            }
+            len = redisFormatCommandArgv(&cmd,12,argv,NULL);
+            benchmark("HMGET (10 fields)",cmd,len);
+            free(cmd);
+        }
+
         if (test_is_selected("hgetall") && types_is_selected("hash")) {
             len = redisFormatCommand(&cmd,"HGETALL myhash:__rand_key__");
             benchmark("HGETALL",cmd,len);
