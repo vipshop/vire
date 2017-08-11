@@ -1130,6 +1130,45 @@ static int test_redis(int argc, const char **argv)
             free(cmd);
         }
 
+        if ((test_is_selected("mget") ||
+            test_is_selected("mget_10")) &&
+            types_is_selected("string")) {
+            const char *argv[11];
+            argv[0] = "MGET";
+            for (i = 1; i < 11; i ++) {
+                argv[i] = "mystring:__rand_key__";
+            }
+            len = redisFormatCommandArgv(&cmd,11,argv,NULL);
+            benchmark("MGET (10 keys)",cmd,len);
+            free(cmd);
+        }
+
+        if ((test_is_selected("mget") ||
+            test_is_selected("mget_100"))
+            && types_is_selected("string")) {
+            const char *argv[101];
+            argv[0] = "MGET";
+            for (i = 1; i < 101; i ++) {
+                argv[i] = "mystring:__rand_key__";
+            }
+            len = redisFormatCommandArgv(&cmd,101,argv,NULL);
+            benchmark("MGET (100 keys)",cmd,len);
+            free(cmd);
+        }
+
+        if ((test_is_selected("mget") ||
+            test_is_selected("mget_200")) &&
+            types_is_selected("string")) {
+            const char *argv[201];
+            argv[0] = "MGET";
+            for (i = 1; i < 201; i ++) {
+                argv[i] = "mystring:__rand_key__";
+            }
+            len = redisFormatCommandArgv(&cmd,201,argv,NULL);
+            benchmark("MGET (200 keys)",cmd,len);
+            free(cmd);
+        }
+
         if (test_is_selected("lpush") && types_is_selected("list")) {
             len = redisFormatCommand(&cmd,"LPUSH mylist:__rand_key__ %s",data);
             benchmark("LPUSH",cmd,len);
